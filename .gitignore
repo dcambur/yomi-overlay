@@ -1,0 +1,29 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+
+# Built artifacts — rebuilt by setup.sh
+kindleocr
+overlay/index.db
+overlay/dictionaries.json
+overlay/node_modules/
+overlay/.venv/
+test/node_modules/
+
+# Dictionary data. Licensed content, none of it ours to redistribute.
+# overlay/fetch-dicts.py downloads the freely licensed set; commercial
+# monolinguals are the user's own to supply.
+overlay/dicts/*
+!overlay/dicts/.gitkeep
+
+# Per-machine state: target window, dictionary order, trigger settings.
+# Created on first launch; overlay/config.js holds the defaults.
+overlay/config.json
+
+# Ground-truth corpora. ~200 MB of rendered pages, regenerable from the
+# generators below, and the epub/kakuyomu sets are copyrighted source text.
+test/gt/*
+!test/gt/README.md
+!test/gt/gen_aozora.py
+!test/gt/gen_epub.py

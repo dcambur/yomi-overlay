@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html,body { margin:0; background:#fff; overflow:hidden; }
+  .t { position:absolute; font-family:"Hiragino Kaku Gothic ProN"; color:#111;
+       white-space:nowrap; }
+</style></head>
+<body>
+  <!-- Known-position probes: header band, mid band (carousel analog), low band -->
+  <div class="t" id="w0" style="left:40px;  top:20px;  font-size:28px">日本語能力試験</div>
+  <div class="t" id="w1" style="left:520px; top:24px;  font-size:22px">書ける読める</div>
+  <div class="t" id="w2" style="left:60px;  top:280px; font-size:26px">貴族の出身です</div>
+  <div class="t" id="w3" style="left:560px; top:300px; font-size:20px">毎日更新される</div>
+  <div class="t" id="w4" style="left:80px;  top:560px; font-size:24px">物語を伝えられる</div>
+  <div class="t" id="w5" style="left:600px; top:570px; font-size:18px">信じられている</div>
+<script>
+  const { ipcRenderer } = require('electron');
+  // Scroll simulation: shift every probe up by N px (content moves, window
+  // stays), exactly what scrolling a page does to glyph positions.
+  ipcRenderer.on('scroll', (_e, dy) => {
+    for (const el of document.querySelectorAll('.t')) {
+      const base = parseInt(el.dataset.base ?? (el.dataset.base = el.style.top), 10);
+      el.style.top = (base - dy) + 'px';
+    }
+    document.title = 'scrolled:' + dy;
+  });
+</script>
+</body></html>

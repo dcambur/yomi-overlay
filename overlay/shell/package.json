@@ -1,0 +1,9 @@
+{
+  "name": "yomi-overlay",
+  "productName": "Yomi Overlay",
+  "version": "1.0.0",
+  "description": "Loader shell for Yomi Overlay — see bootstrap.js",
+  "main": "bootstrap.js",
+  "license": "ISC",
+  "type": "commonjs"
+}
