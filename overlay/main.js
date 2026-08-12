@@ -76,6 +76,9 @@ let hasAccessibility = true;
 // Last target-frame origin sent to the renderer, so it is only resent when it
 // actually changes rather than on every capture.
 let lastOffset = { fx: NaN, fy: NaN };
+// Same, for the regions other windows are drawn over the target — compared as
+// a signature because the value is a list.
+let lastCovers = '';
 
 // kindleocr is found beside the project directory paths.js resolves, so an
 // unbuilt helper (or a bad YOMI_OVERLAY_DIR) means spawn() fails with ENOENT.
@@ -116,8 +119,13 @@ function stopChild(p, then) {
 
 // The panel joins every Space (that is what lets it float over Kindle's
 // fullscreen Space), so it would otherwise follow you onto desktops with no
-// Kindle on them. Captures only succeed while Kindle's Space is active, so a
-// gap in payloads is a reliable "Kindle is not on screen" signal.
+// Kindle on them — which is exactly what it did, for eight seconds at a time,
+// while this timeout was the ONLY thing that hid it.
+//
+// It is no longer that. "The target is not visible" now arrives as a
+// measurement — the watcher's `idle` marker, emitted between passes — and is
+// acted on immediately below. What is left here is the backstop for SILENCE:
+// a watcher that stopped producing anything at all.
 //
 // 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
 // payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
@@ -126,14 +134,20 @@ function stopChild(p, then) {
 // most of them mid-session flapping.
 const IDLE_HIDE_MS = 8000;
 
+function hideOverlay(why) {
+  if (!win || win.isDestroyed() || !win.isVisible()) return;
+  win.hide();
+  // Hiding the panel takes the popup off screen but not out of the renderer's
+  // state: it stays pinned, and the next time the target reappears it is back
+  // — anchored to a word that may since have scrolled away.
+  win.webContents.send('dismiss');
+  console.log('[win] hidden — ' + why);
+}
+
 function noteActivity(win) {
   if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => {
-    if (win && win.isVisible()) {
-      win.hide();
-      console.log('[win] hidden — no Kindle capture for ' + IDLE_HIDE_MS + 'ms');
-    }
-  }, IDLE_HIDE_MS);
+  idleTimer = setTimeout(() => hideOverlay(`no Kindle capture for ${IDLE_HIDE_MS}ms`),
+                         IDLE_HIDE_MS);
 }
 
 // The panel covers a whole display and never tracks the target window.
@@ -251,10 +265,14 @@ function startOCR() {
       let payload;
       try { payload = JSON.parse(line); } catch { continue; }
       if (payload.crop) { onCropReply(payload.crop); continue; }
-      // Idle marker: the target has no on-screen window right now. Not a
-      // payload — the idle timer must keep hiding the overlay — but it is
-      // proof the watch loop is alive, which is what the watchdog needs.
-      if (payload.idle) continue;
+      // Idle marker: the target has no window the watcher can see — you swiped
+      // to another Space, or another window came up over the reader. Hide NOW.
+      // This is not the silence IDLE_HIDE_MS is about: it is a measurement,
+      // taken between passes (~150ms), that the overlay is currently painted
+      // over something that is not the target. Waiting it out is what left the
+      // glyph layer and an open popup sitting on the app you switched to.
+      // Still proof the watch loop is alive, which is what the watchdog needs.
+      if (payload.idle) { hideOverlay('target has no visible window'); continue; }
       if (!payload.frame) continue;
       ocrBackoff = 1000;      // a good payload means the process is healthy
 
@@ -287,6 +305,20 @@ function startOCR() {
           const pb = win.getBounds();
           console.log(`[win] target frame ${f.x},${f.y} ${f.width}x${f.height} ` +
                       `| panel bounds ${pb.x},${pb.y} ${pb.width}x${pb.height}`);
+        }
+
+        // Which parts of the target another window is drawn over, in the same
+        // frame-local points as the glyph boxes. Shipped on every pass,
+        // heartbeats included: capture excludes other windows, so a window can
+        // be dragged over the reader without one pixel of the payload changing
+        // — and the renderer must stop hit-testing the glyphs underneath it
+        // the moment that happens.
+        const covers = Array.isArray(payload.covers) ? payload.covers : [];
+        const csig = JSON.stringify(covers);
+        if (csig !== lastCovers) {
+          lastCovers = csig;
+          win.webContents.send('covers', covers);
+          console.log(`[win] covered by ${covers.length} window(s)`);
         }
 
         // A heartbeat means the page is unchanged: keep the window alive,
@@ -740,6 +772,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   // nothing. Forcing a resend also stops the dedupe above from suppressing a
   // frame that happens to equal the stale one.
   lastOffset = { fx: NaN, fy: NaN };
+  lastCovers = '';
   const p = ocr; ocr = null;
   ocrBackoff = 1000;
   stopChild(p, startOCR);

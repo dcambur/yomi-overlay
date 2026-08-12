@@ -71,7 +71,55 @@ other-Space windows off-desktop, clamped to leave a sliver that still
 "intersects"), and picks the frontmost. If nothing qualifies it reports
 **nothing** rather than adopting a window the user cannot see.
 
-### 3. The panel never chases the target window
+"Visible" includes **not buried**. Capture excludes every other window (§1), so
+a target with another app parked on top of it still yields pristine pixels: on
+screen, on the active Space, fully hidden from the user. The overlay kept
+painting its glyph layer and popups over whatever the user switched to. So the
+same 50% test also subtracts the ordinary windows the server is compositing in
+*front* of the candidate — sampled on a 20×20 grid, because overlapping
+occluders double-count in an area sum. Measured against a rig (window A
+800×600, window B raised over it): fully covered ⟹ no window reported;
+B over A's right half ⟹ A still tracked, `covers` `[{400,0,400×600}]`; B in a
+corner ⟹ `[{580,180,220×300}]`; B moved away ⟹ `[]`.
+
+Only **layer 0** counts as an occluder. The menu bar, the Dock, notification
+banners and the overlay's own panel (screen-saver level) sit above every
+ordinary window and would report every target as buried. Transparent windows
+hide nothing, so alpha ≤ 0.05 is skipped too (measured: a 1440×32 alpha-0
+strip above a Claude window).
+
+Partial cover is not a reason to hide — half a page is still readable — so the
+regions ride along in every payload and heartbeat as `covers`, frame-local, and
+the renderer refuses lookups inside them. A glyph that is behind another window
+is not text the user can point at.
+
+### 3. "Not visible" is measured between passes, not inferred from a gap
+
+The panel joins every Space — the only way an overlay can float over a reader in
+native fullscreen — so from the moment you swipe to another desktop it is drawn
+over whatever is there: glyph layer, open popup and all. It leaves only when
+this pipeline says the target is gone.
+
+That used to be *inferred* — "captures only succeed while the reader's Space is
+active, so a gap in payloads means it is not on screen" — with an 8s timeout on
+the gap. Eight seconds of the overlay sitting on top of the music player you
+swiped to, popup included.
+
+So it is measured instead, and the check is deliberately the cheap one:
+`stillVisible(id)` re-runs the §2 test from `CGWindowList` alone — no
+`SCShareableContent`, no capture, 0.5ms measured — so the watcher can ask
+it every 150ms *while it waits out the interval*, not just at the top of the
+next pass. Leaving the active Space and being covered are the same question:
+the window server stops listing a window on another Space at all.
+
+A failed check emits the `idle` marker, and `main.js` hides on the marker
+immediately (**not** after `IDLE_HIDE_MS`, which is now only the backstop for a
+watcher that has gone silent altogether) and tells the renderer to drop the
+popup with it. Measured: 0.15s from the target disappearing to the marker,
+against 0.7s for the next heartbeat and 1.3s for the next OCR pass — and
+against never, when the window was merely covered.
+
+### 4. The panel never chases the target window
 
 It is pinned once to the display and never moved. The renderer places the glyph
 layer at `target frame − its own window.screenX/screenY`.
@@ -81,7 +129,7 @@ asynchronously, panels get clamped into the work area, and `getBounds()` can
 report a position the server never honoured (observed: asked y=122, placed y=60).
 Any offset derived from what was *asked for* drifts by exactly the discrepancy.
 
-### 4. The glyph layer rebuilds only on real change — measured against the DOM
+### 5. The glyph layer rebuilds only on real change — measured against the DOM
 
 Vision is nondeterministic: the same static page recognises as 80 lines one pass
 and 77 the next. Rebuilding per capture yanks spans out from under the cursor.
@@ -100,7 +148,7 @@ similar to the stale layer forever and lookups on the new text hit nothing
 static page periodically matches the DOM exactly, resetting the streak; three
 misses in a row is real change and forces the rebuild.
 
-### 5. The app bundle contains only a loader
+### 6. The app bundle contains only a loader
 
 macOS keys Screen Recording and Accessibility to the app's designated
 requirement. The bundle holds only `shell/bootstrap.js`, which loads `main.js`
@@ -112,7 +160,7 @@ a real repackage keeps the grants.
 **Deployment is: quit the app, relaunch.** Nothing else. This includes a rebuilt
 `kindleocr` and a rebuilt `index.db`.
 
-### 6. Two permissions, different failure modes
+### 7. Two permissions, different failure modes
 
 | Permission | Needed for | Without it |
 |---|---|---|
@@ -123,7 +171,7 @@ The Accessibility degradation is invisible — the monitor runs, the log is clea
 Shift just does nothing when held still. `systemPreferences.isTrustedAccessibilityClient(false)`
 detects it and the tray says so.
 
-### 7. Structure is extracted at index time, not at render time
+### 8. Structure is extracted at index time, not at render time
 
 Yomitan dictionaries ship recursive `structuredContent` trees. `build-index.py`
 parses each dictionary's actual markup (JMdict sense nodes, 三省堂 語義/語釈,
@@ -141,19 +189,21 @@ indent for monolingual, labelled 音/訓 rows for kanji.
    target, captures, hashes the frame, and skips OCR when nothing moved
    (emitting an `unchanged` heartbeat so "static page" ≠ "window gone").
    When no window qualifies it emits an `idle` marker instead of going silent
-   — the overlay still hides (no frame), but main.js can tell "target off
-   screen" from "watcher wedged" and its 2-minute watchdog only restarts the
-   latter. Discovery (`SCShareableContent`) is raced against the same 12s
+   — main.js hides on it at once, and can tell "target off screen" from
+   "watcher wedged" so its 2-minute watchdog only restarts the latter. The same
+   marker is emitted mid-interval by the between-pass visibility check (§3). Discovery (`SCShareableContent`) is raced against the same 12s
    deadline as capture; a stalled call once produced 40 minutes of
    indistinguishable silence (measured 2026-08-09).
-2. Emits `{frame, window, lines:[{text, chars:[{c,x,y,w,h}]}]}` — `frame` is the
-   coordinate origin (true origin + measured size); `window` is the window's own
-   self-report, diagnostics only.
-3. `main.js` keeps the panel on the right display, ships the frame origin on
-   every pass (heartbeats included — the window can move while text does not),
-   and forwards changed payloads.
+2. Emits `{frame, covers, window, lines:[{text, chars:[{c,x,y,w,h}]}]}` —
+   `frame` is the coordinate origin (true origin + measured size); `covers` are
+   the frame-local regions another window is drawn over (§2); `window` is the
+   window's own self-report, diagnostics only.
+3. `main.js` keeps the panel on the right display, ships the frame origin and
+   the cover regions on every pass (heartbeats included — both change while the
+   text does not), and forwards changed payloads.
 4. The renderer positions the layer, rebuilds spans if the page really changed,
-   and hit-tests `elementFromPoint` on Shift-hover.
+   and hit-tests `elementFromPoint` on Shift-hover — refusing points inside a
+   cover region, and dropping a popup whose word has just been buried.
 5. `lookup.js` deinflects and looks up EVERY prefix (12→1 glyphs) against
    `index.db`, Yomitan-style: each hit becomes a headword group, ordered by
    source length desc → fewest deinflection steps → frequency → term score
@@ -161,7 +211,7 @@ indent for monolingual, labelled 音/訓 rows for kanji.
    it). The longest match drives the highlight; `popup.js` renders all
    groups, scrolling instead of truncating.
 
-### 8. Tategaki is re-flowed, never rotated
+### 9. Tategaki is re-flowed, never rotated
 
 Vision cannot read vertical Japanese at all (measured: 189 chars on a real
 vertical page, 0 recognised), and rotating the page does NOT fix it — the

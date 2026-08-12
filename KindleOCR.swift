@@ -207,6 +207,13 @@ func streamEvents(modifier: String) {
         emit("click")
     }
 
+    // No Space-change notification here, though this is where one belongs:
+    // NSWorkspace.activeSpaceDidChangeNotification never arrives in a process
+    // with no windows of its own (measured — didActivateApplication arrives on
+    // the same observer, through the same parking, several times a minute;
+    // activeSpaceDidChange did not fire on a real swipe). The watch loop
+    // notices instead, between captures — see stillVisible().
+
     FileHandle.standardError.write(
         "event monitor started (needs Accessibility permission)\n".data(using: .utf8)!)
 }
@@ -444,7 +451,7 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
 /// exactly that.
 func chooseWindow() async throws -> SCWindow? {
     let windows = try await targetWindows()
-    guard !windows.isEmpty else { return nil }
+    guard !windows.isEmpty else { lastOccluders = []; return nil }
 
     // The window server's on-screen list: windows it is compositing on the
     // ACTIVE Space right now, front to back. This is the authority, and
@@ -459,12 +466,13 @@ func chooseWindow() async throws -> SCWindow? {
     // whatever the user is actually looking at is by definition what the
     // window server is compositing, and anything else is not capturable
     // anyway (no pixels on an inactive Space).
-    let ordered = (CGWindowListCopyWindowInfo(
+    let infos = CGWindowListCopyWindowInfo(
         [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-        as? [[String: Any]] ?? [])
-        .compactMap { $0[kCGWindowNumber as String] as? Int }
+        as? [[String: Any]] ?? []
     var rank: [CGWindowID: Int] = [:]
-    for (i, id) in ordered.enumerated() { rank[CGWindowID(id)] = i }
+    for (i, info) in infos.enumerated() {
+        if let id = info[kCGWindowNumber as String] as? Int { rank[CGWindowID(id)] = i }
+    }
 
     // Second guard, for the parked-window case: the window server moves a
     // window belonging to another Space outside the desktop (x of -1459 and
@@ -472,21 +480,134 @@ func chooseWindow() async throws -> SCWindow? {
     // window is typically clamped to leave a sliver on screen, and a sliver
     // still "intersects". Require most of the window to be visible: nobody
     // reads a window that is 97% off the display.
-    let displays = NSScreen.screens.map(\.frame)
-    func visibleFraction(_ w: SCWindow) -> CGFloat {
-        let area = w.frame.width * w.frame.height
-        guard area > 0, !displays.isEmpty else { return 1 }
-        let shown = displays.reduce(CGFloat(0)) { acc, d in
-            let i = d.intersection(w.frame)
-            return acc + (i.isNull ? 0 : i.width * i.height)
-        }
-        return shown / area
+    //
+    // "Visible" also means "not buried". Capture excludes every other window,
+    // so a target with a chat app parked on top of it still yields pristine
+    // pixels — on-screen, on the active Space, ≥50% within the display, and
+    // completely hidden from the user. The overlay kept painting glyphs and
+    // popups on top of whatever the user switched to (measured: a popup for
+    // ほど still sitting over a Telegram window that fully covered the reader).
+    // Ask the window server what it is actually drawing in front instead.
+    let live = windows.filter {
+        rank[$0.windowID] != nil
+            && visibleFraction(of: $0.windowID, frame: $0.frame, in: infos, rank: rank) >= 0.5
     }
-
-    let live = windows.filter { rank[$0.windowID] != nil && visibleFraction($0) >= 0.5 }
-    guard !live.isEmpty else { return nil }
-    return live.min { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max }
+    guard let chosen = live.min(by: { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max })
+    else { lastOccluders = []; return nil }
+    // Partial cover is the common case — a chat window over half the reader.
+    // The consumer needs the regions themselves, not just the verdict, so it
+    // can refuse lookups on glyphs that are behind another window.
+    lastOccluders = occluders(of: chosen.windowID, frame: chosen.frame,
+                              in: infos, rank: rank)
+    return chosen
 }
+
+/// How much of a window the user can actually see: inside a display, and not
+/// painted over by a window in front of it.
+///
+/// Sampled on a grid rather than by rect subtraction — overlapping occluders
+/// double-count in an area sum, and 400 point tests are exact enough for a
+/// threshold at a cost that does not matter.
+func visibleFraction(of id: CGWindowID, frame f: CGRect,
+                     in infos: [[String: Any]], rank: [CGWindowID: Int]) -> CGFloat {
+    let displays = displayFrames()
+    guard f.width > 0, f.height > 0, !displays.isEmpty else { return 1 }
+    let covered = occluders(of: id, frame: f, in: infos, rank: rank)
+    let steps = 20
+    var shown = 0
+    for i in 0..<steps {
+        let x = f.minX + (CGFloat(i) + 0.5) * f.width / CGFloat(steps)
+        for j in 0..<steps {
+            let p = CGPoint(x: x, y: f.minY + (CGFloat(j) + 0.5) * f.height / CGFloat(steps))
+            guard displays.contains(where: { $0.contains(p) }) else { continue }
+            if covered.contains(where: { $0.contains(p) }) { continue }
+            shown += 1
+        }
+    }
+    return CGFloat(shown) / CGFloat(steps * steps)
+}
+
+/// The active displays, in the same top-left-origin space as window frames.
+///
+/// CoreGraphics, not NSScreen: this runs off the main thread every 150ms (see
+/// stillVisible) where AppKit is not safe, and NSScreen.frame is
+/// bottom-left-origin — intersecting it with a window rect agrees only by
+/// accident, on one display whose origin is 0,0.
+func displayFrames() -> [CGRect] {
+    var count: UInt32 = 0
+    guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+    var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+    guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+    return ids.prefix(Int(count)).map { CGDisplayBounds($0) }
+}
+
+/// Regions of the window `id` that the window server is drawing another window
+/// over, in screen points.
+///
+/// Only layer 0 counts. The menu bar, the Dock, notification banners and the
+/// overlay's own panel (screen-saver level) all sit above every ordinary
+/// window, so counting them would report every target as fully buried. A fully
+/// transparent window hides nothing either.
+///
+/// Deliberately app-agnostic, like the selection above it: whatever the window
+/// server composites in front of the reader is what the user is looking at.
+func occluders(of id: CGWindowID, frame: CGRect,
+               in infos: [[String: Any]], rank: [CGWindowID: Int]) -> [CGRect] {
+    guard let mine = rank[id] else { return [] }
+    var out: [CGRect] = []
+    // The list is front to back, so everything ahead of the target is on top.
+    for info in infos.prefix(mine) {
+        guard (info[kCGWindowLayer as String] as? Int) == 0,
+              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.05,
+              let r = windowRect(info) else { continue }
+        let hit = r.intersection(frame)
+        if !hit.isNull, hit.width > 1, hit.height > 1 { out.append(hit) }
+    }
+    return out
+}
+
+/// Is the window the last pass captured still the one the user is looking at?
+///
+/// CGWindowList only — no SCShareableContent, no capture — so it costs 0.5ms
+/// (measured over 500 runs) and can be asked BETWEEN passes. That matters because the
+/// overlay panel lives on every Space (the only way it can float over a reader
+/// in native fullscreen): the moment you swipe to another desktop it is drawn
+/// over whatever is there, and it stays until this process says otherwise.
+/// Waiting for the next capture meant riding along for a whole pass —
+/// measured 0.7s, and up to 1.3s when the pass includes an OCR read.
+func stillVisible(_ id: CGWindowID) -> Bool {
+    let infos = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+        as? [[String: Any]] ?? []
+    var rank: [CGWindowID: Int] = [:]
+    for (i, info) in infos.enumerated() {
+        if let n = info[kCGWindowNumber as String] as? Int { rank[CGWindowID(n)] = i }
+    }
+    // Off the active Space entirely: the window server stops listing it.
+    guard let info = infos.first(where: {
+        ($0[kCGWindowNumber as String] as? Int).map(CGWindowID.init) == id
+    }), let frame = windowRect(info) else { return false }
+    return visibleFraction(of: id, frame: frame, in: infos, rank: rank) >= 0.5
+}
+
+/// Bounds of a CGWindowList entry, in the same top-left-origin point space as
+/// `SCWindow.frame`. Bounds bridge as NSNumber, not CGFloat — casting the
+/// dictionary to [String: CGFloat] silently yields nil and drops every window.
+func windowRect(_ info: [String: Any]) -> CGRect? {
+    guard let b = info[kCGWindowBounds as String] as? [String: Any],
+          let x = (b["X"] as? NSNumber)?.doubleValue,
+          let y = (b["Y"] as? NSNumber)?.doubleValue,
+          let w = (b["Width"] as? NSNumber)?.doubleValue,
+          let h = (b["Height"] as? NSNumber)?.doubleValue,
+          w > 0, h > 0 else { return nil }
+    return CGRect(x: x, y: y, width: w, height: h)
+}
+
+/// What `chooseWindow()` last measured as drawn over the window it returned.
+/// Read by the payload emitter; every payload and heartbeat carries it, since
+/// a window can be covered and uncovered without a single pixel of the target
+/// changing.
+var lastOccluders: [CGRect] = []
 
 enum CaptureError: Error, CustomStringConvertible {
     case timedOut(Double)
@@ -2068,6 +2189,60 @@ func voteLines(_ passes: [[Line]]) -> [Line] {
     }
 }
 
+/// The parts of `f` another window is currently drawn over, expressed in the
+/// same frame-local points as the glyph boxes.
+///
+/// Shipped with every payload AND every heartbeat: a window can be covered or
+/// uncovered without one pixel of the target changing, and the consumer must
+/// stop hit-testing glyphs the user cannot see the moment that happens.
+func coversJSON(frame f: CGRect) -> String {
+    let items = lastOccluders.compactMap { r -> String? in
+        let hit = r.intersection(f)
+        guard !hit.isNull, hit.width > 1, hit.height > 1 else { return nil }
+        let pos = "\"x\":\(Int((hit.minX - f.minX).rounded(.down))),"
+            + "\"y\":\(Int((hit.minY - f.minY).rounded(.down)))"
+        let size = "\"w\":\(Int(hit.width.rounded(.up))),\"h\":\(Int(hit.height.rounded(.up)))"
+        return "{" + pos + "," + size + "}"
+    }
+    return "[\(items.joined(separator: ","))]"
+}
+
+/// "The target has no window I can see." Not silence: the consumer needs to
+/// tell this apart from a wedged watcher, and it is what tells the overlay to
+/// get off the screen.
+func emitIdle(json: Bool) {
+    guard json else { return }
+    print("{\"idle\":true}")
+    fflush(stdout)
+}
+
+/// The gap between passes, spent watching the window we just captured instead
+/// of sleeping through it.
+///
+/// The overlay panel is on every Space, so from the moment you swipe to
+/// another desktop it is drawn over whatever is there — glyph layer, popup and
+/// all — until this process says the target is gone. Saying it only at the top
+/// of the next pass meant riding along for one full period: measured 0.7s
+/// between heartbeats, 1.3s when the pass includes an OCR read. The check is
+/// CGWindowList only (~1ms), so it can run every 150ms for free.
+func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) async {
+    var left = interval
+    repeat {
+        let step = min(0.15, left)
+        try? await Task.sleep(nanoseconds: UInt64(step * 1_000_000_000))
+        left -= step
+        if let id, !stillVisible(id) { emitIdle(json: json); return }
+    } while left > 0
+}
+
+/// The every-pass "still here, nothing new" line. Carries the frame origin and
+/// the cover regions, because both move while the recognised text does not.
+func heartbeatJSON(frame f: CGRect) -> String {
+    let frameJson = "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
+        + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))}"
+    return "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),\"unchanged\":true}"
+}
+
 /// The watch payload. `vote` counts the passes behind this text (1 = single
 /// read); the renderer uses it to update voted corrections in place. `f` per
 /// char is the voting confidence, present only after a vote.
@@ -2095,7 +2270,8 @@ func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
         + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))}"
     let windowJson = "{\"x\":\(Int(w.origin.x)),\"y\":\(Int(w.origin.y)),"
         + "\"width\":\(Int(w.width)),\"height\":\(Int(w.height))}"
-    let head = "{\"frame\":\(frameJson),\"window\":\(windowJson),"
+    let head = "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
+        + "\"window\":\(windowJson),"
     let meta = "\"vertical\":\(vertical),\"engine\":\"\(lastLoggedEngine)\",\"vote\":\(vote),"
     return head + meta + "\"lines\":[\(parts.joined(separator: ","))]}"
 }
@@ -2351,6 +2527,10 @@ struct Main {
 
             var lastText = ""
             var failures = 0
+            // The window the last pass captured, re-checked between passes so
+            // a swipe to another Space is noticed in ~150ms instead of at the
+            // top of the next pass.
+            var lastWindowID: CGWindowID? = nil
             var lastHash: UInt64 = 0
             var lastFrame = CGRect.zero
             // Temporal-voting state for the current stable page (Phase 2).
@@ -2377,10 +2557,8 @@ struct Main {
                         // wedged watcher", which used to look identical
                         // (measured: 40 min of silence, 2026-08-09 20:14).
                         if opts.watch {
-                            if opts.json {
-                                print("{\"idle\":true}")
-                                fflush(stdout)
-                            }
+                            lastWindowID = nil
+                            emitIdle(json: opts.json)
                             try await Task.sleep(
                                 nanoseconds: UInt64(opts.interval * 1_000_000_000))
                             continue
@@ -2389,6 +2567,7 @@ struct Main {
                             "target window is not on screen\n".data(using: .utf8)!)
                         exit(1)
                     }
+                    lastWindowID = current.windowID
                     let shot = try await capture(window: current)
                     if let dp = opts.dumpPath {
                         dumpImage(shot.image, to: dp)
@@ -2439,8 +2618,8 @@ struct Main {
                                         "voted pass \(voteBuf.count)/\(opts.votes)\n"
                                             .data(using: .utf8)!)
                                     if opts.watch {
-                                        try await Task.sleep(nanoseconds:
-                                            UInt64(opts.interval * 1_000_000_000))
+                                        await waitNextPass(opts.interval,
+                                            watching: lastWindowID, json: opts.json)
                                     }
                                     continue
                                 }
@@ -2453,15 +2632,13 @@ struct Main {
                         // unchanged page looks identical to a vanished window,
                         // and the overlay hides itself while you are reading.
                         if opts.json {
-                            let f = CGRect(origin: shot.origin, size: shot.size)
-                            print("{\"frame\":{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
-                                + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))},"
-                                + "\"unchanged\":true}")
+                            print(heartbeatJSON(frame: CGRect(origin: shot.origin,
+                                                              size: shot.size)))
                             fflush(stdout)
                         }
                         if opts.watch {
-                            try await Task.sleep(
-                                nanoseconds: UInt64(opts.interval * 1_000_000_000))
+                            await waitNextPass(opts.interval,
+                                               watching: lastWindowID, json: opts.json)
                         }
                         continue
                     }
@@ -2511,14 +2688,12 @@ struct Main {
                             // without one the consumer cannot tell this apart
                             // from a vanished window and hides the overlay
                             // mid-read.
-                            print("{\"frame\":{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
-                                + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))},"
-                                + "\"unchanged\":true}")
+                            print(heartbeatJSON(frame: f))
                             fflush(stdout)
                         }
                         if opts.watch {
-                            try await Task.sleep(
-                                nanoseconds: UInt64(opts.interval * 1_000_000_000))
+                            await waitNextPass(opts.interval,
+                                               watching: lastWindowID, json: opts.json)
                         }
                         continue
                     }
@@ -2568,7 +2743,8 @@ struct Main {
                 }
 
                 if opts.watch {
-                    try await Task.sleep(nanoseconds: UInt64(opts.interval * 1_000_000_000))
+                    await waitNextPass(opts.interval,
+                                       watching: lastWindowID, json: opts.json)
                 }
             } while opts.watch
 

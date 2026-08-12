@@ -268,6 +268,7 @@ window.overlay.onReset(() => {
   spanIndex.clear();
   layer.innerHTML = '';
   targetOrigin = null;          // the old placement described the old target
+  covers = [];                  // and so did the old cover rects
   layer.style.transform = '';
   hud.style.transform = '';
 });
@@ -321,6 +322,40 @@ window.overlay.onOffset(o => { targetOrigin = o; applyPlacement(); });
 // Self-heal: if macOS moves the panel under us between payloads, screenX/Y
 // changes with no event we receive — recheck on a slow tick.
 setInterval(applyPlacement, 1000);
+
+// --- what is on top of the target -------------------------------------------
+// Capture excludes every other window, so the payload looks identical whether
+// the reader is in front or buried under the app the user just switched to.
+// The glyph layer therefore stays alive over the new window, and a lookup
+// there pops a dictionary entry for text nobody can see (measured: a popup for
+// ほど over a Telegram window that fully covered the reader). The window server
+// says what it is drawing in front; these are its rects, frame-local.
+let covers = [];
+
+/** A client point in the frame-local space the glyphs and covers use. */
+function toFrame(x, y) {
+  if (!targetOrigin) return null;
+  return { x: x - (targetOrigin.fx - window.screenX),
+           y: y - (targetOrigin.fy - window.screenY) };
+}
+
+function isCovered(p) {
+  return !!p && covers.some(c => p.x >= c.x && p.x <= c.x + c.w &&
+                                 p.y >= c.y && p.y <= c.y + c.h);
+}
+
+window.overlay.onCovers(list => {
+  covers = Array.isArray(list) ? list : [];
+  // A popup pinned to a word that has just been buried belongs to the window
+  // underneath, not to the one now in front of it.
+  if (!covers.length || !popupView.visible() || !current || !current.length) return;
+  const r = current[0].getBoundingClientRect();
+  if (isCovered(toFrame(r.left + r.width / 2, r.top + r.height / 2))) dismiss();
+});
+
+// The overlay is leaving the screen (target gone, or idle): the popup goes
+// with it, so it cannot reappear pinned to a word that has since scrolled off.
+window.overlay.onDismiss(() => dismiss());
 
 let pageVertical = false;   // tategaki page: popup goes left of the column
 let lastTier2Surface = '';  // last word sent to the tier-2 shadow probe
@@ -609,6 +644,10 @@ function pickGlyph(px, py) {
 }
 
 async function doLookup(px, py) {
+  // Another window is drawn over this part of the target: the spans are still
+  // there (the capture never saw the covering window), but the text is not on
+  // screen and the pixels under the cursor belong to somebody else.
+  if (isCovered(toFrame(px, py))) return;
   // A payload parked while the popup was pinned means the layer is KNOWN
   // stale — hit-testing it looks up whatever glyph used to sit under the
   // cursor (measured: zoom in Kindle while a popup was open, then a lookup

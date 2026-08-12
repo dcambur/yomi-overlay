@@ -127,7 +127,7 @@ defaults. Settings covers the common keys; the rest are edit-and-restart.
 bundle contains only a loader that reads `main.js`, `index.html` and `lookup.js`
 from this directory and spawns `kindleocr` from it. That is also what makes the
 macOS permission grants survive every code change (see
-[ARCHITECTURE.md](ARCHITECTURE.md) §5). Rebuilding `kindleocr` or `index.db`
+[ARCHITECTURE.md](ARCHITECTURE.md) §6). Rebuilding `kindleocr` or `index.db`
 likewise needs only a restart.
 
 ## Troubleshooting
@@ -141,7 +141,7 @@ on screen — macOS does not composite an inactive Space, so there are no pixels
 **Geometry looks wrong** (spans offset from the glyphs). Do not theorise. In
 order: `./kindleocr --dump /tmp/x.png` and *look* at the image; compare the
 `[win] target frame` line in the log against `./kindleocr --list-all`; check
-whether the target window is on the active Space. ARCHITECTURE.md §1–3 explains
+whether the target window is on the active Space. ARCHITECTURE.md §1–4 explains
 each.
 
 **`kindleocr not found`.** Build it (above). If the path in the dialog is not

@@ -80,7 +80,7 @@ racing something.
 ## Workflow
 
 - **Deploying a change = quit and relaunch the app.** No rebuild. See
-  [ARCHITECTURE.md](ARCHITECTURE.md) §5.
+  [ARCHITECTURE.md](ARCHITECTURE.md) §6.
 - Rebuild `kindleocr` with `swiftc -O -parse-as-library KindleOCR.swift -o kindleocr`.
 - Rebuild the app bundle (`overlay/build-app.sh`) only when `bootstrap.js`,
   `extend.plist`, the icon, or the Electron version changes.

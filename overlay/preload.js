@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('overlay', {
   // Arrives independently of captures because a static page produces nothing
   // but heartbeats, and the layer still has to track the window.
   onOffset: (cb) => ipcRenderer.on('offset', (_e, off) => cb(off)),
+  // Frame-local rects of the windows drawn over the target ([{x,y,w,h}]).
+  // Arrives independently of captures for the same reason as the offset: a
+  // window can be dragged over the reader without its pixels changing.
+  onCovers: (cb) => ipcRenderer.on('covers', (_e, list) => cb(list)),
+  // The overlay is about to leave the screen — drop the popup with it rather
+  // than bringing a stale one back when the target reappears.
+  onDismiss: (cb) => ipcRenderer.on('dismiss', () => cb()),
   // Shift press / click observed globally, already converted to window coords.
   onTrigger: (cb) => ipcRenderer.on('trigger', (_e, ev) => cb(ev)),
   // {modifier, mode, hoverDelayMs} — which key arms a lookup, or whether to
