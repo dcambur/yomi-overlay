@@ -27,3 +27,6 @@ test/gt/*
 !test/gt/README.md
 !test/gt/gen_aozora.py
 !test/gt/gen_epub.py
+
+# Golden-master recordings (regenerate: test/golden.sh record baseline)
+test/golden/
