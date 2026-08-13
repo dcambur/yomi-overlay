@@ -14,6 +14,7 @@ const { logf } = require('./main/log.js');
 const { listWindows } = require('./main/window-list.js');
 const { openSettings, closeSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
+const overlayWindow = require('./main/overlay-window.js');
 
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
@@ -42,9 +43,6 @@ app.on('second-instance', () => {
 });
 const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
 
-let win = null;
-let interactive = false;
-let idleTimer = null;
 let tray = null;
 let hasScreenRecording = true;
 // The watch process emits a payload, heartbeat, or idle marker every pass, so
@@ -53,11 +51,6 @@ const OCR_WATCHDOG_MS = 120000;
 let binaryMissingReported = false;
 let hasAccessibility = true;
 // Last target-frame origin sent to the renderer, so it is only resent when it
-// actually changes rather than on every capture.
-let lastOffset = { fx: NaN, fy: NaN };
-// Same, for the regions other windows are drawn over the target — compared as
-// a signature because the value is a list.
-let lastCovers = '';
 
 // yomi is found beside the project directory paths.js resolves, so an
 // unbuilt helper (or a bad YOMI_OVERLAY_DIR) means spawn() fails with ENOENT.
@@ -83,122 +76,6 @@ function reportSpawnFailure(what, err) {
 }
 
 
-// The panel joins every Space (that is what lets it float over the target's
-// fullscreen Space), so it would otherwise follow you onto desktops with no
-// target on them — which is exactly what it did, for eight seconds at a time,
-// while this timeout was the ONLY thing that hid it.
-//
-// It is no longer that. "The target is not visible" now arrives as a
-// measurement — the watcher's `idle` marker, emitted between passes — and is
-// acted on immediately below. What is left here is the backstop for SILENCE:
-// a watcher that stopped producing anything at all.
-//
-// 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
-// payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
-// 2026-08-09 20:13:16→20:13:25), and every false hide silently eats the
-// Shift presses that arrive while hidden — 239 hide events in one log,
-// most of them mid-session flapping.
-const IDLE_HIDE_MS = 8000;
-
-function hideOverlay(why) {
-  if (!win || win.isDestroyed() || !win.isVisible()) return;
-  win.hide();
-  // Hiding the panel takes the popup off screen but not out of the renderer's
-  // state: it stays pinned, and the next time the target reappears it is back
-  // — anchored to a word that may since have scrolled away.
-  win.webContents.send('dismiss');
-  console.log('[win] hidden — ' + why);
-}
-
-function noteActivity(win) {
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => hideOverlay(`no capture for ${IDLE_HIDE_MS}ms`),
-                         IDLE_HIDE_MS);
-}
-
-// The panel covers a whole display and never tracks the target window.
-//
-// It used to be moved to the target's frame on every capture, with a measured
-// "how far off did macOS actually place us" correction — but moves are applied
-// asynchronously, panels get placed somewhere other than asked, and getBounds()
-// can report a position the window server never applied. Every one of those is
-// a race that displaces the glyph layer by exactly the discrepancy (the
-// recurring ~60px vertical drift). A display-sized panel is set up once;
-// glyphs are positioned at target-frame + glyph-coords, both taken from the
-// same OCR payload, so they cannot disagree.
-function ensureCover(frame) {
-  const d = screen.getDisplayMatching(frame);
-  const b = win.getBounds();
-  const db = d.bounds;
-  if (b.x !== db.x || b.y !== db.y || b.width !== db.width || b.height !== db.height) {
-    win.setBounds(db);
-    console.log(`[win] covering display ${db.x},${db.y} ${db.width}x${db.height}`);
-  }
-  return db;
-}
-
-function createWindow() {
-  win = new BrowserWindow({
-    ...screen.getPrimaryDisplay().bounds,
-    transparent: true,
-    frame: false,
-    hasShadow: false,
-    resizable: false,
-    // Without this macOS clamps a display-sized window to the work area
-    // (below the menu bar, above the Dock), and every clamp displaces the
-    // glyph layer by the clamped amount.
-    enableLargerThanScreen: true,
-    show: false,              // stay hidden until the target is located
-    focusable: false,         // keyboard focus stays with the target
-    skipTaskbar: true,
-    // NSPanel, not NSWindow. A plain window can join all ordinary desktops
-    // but never enters another app's fullscreen Space — it just sits on the
-    // desktop behind it. A non-activating panel is what actually floats over
-    // a fullscreen app.
-    type: 'panel',
-    webPreferences: {
-      preload: path.join(PRELOAD_DIR, 'overlay.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  // Must outrank the menu bar: at 'floating' a y=0 request is clamped to
-  // y=30, which offsets the whole glyph layer against a fullscreen target.
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
-  // Don't let macOS treat the overlay itself as fullscreen-capable.
-  win.setFullScreenable(false);
-  // forward:true — the renderer sees mousemove (so hover works) while clicks
-  // and scroll fall through to the target underneath.
-  win.setIgnoreMouseEvents(true, { forward: true });
-  // Electron 36+ passes a details object; the old positional arguments are
-  // deprecated and warn on every launch.
-  win.webContents.on('console-message', ({ message, lineNumber }) => {
-    console.log(`[renderer] ${message}` + (lineNumber ? ` (line ${lineNumber})` : ''));
-  });
-  win.webContents.on('did-fail-load', (_e, code, desc) => {
-    console.error(`[renderer] load failed ${code}: ${desc}`);
-  });
-  win.webContents.on('preload-error', (_e, p, err) => {
-    console.error(`[renderer] preload error in ${p}: ${err}`);
-  });
-  win.webContents.on('did-finish-load', () => {
-    console.log('[renderer] loaded');
-    sendTrigger();
-  });
-  win.loadFile(path.join(RENDERER_DIR, 'index.html'));
-}
-
-/** Push trigger settings to the renderer, which does the modifier test itself. */
-function sendTrigger() {
-  if (!win || win.isDestroyed()) return;
-  const t = cfg.trigger();
-  win.webContents.send('trigger-config', t);
-  console.log(`[trigger] ${t.mode === 'hover'
-    ? `hover (${t.hoverDelayMs}ms dwell)` : t.modifier + ' + point'}`);
-}
-
 /**
  * One line of NDJSON from the capture child: payload, heartbeat, idle marker
  * or crop reply. The whole overlay is driven from here.
@@ -212,62 +89,17 @@ function onOcrLine(payload) {
   // over something that is not the target. Waiting it out is what left the
   // glyph layer and an open popup sitting on the app you switched to.
   // Still proof the watch loop is alive, which is what the watchdog needs.
-  if (payload.idle) { hideOverlay('target has no visible window'); return; }
+  if (payload.idle) { overlayWindow.hide('target has no visible window'); return; }
   if (!payload.frame) return;
   ocrChild.resetBackoff();   // a good payload means the process is healthy
 
-  const f = payload.frame;
-  if (win) {
-    // Pin the panel to the display the target lives on. This moves only
-    // when the target changes displays — never per-frame.
-    const db = ensureCover(f);
-    if (!win.isVisible()) {
-      win.showInactive();
-      // Re-apply after showing. Set only at creation time, macOS commonly
-      // drops the fullscreen-auxiliary collection behaviour, and the window
-      // then lands on the ordinary desktop instead of over the target's
-      // fullscreen Space.
-      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
-      win.setAlwaysOnTop(true, 'screen-saver');
-      console.log('[win] shown; allWorkspaces=' + win.isVisibleOnAllWorkspaces());
-    }
-    noteActivity(win);
+  overlayWindow.trackTarget(payload.frame, payload.covers);
 
-    // Tell the renderer where the target window is, in absolute screen
-    // coordinates. The renderer subtracts its OWN actual position
-    // (window.screenX/Y) — not the position we asked for — so whatever
-    // macOS did to the panel (clamp, async move, refusal) cancels out.
-    // Shipped on every pass, heartbeats included, because the target
-    // window can move while its content stays unchanged.
-    if (f.x !== lastOffset.fx || f.y !== lastOffset.fy) {
-      lastOffset = { fx: f.x, fy: f.y };
-      win.webContents.send('offset', lastOffset);
-      const pb = win.getBounds();
-      console.log(`[win] target frame ${f.x},${f.y} ${f.width}x${f.height} ` +
-                  `| panel bounds ${pb.x},${pb.y} ${pb.width}x${pb.height}`);
-    }
-
-    // Which parts of the target another window is drawn over, in the same
-    // frame-local points as the glyph boxes. Shipped on every pass,
-    // heartbeats included: capture excludes other windows, so a window can
-    // be dragged over the reader without one pixel of the payload changing
-    // — and the renderer must stop hit-testing the glyphs underneath it
-    // the moment that happens.
-    const covers = Array.isArray(payload.covers) ? payload.covers : [];
-    const csig = JSON.stringify(covers);
-    if (csig !== lastCovers) {
-      lastCovers = csig;
-      win.webContents.send('covers', covers);
-      console.log(`[win] covered by ${covers.length} window(s)`);
-    }
-
-    // A heartbeat means the page is unchanged: keep the window alive,
-    // tracking and aligned, but don't hand the renderer an empty line set —
-    // that would wipe the glyph layer it is still using.
-    if (payload.unchanged) return;
-
-    win.webContents.send('capture', payload);
-  }
+  // A heartbeat means the page is unchanged: keep the panel alive, tracking
+  // and aligned, but don't hand the renderer an empty line set — that would
+  // wipe the glyph layer it is still using.
+  if (payload.unchanged) return;
+  overlayWindow.send('capture', payload);
 }
 
 const ocrChild = new SupervisedChild({
@@ -306,12 +138,12 @@ const ocrChild = new SupervisedChild({
 // to move — the overlay itself can only see forwarded mouse-move messages.
 /** A global modifier press or click, already in screen coordinates. */
 function onTriggerEvent(ev) {
-  if (!win || !win.isVisible()) return;
-  const b = win.getBounds();
+  if (!overlayWindow.isVisible()) return;
+  const b = overlayWindow.bounds();
   // Screen coords -> window-local, which is what the glyph layer uses.
   const x = ev.x - b.x, y = ev.y - b.y;
   if (x < 0 || y < 0 || x > b.width || y > b.height) return;
-  win.webContents.send('trigger', { type: ev.type, x, y });
+  overlayWindow.send('trigger', { type: ev.type, x, y });
 }
 
 const { onCropReply } = createTier2({ ocrChild });
@@ -340,12 +172,7 @@ ipcMain.handle('lookup', (_e, text, hint) => {
 
 // The renderer grabs the mouse only while the cursor is over the popup, so
 // everything else keeps falling through to the target.
-ipcMain.on('set-interactive', (_e, want) => {
-  if (!win || want === interactive) return;
-  interactive = want;
-  if (want) win.setIgnoreMouseEvents(false);
-  else win.setIgnoreMouseEvents(true, { forward: true });
-});
+ipcMain.on('set-interactive', (_e, want) => overlayWindow.setInteractive(want));
 
 app.on('will-quit', () => logf('will-quit'));
 app.on('before-quit', () => logf('before-quit'));
@@ -370,7 +197,7 @@ app.whenReady().then(() => {
   buildTray();
   checkPermission();
   checkAccessibility();
-  createWindow();
+  overlayWindow.create();
   ocrChild.start();
   eventsChild.start();
 
@@ -494,7 +321,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   const before = cfg.trigger();
   cfg.save(next);
   refreshTrayMenu();
-  sendTrigger();
+  overlayWindow.sendTrigger();
   // The modifier is baked into the event monitor's arguments, so a change to it
   // needs a fresh child; mode/delay are renderer-side and do not.
   if (cfg.trigger().modifier !== before.modifier) {
@@ -503,15 +330,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   // Retarget: drop the stale glyph layer, then restart capture. The old
   // process must be gone before the new one starts, or both stream payloads
   // and fight over the overlay's bounds.
-  if (win && !win.isDestroyed()) {
-    if (win.isVisible()) win.hide();
-    win.webContents.send('reset');
-  }
-  // The new target sits somewhere else, so the old placement describes
-  // nothing. Forcing a resend also stops the dedupe above from suppressing a
-  // frame that happens to equal the stale one.
-  lastOffset = { fx: NaN, fy: NaN };
-  lastCovers = '';
+  overlayWindow.reset();
   ocrChild.restart();
   return cfg.load();
 });
