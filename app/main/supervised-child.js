@@ -26,6 +26,7 @@ class SupervisedChild {
    *                                 on the next spawn without extra plumbing
    * @param {{initial:number,max:number,factor:number}} o.backoff
    * @param {{silenceMs:number,checkMs:number}} [o.watchdog]  omit for none
+   * @param {string} [o.exitHint]  appended to the exit diagnostic
    * @param {(obj:any) => void} [o.onLine]
    * @param {(text:string) => void} [o.onStderr]
    * @param {(err:Error) => void} [o.onSpawnError]
@@ -38,6 +39,10 @@ class SupervisedChild {
     this.buildArgs = o.args || (() => []);
     this.backoffCfg = o.backoff || { initial: 1000, max: 30000, factor: 2 };
     this.watchdogCfg = o.watchdog || null;
+    // Appended to the exit line. The capture child's exit is almost always
+    // explained by its own stderr just above, and saying so has saved real
+    // debugging time.
+    this.exitHint = o.exitHint || '';
     this.onLine = o.onLine || (() => {});
     this.onStderr = o.onStderr || (() => {});
     this.onSpawnError = o.onSpawnError || (() => {});
@@ -89,7 +94,8 @@ class SupervisedChild {
       if (proc.deliberate || this.proc !== proc) return;
       this.proc = null;
       this.logError(`[${this.name}] exited (code=${code} signal=${signal}); ` +
-                    `restarting in ${this.backoff}ms`);
+                    `restarting in ${this.backoff}ms` +
+                    (this.exitHint ? ` — ${this.exitHint}` : ''));
       this.restartTimer = setTimeout(() => {
         this.restartTimer = null;
         this.start();

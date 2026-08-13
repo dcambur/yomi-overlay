@@ -9,6 +9,7 @@ const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, dialog, shell,
 const { spawn } = require('child_process');
 const path = require('path');
 const { lookup, open: openDict, initTransformer } = require('./main/lookup.js');
+const { SupervisedChild } = require('./main/supervised-child.js');
 
 // Launched from Spotlight there is no terminal, so stdout goes nowhere and a
 // startup failure is invisible. Mirror everything to a file.
@@ -57,20 +58,13 @@ app.on('second-instance', () => {
 const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
 
 let win = null;
-let ocr = null;
 let interactive = false;
 let idleTimer = null;
 let settingsWin = null;
-let events = null;
 let tray = null;
 let hasScreenRecording = true;
-let ocrRestartTimer = null;
-let ocrBackoff = 1000;
-// Watchdog state: when the last stdout line (payload, heartbeat, or idle
-// marker) arrived. The watch process emits one every pass, so prolonged
-// total silence means it wedged — not that the target is off screen.
-let ocrLastOutput = 0;
-let ocrWatchdogFired = false;
+// The watch process emits a payload, heartbeat, or idle marker every pass, so
+// prolonged TOTAL silence means it wedged — not that the target is off screen.
 const OCR_WATCHDOG_MS = 120000;
 let binaryMissingReported = false;
 let hasAccessibility = true;
@@ -104,19 +98,6 @@ function reportSpawnFailure(what, err) {
   });
 }
 
-/** Kill a child we started, without tripping its auto-restart. */
-function stopChild(p, then) {
-  if (!p) { if (then) then(); return; }
-  p.deliberate = true;
-  if (p.exitCode !== null || p.signalCode !== null) { if (then) then(); return; }
-  let done = false;
-  const finish = () => { if (done) return; done = true; if (then) then(); };
-  p.once('exit', finish);
-  try { p.kill(); } catch { finish(); return; }
-  // Don't let a wedged child block a retarget forever.
-  const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} finish(); }, 1500);
-  if (t.unref) t.unref();
-}
 
 // The panel joins every Space (that is what lets it float over the target's
 // fullscreen Space), so it would otherwise follow you onto desktops with no
@@ -234,164 +215,137 @@ function sendTrigger() {
     ? `hover (${t.hoverDelayMs}ms dwell)` : t.modifier + ' + point'}`);
 }
 
-function startOCR() {
-  if (ocrRestartTimer) { clearTimeout(ocrRestartTimer); ocrRestartTimer = null; }
-  const conf = cfg.load();
-  const voting = conf.voting || {};
-  const args = ['--json', '--watch', '--interval', INTERVAL,
-    '--engine', conf.engine || 'auto',
-    '--votes', String(voting.passes ?? 3),
-    '--vote-every', String(voting.everyN ?? 2),
-    ...cfg.targetArgs()];
-  console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
-  const proc = spawn(YOMI_BIN, args);
-  ocr = proc;
-  ocrLastOutput = Date.now();
-  ocrWatchdogFired = false;
+/**
+ * One line of NDJSON from the capture child: payload, heartbeat, idle marker
+ * or crop reply. The whole overlay is driven from here.
+ */
+function onOcrLine(payload) {
+  if (payload.crop) { onCropReply(payload.crop); return; }
+  // Idle marker: the target has no window the watcher can see — you swiped
+  // to another Space, or another window came up over the reader. Hide NOW.
+  // This is not the silence IDLE_HIDE_MS is about: it is a measurement,
+  // taken between passes (~150ms), that the overlay is currently painted
+  // over something that is not the target. Waiting it out is what left the
+  // glyph layer and an open popup sitting on the app you switched to.
+  // Still proof the watch loop is alive, which is what the watchdog needs.
+  if (payload.idle) { hideOverlay('target has no visible window'); return; }
+  if (!payload.frame) return;
+  ocrChild.resetBackoff();   // a good payload means the process is healthy
 
-  proc.on('error', err => {
-    if (ocr === proc) ocr = null;
-    reportSpawnFailure('ocr', err);
-  });
-
-  let buf = '';
-  proc.stdout.on('data', chunk => {
-    ocrLastOutput = Date.now();
-    ocrWatchdogFired = false;
-    buf += chunk.toString();
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let payload;
-      try { payload = JSON.parse(line); } catch { continue; }
-      if (payload.crop) { onCropReply(payload.crop); continue; }
-      // Idle marker: the target has no window the watcher can see — you swiped
-      // to another Space, or another window came up over the reader. Hide NOW.
-      // This is not the silence IDLE_HIDE_MS is about: it is a measurement,
-      // taken between passes (~150ms), that the overlay is currently painted
-      // over something that is not the target. Waiting it out is what left the
-      // glyph layer and an open popup sitting on the app you switched to.
-      // Still proof the watch loop is alive, which is what the watchdog needs.
-      if (payload.idle) { hideOverlay('target has no visible window'); continue; }
-      if (!payload.frame) continue;
-      ocrBackoff = 1000;      // a good payload means the process is healthy
-
-      const f = payload.frame;
-      if (win) {
-        // Pin the panel to the display the target lives on. This moves only
-        // when the target changes displays — never per-frame.
-        const db = ensureCover(f);
-        if (!win.isVisible()) {
-          win.showInactive();
-          // Re-apply after showing. Set only at creation time, macOS commonly
-          // drops the fullscreen-auxiliary collection behaviour, and the window
-          // then lands on the ordinary desktop instead of over the target's
-          // fullscreen Space.
-          win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
-          win.setAlwaysOnTop(true, 'screen-saver');
-          console.log('[win] shown; allWorkspaces=' + win.isVisibleOnAllWorkspaces());
-        }
-        noteActivity(win);
-
-        // Tell the renderer where the target window is, in absolute screen
-        // coordinates. The renderer subtracts its OWN actual position
-        // (window.screenX/Y) — not the position we asked for — so whatever
-        // macOS did to the panel (clamp, async move, refusal) cancels out.
-        // Shipped on every pass, heartbeats included, because the target
-        // window can move while its content stays unchanged.
-        if (f.x !== lastOffset.fx || f.y !== lastOffset.fy) {
-          lastOffset = { fx: f.x, fy: f.y };
-          win.webContents.send('offset', lastOffset);
-          const pb = win.getBounds();
-          console.log(`[win] target frame ${f.x},${f.y} ${f.width}x${f.height} ` +
-                      `| panel bounds ${pb.x},${pb.y} ${pb.width}x${pb.height}`);
-        }
-
-        // Which parts of the target another window is drawn over, in the same
-        // frame-local points as the glyph boxes. Shipped on every pass,
-        // heartbeats included: capture excludes other windows, so a window can
-        // be dragged over the reader without one pixel of the payload changing
-        // — and the renderer must stop hit-testing the glyphs underneath it
-        // the moment that happens.
-        const covers = Array.isArray(payload.covers) ? payload.covers : [];
-        const csig = JSON.stringify(covers);
-        if (csig !== lastCovers) {
-          lastCovers = csig;
-          win.webContents.send('covers', covers);
-          console.log(`[win] covered by ${covers.length} window(s)`);
-        }
-
-        // A heartbeat means the page is unchanged: keep the window alive,
-        // tracking and aligned, but don't hand the renderer an empty line set —
-        // that would wipe the glyph layer it is still using.
-        if (payload.unchanged) continue;
-
-        win.webContents.send('capture', payload);
-      }
+  const f = payload.frame;
+  if (win) {
+    // Pin the panel to the display the target lives on. This moves only
+    // when the target changes displays — never per-frame.
+    const db = ensureCover(f);
+    if (!win.isVisible()) {
+      win.showInactive();
+      // Re-apply after showing. Set only at creation time, macOS commonly
+      // drops the fullscreen-auxiliary collection behaviour, and the window
+      // then lands on the ordinary desktop instead of over the target's
+      // fullscreen Space.
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+      win.setAlwaysOnTop(true, 'screen-saver');
+      console.log('[win] shown; allWorkspaces=' + win.isVisibleOnAllWorkspaces());
     }
-  });
+    noteActivity(win);
 
-  proc.stderr.on('data', d => {
-    const s = d.toString().trim();
+    // Tell the renderer where the target window is, in absolute screen
+    // coordinates. The renderer subtracts its OWN actual position
+    // (window.screenX/Y) — not the position we asked for — so whatever
+    // macOS did to the panel (clamp, async move, refusal) cancels out.
+    // Shipped on every pass, heartbeats included, because the target
+    // window can move while its content stays unchanged.
+    if (f.x !== lastOffset.fx || f.y !== lastOffset.fy) {
+      lastOffset = { fx: f.x, fy: f.y };
+      win.webContents.send('offset', lastOffset);
+      const pb = win.getBounds();
+      console.log(`[win] target frame ${f.x},${f.y} ${f.width}x${f.height} ` +
+                  `| panel bounds ${pb.x},${pb.y} ${pb.width}x${pb.height}`);
+    }
+
+    // Which parts of the target another window is drawn over, in the same
+    // frame-local points as the glyph boxes. Shipped on every pass,
+    // heartbeats included: capture excludes other windows, so a window can
+    // be dragged over the reader without one pixel of the payload changing
+    // — and the renderer must stop hit-testing the glyphs underneath it
+    // the moment that happens.
+    const covers = Array.isArray(payload.covers) ? payload.covers : [];
+    const csig = JSON.stringify(covers);
+    if (csig !== lastCovers) {
+      lastCovers = csig;
+      win.webContents.send('covers', covers);
+      console.log(`[win] covered by ${covers.length} window(s)`);
+    }
+
+    // A heartbeat means the page is unchanged: keep the window alive,
+    // tracking and aligned, but don't hand the renderer an empty line set —
+    // that would wipe the glyph layer it is still using.
+    if (payload.unchanged) return;
+
+    win.webContents.send('capture', payload);
+  }
+}
+
+const ocrChild = new SupervisedChild({
+  name: 'ocr',
+  bin: YOMI_BIN,
+  // Built per spawn, so a settings change lands on the next start with no
+  // extra plumbing.
+  args: () => {
+    const conf = cfg.load();
+    const voting = conf.voting || {};
+    console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
+    return ['--json', '--watch', '--interval', INTERVAL,
+      '--engine', conf.engine || 'auto',
+      '--votes', String(voting.passes ?? 3),
+      '--vote-every', String(voting.everyN ?? 2),
+      ...cfg.targetArgs()];
+  },
+  backoff: { initial: 1000, max: 30000, factor: 2 },
+  watchdog: { silenceMs: OCR_WATCHDOG_MS, checkMs: 30000 },
+  exitHint: 'its stderr above says why (revoked Screen Recording is one cause)',
+  onLine: onOcrLine,
+  onStderr: (text) => {
+    const t = text.trim();
     // Capture failures are expected while another Space is active; only the
     // first of a run is interesting. logf, not process.stderr: launched from
     // Spotlight stderr goes nowhere, and engine/vote diagnostics were
     // invisible exactly when needed.
-    if (/failed \(1x/.test(s) || !/failed \(/.test(s)) logf(`[ocr] ${s}`);
-  });
-
-  // A dead capture process means a permanently dead overlay: payloads stop, the
-  // idle timer hides the window, and nothing ever brings it back. Restart with
-  // backoff so a transient crash self-heals instead of looking like the app
-  // quietly stopped working.
-  proc.on('exit', (code, signal) => {
-    if (proc.deliberate || ocr !== proc) return;
-    ocr = null;
-    console.error(`[ocr] yomi exited (code=${code} signal=${signal}); ` +
-                  `restarting in ${ocrBackoff}ms — its stderr above says why ` +
-                  `(revoked Screen Recording is one cause)`);
-    ocrRestartTimer = setTimeout(() => { ocrRestartTimer = null; startOCR(); }, ocrBackoff);
-    ocrBackoff = Math.min(ocrBackoff * 2, 30000);
-  });
-}
+    if (/failed \(1x/.test(t) || !/failed \(/.test(t)) logf(`[ocr] ${t}`);
+  },
+  onSpawnError: (err) => reportSpawnFailure('ocr', err),
+  log: (m) => console.log(m),
+  logError: (m) => console.error(m),
+});
 
 // Global Shift / click monitor. Lets a lookup fire without the cursor having
 // to move — the overlay itself can only see forwarded mouse-move messages.
-function startEvents() {
-  const proc = spawn(YOMI_BIN, ['--events', '--modifier', cfg.trigger().modifier]);
-  events = proc;
-
-  proc.on('error', err => {
-    if (events === proc) events = null;
-    reportSpawnFailure('events', err);
-  });
-
-  let buf = '';
-  proc.stdout.on('data', chunk => {
-    buf += chunk.toString();
-    const parts = buf.split('\n');
-    buf = parts.pop();
-    for (const line of parts) {
-      if (!line.trim() || !win || !win.isVisible()) continue;
-      let ev;
-      try { ev = JSON.parse(line); } catch { continue; }
-      const b = win.getBounds();
-      // Screen coords -> window-local, which is what the glyph layer uses.
-      const x = ev.x - b.x, y = ev.y - b.y;
-      if (x < 0 || y < 0 || x > b.width || y > b.height) continue;
-      win.webContents.send('trigger', { type: ev.type, x, y });
-    }
-  });
-  proc.stderr.on('data', d => process.stderr.write('[events] ' + d));
-  proc.on('exit', c => {
-    if (proc.deliberate || events !== proc) return;
-    events = null;
-    console.error('[events] monitor exited (' + c + '); restarting in 2s');
-    const t = setTimeout(startEvents, 2000);
-    if (t.unref) t.unref();
-  });
+/** A global modifier press or click, already in screen coordinates. */
+function onTriggerEvent(ev) {
+  if (!win || !win.isVisible()) return;
+  const b = win.getBounds();
+  // Screen coords -> window-local, which is what the glyph layer uses.
+  const x = ev.x - b.x, y = ev.y - b.y;
+  if (x < 0 || y < 0 || x > b.width || y > b.height) return;
+  win.webContents.send('trigger', { type: ev.type, x, y });
 }
+
+// Global modifier / click monitor. Lets a lookup fire without the cursor
+// having to move — the overlay itself can only see forwarded mouse-move
+// messages.
+const eventsChild = new SupervisedChild({
+  name: 'events',
+  bin: YOMI_BIN,
+  args: () => ['--events', '--modifier', cfg.trigger().modifier],
+  // Flat 2s rather than escalating: the monitor either has Accessibility or
+  // it does not, so there is nothing for a growing backoff to wait out.
+  backoff: { initial: 2000, max: 2000, factor: 1 },
+  onLine: onTriggerEvent,
+  onStderr: (t) => process.stderr.write('[events] ' + t),
+  onSpawnError: (err) => reportSpawnFailure('events', err),
+  log: (m) => console.log(m),
+  logError: (m) => console.error(m),
+});
 
 // ---- Tier 2: manga-ocr second opinion (INTEGRATION.md Phase 3) ----
 //
@@ -517,7 +471,7 @@ function onCropReply(c) {
 
 ipcMain.on('tier2', (_e, req) => {
   if (tier2Config().mode === 'off' || sidecarDisabled) return;
-  if (!ocr || !req || !(req.w > 0 && req.h > 0)) return;
+  if (!ocrChild.running || !req || !(req.w > 0 && req.h > 0)) return;
   const now = Date.now();
   if (now - lastTier2At < 400) return;   // hover spam guard
   lastTier2At = now;
@@ -525,8 +479,9 @@ ipcMain.on('tier2', (_e, req) => {
   tier2Pending.set(id, { text: String(req.text || ''), conf: +req.conf || 1, t0: now });
   // Frame-relative points, the same space the payload's char boxes use.
   const r = [req.x, req.y, req.w, req.h].map(v => Math.round(v)).join(' ');
-  try { ocr.stdin.write(`crop ${id} ${r} /tmp/yomi-t2-${id}.png\n`); }
-  catch (e) { tier2Pending.delete(id); }
+  if (!ocrChild.write(`crop ${id} ${r} /tmp/yomi-t2-${id}.png\n`)) {
+    tier2Pending.delete(id);
+  }
 });
 
 ipcMain.handle('lookup', (_e, text, hint) => {
@@ -566,25 +521,9 @@ app.whenReady().then(() => {
   checkPermission();
   checkAccessibility();
   createWindow();
-  startOCR();
-  startEvents();
+  ocrChild.start();
+  eventsChild.start();
 
-  // A live watch process emits a payload, heartbeat, or idle marker every
-  // pass, so prolonged total silence means it wedged (measured: 40 minutes
-  // of nothing from a live process, /tmp/yomi-overlay.log 2026-08-09
-  // 20:14→20:54, ended only by a manual "Restart capture"). Automate that
-  // restart. Fires once per silence streak; stdout resets the flag.
-  setInterval(() => {
-    if (!ocr || ocrRestartTimer) return;
-    if (Date.now() - ocrLastOutput < OCR_WATCHDOG_MS) return;
-    if (!ocrWatchdogFired) {
-      console.error(`[ocr] no output for ${OCR_WATCHDOG_MS}ms — restarting capture`);
-    }
-    ocrWatchdogFired = true;
-    const p = ocr; ocr = null;
-    ocrBackoff = 1000;
-    stopChild(p, startOCR);
-  }, 30000);
 
   // The app is LSUIElement (no Dock icon, no menu bar), so a global shortcut is
   // the only way in. Cmd+Opt+S anywhere opens settings. Registration fails
@@ -690,11 +629,7 @@ function refreshTrayMenu() {
     { label: `Dictionaries: ${dicts.length} enabled`, enabled: false },
     { type: 'separator' },
     { label: 'Settings…', accelerator: 'CommandOrControl+Alt+S', click: openSettings },
-    { label: 'Restart capture', click: () => {
-        const p = ocr; ocr = null;
-        ocrBackoff = 1000;
-        stopChild(p, startOCR);
-      } },
+    { label: 'Restart capture', click: () => ocrChild.restart() },
     { type: 'separator' },
     { label: 'Quit Yomi Overlay', click: () => app.quit() },
   ]));
@@ -759,8 +694,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   // The modifier is baked into the event monitor's arguments, so a change to it
   // needs a fresh child; mode/delay are renderer-side and do not.
   if (cfg.trigger().modifier !== before.modifier) {
-    const e = events; events = null;
-    stopChild(e, startEvents);
+    eventsChild.restart();
   }
   // Retarget: drop the stale glyph layer, then restart capture. The old
   // process must be gone before the new one starts, or both stream payloads
@@ -774,9 +708,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   // frame that happens to equal the stale one.
   lastOffset = { fx: NaN, fy: NaN };
   lastCovers = '';
-  const p = ocr; ocr = null;
-  ocrBackoff = 1000;
-  stopChild(p, startOCR);
+  ocrChild.restart();
   return cfg.load();
 });
 
@@ -790,14 +722,8 @@ app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 // two processes capturing the screen with no UI left to stop them. 'quit' alone
 // misses SIGINT/SIGTERM (a terminal ^C, Activity Monitor, a logout).
 function killChildren() {
-  if (ocrRestartTimer) { clearTimeout(ocrRestartTimer); ocrRestartTimer = null; }
-  const kids = [ocr, events];
-  ocr = null; events = null;
-  for (const p of kids) {
-    if (!p) continue;
-    p.deliberate = true;
-    try { p.kill(); } catch {}
-  }
+  ocrChild.stop();
+  eventsChild.stop();
 }
 app.on('before-quit', killChildren);
 app.on('quit', killChildren);
