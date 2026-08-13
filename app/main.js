@@ -4,7 +4,7 @@
 // Scoping: yomi only ever captures the target window (see ocr/Sources/).
 // This process renders on top of it and never reads any other window.
 
-const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, dialog, shell,
+const { app, BrowserWindow, globalShortcut, Tray, Menu, dialog, shell,
         systemPreferences, screen } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -12,12 +12,13 @@ const { lookup, open: openDict, initTransformer } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { listWindows } = require('./main/window-list.js');
-const { openSettings, closeSettings } = require('./main/settings-window.js');
+const { openSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
 const overlayWindow = require('./main/overlay-window.js');
 const permissions = require('./main/permissions.js');
 const { reportSpawnFailure } = permissions;
 const tray = require('./main/tray.js');
+const ipc = require('./main/ipc.js');
 
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
@@ -141,13 +142,11 @@ const eventsChild = new SupervisedChild({
 });
 
 
-ipcMain.handle('lookup', (_e, text, hint) => {
-  try { return lookup(text, 12, hint); } catch (e) { return null; }
-});
 
-// The renderer grabs the mouse only while the cursor is over the popup, so
-// everything else keeps falling through to the target.
-ipcMain.on('set-interactive', (_e, want) => overlayWindow.setInteractive(want));
+
+// Registered here, not earlier: it hands out both children, and eventsChild
+// is declared above only a few lines back.
+ipc.register({ overlayWindow, ocrChild, eventsChild, tray });
 
 app.on('will-quit', () => logf('will-quit'));
 app.on('before-quit', () => logf('before-quit'));
@@ -197,29 +196,9 @@ app.whenReady().then(() => {
 // Screen Recording is required for every capture. Without it nothing works and
 
 
-ipcMain.handle('cfg:get', () => cfg.load());
 
-ipcMain.handle('cfg:windows', () => listWindows());
 
-ipcMain.handle('cfg:save', (_e, next) => {
-  const before = cfg.trigger();
-  cfg.save(next);
-  tray.refresh();
-  overlayWindow.sendTrigger();
-  // The modifier is baked into the event monitor's arguments, so a change to it
-  // needs a fresh child; mode/delay are renderer-side and do not.
-  if (cfg.trigger().modifier !== before.modifier) {
-    eventsChild.restart();
-  }
-  // Retarget: drop the stale glyph layer, then restart capture. The old
-  // process must be gone before the new one starts, or both stream payloads
-  // and fight over the overlay's bounds.
-  overlayWindow.reset();
-  ocrChild.restart();
-  return cfg.load();
-});
 
-ipcMain.on('cfg:close', () => closeSettings());
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 

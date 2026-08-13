@@ -94,8 +94,59 @@ function load() {
   return cached;
 }
 
+
+// Values that reach the capture child's argv, clamped where the schema lives.
+//
+// spawn() is called with an argv ARRAY and no shell, so nothing here can be
+// injected into a command line. This is about keeping a malformed setting from
+// producing a child that fails in a confusing way — a windowId of "abc"
+// becomes --window abc, and yomi exits with a usage error the user then has to
+// trace back to a settings field.
+//
+// Unknown keys pass through untouched: the settings window is allowed to grow
+// without this function having to know about it first.
+const MODIFIERS = new Set(['shift', 'control', 'option', 'command']);
+const MODES = new Set(['hold', 'hover']);
+const ENGINES = new Set(['auto', 'vision', 'livetext']);
+
+const num = (v, lo, hi, fallback) =>
+  (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi) ? v : fallback;
+
+function sanitize(next, current) {
+  const out = { ...next };
+  if (out.target && typeof out.target === 'object') {
+    const t = { ...out.target };
+    if (typeof t.bundle !== 'string' || !t.bundle) t.bundle = null;
+    t.windowId = Number.isInteger(t.windowId) && t.windowId > 0 ? t.windowId : null;
+    if (typeof t.label !== 'string') t.label = t.bundle || 'not set';
+    out.target = t;
+  }
+  if (out.trigger && typeof out.trigger === 'object') {
+    const g = { ...out.trigger };
+    if (!MODIFIERS.has(g.modifier)) g.modifier = current.trigger.modifier;
+    if (!MODES.has(g.mode)) g.mode = current.trigger.mode;
+    g.hoverDelayMs = num(g.hoverDelayMs, 50, 2000, current.trigger.hoverDelayMs);
+    out.trigger = g;
+  }
+  if ('engine' in out && !ENGINES.has(out.engine)) out.engine = current.engine;
+  if ('interval' in out) out.interval = num(out.interval, 0.1, 10, current.interval);
+  if (out.voting && typeof out.voting === 'object') {
+    out.voting = {
+      passes: num(out.voting.passes, 1, 9, current.voting.passes),
+      everyN: num(out.voting.everyN, 1, 60, current.voting.everyN),
+    };
+  }
+  if (Array.isArray(out.dictionaries)) {
+    out.dictionaries = out.dictionaries
+      .filter((d) => d && typeof d.name === 'string' && d.name)
+      .map((d) => ({ name: d.name, enabled: !!d.enabled }));
+  }
+  return out;
+}
+
 function save(next) {
-  cached = { ...load(), ...next };
+  const current = load();
+  cached = { ...current, ...sanitize(next, current) };
   // Write-then-rename: a crash partway through a direct write leaves unparseable
   // JSON, and load() silently falls back to defaults — losing the user's target.
   const tmp = CONFIG_PATH + '.tmp';
@@ -124,5 +175,5 @@ function trigger() {
 
 module.exports = {
   load, save, enabledDictionaries, targetArgs, trigger,
-  CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER,
+  CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, sanitize,
 };

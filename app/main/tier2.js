@@ -136,7 +136,13 @@ function createTier2({ ocrChild }) {
 
   ipcMain.on('tier2', (_e, req) => {
     if (tier2Config().mode === 'off' || sidecarDisabled) return;
-    if (!ocrChild.running || !req || !(req.w > 0 && req.h > 0)) return;
+    // Frame-relative points from the renderer; a NaN here would become a
+    // crop command the watch process cannot parse.
+    const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+    if (!ocrChild.running || !req || typeof req !== 'object') return;
+    if (![req.x, req.y, req.w, req.h].every(finite)) return;
+    if (!(req.w > 0 && req.h > 0 && req.w < 4000 && req.h < 4000)) return;
+    if (typeof req.text !== 'string' || req.text.length > 64) return;
     const now = Date.now();
     if (now - lastTier2At < 400) return;   // hover spam guard
     lastTier2At = now;
