@@ -404,17 +404,43 @@ what makes it injectable. `--assume-horizontal` stops being a production CLI
 flag and becomes `RecognitionSession(orientation: .horizontal)` in tests. Keep
 the flag as an alias in this commit; delete it in a later one.
 
-**4b-3. Phantom-typed rects.** `Rect<ImagePixels>`, `Rect<ScreenPoints>`,
-`Rect<WindowLocal>`, `Rect<NormalizedTopLeft>`, `Rect<StripPixels>`, with
-conversions that *require* the frame they convert against. Zero runtime cost —
-this is how Foundation's own `Measurement` prevents mixing units.
-**Incremental and interruptible:** `Geometry` first (it already carries
-`region` + `window` precisely to prevent one class of mix-up — make the compiler
-enforce what its doc comment currently only warns about), then the reflow
-mapping, then the flat mapping. **Stop when the remaining bare `CGRect`s are all
-in one space.** This is the highest-value change in the refactor — every
-load-bearing bug in ARCHITECTURE §1–4 was a coordinate-space bug — and also the
-easiest to overreach on. If it stalls, ship what compiles and stop.
+**4b-3. Phantom-typed rects.** ⏸ **DEFERRED — measured, scoped, not started.**
+
+Blast radius, measured 2026-08-13: **72 `CGRect`/`CGPoint`/`CGSize` sites across
+16 of the 24 Swift files**, spanning five spaces — screen points, normalised
+top-left, normalised bottom-left, image/subject pixels, strip pixels. Every one
+needs a conversion at its boundary, and a rect type worth having must carry the
+whole surface the code uses (`midX`, `midY`, `width`, `height`, `intersection`,
+`union`, `contains`). Half-done, this is *worse* than `CGRect`: some call sites
+converting, some not, and no compiler guarantee anywhere.
+
+So it is its own piece of work, not a tail-end item. What follows is the scope.
+
+**The specific hazard, which is live today.** `RecognizedLine.box` is normalised
+**top-left**; `Line.box` is normalised **bottom-left**. Both are bare `CGRect`,
+they sit one function apart, and `mapFlatLines` converts between them inside a
+single expression:
+
+```swift
+box: CGRect(x: colX(l) - l.box.width / 2, y: 1 - l.box.maxY, …)
+```
+
+The `1 - maxY` is the whole conversion. Three comments warn about it
+(`Mapping.swift:89`, `Engine.swift:30`, `Spaces.swift:12`); nothing enforces it.
+`NBox` already exists precisely to make this conversion happen once, and its own
+doc comment says why that paid off — *"four lines of arithmetic instead of a
+sign-error hunt through three coordinate systems"*.
+
+**Recommended first slice**, and it is genuinely self-contained: type only the
+normalised pair, `NormalizedRect<TopLeft>` and `NormalizedRect<BottomLeft>`, and
+make `NBox` the sole conversion between them. That covers the one adjacency that
+is both dangerous and documented, touches `Engine.swift`, `Model/Line.swift`,
+`Spaces.swift`, `VisionEngine.swift`, `LiveTextEngine.swift` and `Mapping.swift`
+— six files, not sixteen — and leaves screen/pixel rects alone. Stop there and
+judge whether the rest earns its cost.
+
+Golden-master covers this fully: every one of these conversions is on the
+`--image` path, and any sign error moves glyph boxes, so the harness fails loudly.
 
 **4b-4. Break up `recognize()`** (343 lines → ~50). Extract
 `stripFurigana(_:) -> (image, hints)`, `mapReflowedStrip(...)`,
