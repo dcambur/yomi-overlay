@@ -185,3 +185,113 @@ func markRuby(_ lines: inout [Line], vertical: Bool) {
         }
     }
 }
+
+/// Erase furigana from a page that is COMMITTED horizontal, and keep what was
+/// erased as reading hints.
+///
+/// Split out of recognize(). Callers must not run this during an orientation
+/// PROBE: a vertical page's row projection is full of band-like runs, so
+/// stripping one mutilates its columns and cost 5x CER on the vertical suites
+/// (measured). recognizeAuto re-reads once right after committing horizontal,
+/// so ruby'd pages still get the strip on their first real read.
+func stripFurigana(_ subject: CGImage)
+        -> (image: CGImage, hints: [(rect: CGRect, text: String)]) {
+    var out = subject
+    var hints: [(rect: CGRect, text: String)] = []
+    let candidates = detectRubyBands(subject)
+    // Vet candidates by TEXT before erasing. Geometry alone swallowed a
+    // magazine page's body line sitting above a bigger section header
+    // (same 30–65% height ratio as real ruby), making that line
+    // permanently unrecognizable. Furigana reads as kana; a body line
+    // reads kanji-heavy and stays.
+    //
+    // Vetting happens per ROW GROUP, not per band: the projection is
+    // per-slice, so one body line yields up to six independent bands,
+    // and a lone slice's fragment can be kana-heavy (れてしまった。 —
+    // measured 0.86 kana, erased, beheading the line) even though the
+    // physical line is kanji-rich. Bands sharing rows are one line;
+    // their concatenated text is what gets judged.
+    var groups: [[Int]] = []
+    for (i, b) in candidates.enumerated() {
+        if let gi = groups.firstIndex(where: { g in
+            let a = candidates[g[0]]
+            return b.minY < a.maxY && a.minY < b.maxY
+        }) {
+            groups[gi].append(i)
+        } else {
+            groups.append([i])
+        }
+    }
+    // ONE Vision call for every candidate band, not one per band: a
+    // decorated Kindle page yields 6–9 candidates per pass, and per-band
+    // reads stretched the pass past the idle timer — the overlay flapped
+    // hidden mid-read (measured: 8–22s between payloads,
+    // /tmp/yomi-overlay.log 2026-08-10 21:15). Bands are stacked into a
+    // single strip with white gaps and read once; recognised lines map
+    // back to their band by vertical position.
+    var texts = [String](repeating: "", count: candidates.count)
+    if !candidates.isEmpty {
+        // Gap must exceed any plausible line spacing inside the strip or
+        // Vision merges adjacent bands into one line.
+        let gap = 24
+        let compW = Int(candidates.map(\.width).max() ?? 0)
+        let compH = candidates.reduce(0) { $0 + Int($1.height) } +
+            gap * candidates.count
+        if compW > 0,
+           let ctx = CGContext(data: nil, width: compW, height: compH,
+                               bitsPerComponent: 8, bytesPerRow: 0,
+                               space: CGColorSpaceCreateDeviceRGB(),
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: compW, height: compH))
+            var segments: [(y0: Int, y1: Int)] = []   // top-left rows
+            var yTop = 0
+            for b in candidates {
+                let h = Int(b.height)
+                if let crop = subject.cropping(to: b) {
+                    // CGContext origin is bottom-left; segments are kept
+                    // top-left to match visionLines' boxes.
+                    ctx.draw(crop, in: CGRect(x: 0, y: compH - yTop - h,
+                                              width: Int(b.width), height: h))
+                }
+                segments.append((yTop, yTop + h))
+                yTop += h + gap
+            }
+            if let comp = ctx.makeImage(),
+               let ls = try? visionLines(comp, unrotate: false, wantChars: false) {
+                for l in ls {
+                    let midY = l.box.midY * Double(compH)
+                    if let si = segments.firstIndex(where: {
+                        Double($0.y0) <= midY && midY < Double($0.y1 + gap / 2)
+                    }) {
+                        texts[si] += l.text
+                    }
+                }
+                for i in texts.indices {
+                    texts[i] = texts[i]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+    }
+    var erase: [CGRect] = []
+    for g in groups {
+        let joined = g.map { texts[$0] }.joined()
+        // A row nothing can read still erases: it contributes nothing to
+        // recognition either way, and unstripped tiny ruby re-triggers
+        // the fusion bug (別天神+こと… -> 前実, measured).
+        guard joined.isEmpty || kanaFraction(joined) >= 0.7 else { continue }
+        for i in g {
+            erase.append(candidates[i])
+            if !texts[i].isEmpty { hints.append((candidates[i], texts[i])) }
+        }
+    }
+    if !erase.isEmpty, let clean = eraseBands(subject, erase) {
+        FileHandle.standardError.write(
+            "furigana: stripped \(erase.count) of \(candidates.count) bands\n"
+                .data(using: .utf8)!)
+        out = clean
+    }
+
+    return (out, hints)
+}
