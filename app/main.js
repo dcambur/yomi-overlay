@@ -15,6 +15,9 @@ const { listWindows } = require('./main/window-list.js');
 const { openSettings, closeSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
 const overlayWindow = require('./main/overlay-window.js');
+const permissions = require('./main/permissions.js');
+const { reportSpawnFailure } = permissions;
+const tray = require('./main/tray.js');
 
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
@@ -43,38 +46,10 @@ app.on('second-instance', () => {
 });
 const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
 
-let tray = null;
-let hasScreenRecording = true;
 // The watch process emits a payload, heartbeat, or idle marker every pass, so
 // prolonged TOTAL silence means it wedged — not that the target is off screen.
 const OCR_WATCHDOG_MS = 120000;
-let binaryMissingReported = false;
-let hasAccessibility = true;
 // Last target-frame origin sent to the renderer, so it is only resent when it
-
-// yomi is found beside the project directory paths.js resolves, so an
-// unbuilt helper (or a bad YOMI_OVERLAY_DIR) means spawn() fails with ENOENT.
-// A ChildProcess with no 'error' listener
-// rethrows, which would take the whole app down before anything is on screen —
-// catch it and say exactly which file to edit.
-function reportSpawnFailure(what, err) {
-  console.error(`[${what}] could not start yomi: ${err.message}`);
-  if (err.code !== 'ENOENT' || binaryMissingReported) return;
-  binaryMissingReported = true;
-  dialog.showMessageBox({
-    type: 'error',
-    title: 'yomi not found',
-    message: 'Yomi Overlay cannot find its capture helper.',
-    detail:
-      `Expected it at:\n${YOMI_BIN}\n\n` +
-      'Build it with:\n  ocr/build.sh\n\n' +
-      'If that path is not where the project lives, the loader resolved the ' +
-      'wrong directory — fix ~/Library/Application Support/Yomi Overlay/' +
-      'project-path or set YOMI_OVERLAY_DIR.',
-    buttons: ['OK'],
-  });
-}
-
 
 /**
  * One line of NDJSON from the capture child: payload, heartbeat, idle marker
@@ -194,9 +169,11 @@ app.whenReady().then(() => {
   initTransformer()
     .then(() => console.log('deinflector: Yomitan japanese-transforms loaded'))
     .catch(e => console.error('deinflector failed to load:', e.message));
-  buildTray();
-  checkPermission();
-  checkAccessibility();
+  tray.build({
+    onSettings: openSettings,
+    onRestartCapture: () => ocrChild.restart(),
+  });
+  permissions.checkAll(() => tray.refresh());
   overlayWindow.create();
   ocrChild.start();
   eventsChild.start();
@@ -218,99 +195,6 @@ app.whenReady().then(() => {
 // The app has no Dock icon and no menu bar (LSUIElement), so the menu-bar item
 // is the only discoverable way in — a global shortcut alone is not findable.
 // Screen Recording is required for every capture. Without it nothing works and
-// the failure is invisible: SCShareableContent stalls, then errors to a log the
-// user never sees. Check once at startup and say so plainly.
-function checkPermission() {
-  const { execFileSync } = require('child_process');
-  try {
-    const out = execFileSync(YOMI_BIN, ['--check-permission'], { timeout: 5000 });
-    hasScreenRecording = JSON.parse(out.toString()).screenRecording === true;
-  } catch (e) {
-    // A missing binary is a different problem with a different fix; blaming
-    // Screen Recording for it sends the user to the wrong settings pane.
-    if (e && e.code === 'ENOENT') { reportSpawnFailure('permission check', e); return; }
-    hasScreenRecording = false;
-  }
-  if (hasScreenRecording) return;
-
-  refreshTrayMenu();
-  dialog.showMessageBox({
-    type: 'warning',
-    title: 'Screen Recording permission needed',
-    message: 'Yomi Overlay cannot read the target window.',
-    detail:
-      'Screen Recording is required to capture the window being read. This is ' +
-      'separate from Accessibility (which only powers the Shift/click trigger).\n\n' +
-      'System Settings → Privacy & Security → Screen Recording → add ' +
-      '"Yomi Overlay", then relaunch.',
-    buttons: ['Open System Settings', 'Later'],
-    defaultId: 0,
-  }).then(({ response }) => {
-    if (response === 0) {
-      shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
-    }
-  });
-}
-
-// Accessibility powers the global Shift/click monitor. Without it the monitors
-// in yomi --events never fire — silently, by design of the API — and the
-// only way to look a word up is Shift *plus mouse movement*. That degradation
-// is invisible: the process is running, the log is clean, and Shift simply does
-// nothing when held still. Report it the way Screen Recording is reported.
-function checkAccessibility() {
-  try {
-    // false: report only. Passing true pops the system prompt, which for an
-    // LSUIElement app appears with no visible owner and reads as a scam.
-    hasAccessibility = systemPreferences.isTrustedAccessibilityClient(false);
-  } catch {
-    hasAccessibility = true;      // unknown — don't cry wolf
-  }
-  if (hasAccessibility) return;
-  console.error('[events] Accessibility not granted — the global Shift/click ' +
-                'trigger cannot fire. Falling back to Shift + mouse movement.');
-  refreshTrayMenu();
-}
-
-function buildTray() {
-  const icon = path.join(ASSETS_DIR, 'trayTemplate.png');
-  tray = new Tray(icon);
-  tray.setToolTip('Yomi Overlay');
-  refreshTrayMenu();
-}
-
-function refreshTrayMenu() {
-  if (!tray) return;
-  const t = cfg.load().target || {};
-  const label = t.label || t.bundle || 'not set';
-  const dicts = cfg.enabledDictionaries();
-  const items = [];
-  if (!hasScreenRecording) {
-    items.push(
-      { label: '⚠ Screen Recording not granted', enabled: false },
-      { label: 'Open Privacy settings…', click: () => shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture') },
-      { type: 'separator' });
-  }
-  if (!hasAccessibility) {
-    items.push(
-      { label: '⚠ Accessibility not granted — Shift must be held while moving',
-        enabled: false },
-      { label: 'Open Accessibility settings…', click: () => shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility') },
-      { type: 'separator' });
-  }
-  tray.setContextMenu(Menu.buildFromTemplate([
-    ...items,
-    { label: `Target: ${label}`, enabled: false },
-    { label: `Dictionaries: ${dicts.length} enabled`, enabled: false },
-    { type: 'separator' },
-    { label: 'Settings…', accelerator: 'CommandOrControl+Alt+S', click: openSettings },
-    { label: 'Restart capture', click: () => ocrChild.restart() },
-    { type: 'separator' },
-    { label: 'Quit Yomi Overlay', click: () => app.quit() },
-  ]));
-}
 
 
 ipcMain.handle('cfg:get', () => cfg.load());
@@ -320,7 +204,7 @@ ipcMain.handle('cfg:windows', () => listWindows());
 ipcMain.handle('cfg:save', (_e, next) => {
   const before = cfg.trigger();
   cfg.save(next);
-  refreshTrayMenu();
+  tray.refresh();
   overlayWindow.sendTrigger();
   // The modifier is baked into the event monitor's arguments, so a change to it
   // needs a fresh child; mode/delay are renderer-side and do not.
