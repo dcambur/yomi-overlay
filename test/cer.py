@@ -4,7 +4,7 @@
 Scores an OCR engine against the hand-transcribed ground-truth set in
 test/gt/. Ground truth is one .txt per crop image (same basename):
 
-    gt/<category>/<name>.png      the crop (collected via kindleocr --dump
+    gt/<category>/<name>.png      the crop (collected via yomi --dump
                                   or any screenshot tool, then cropped)
     gt/<category>/<name>.txt      hand-typed truth, Unicode as displayed.
                                   Lines starting with '#ruby:' are furigana
@@ -16,11 +16,11 @@ Scoring pipeline (applied symmetrically to hypothesis and truth):
   character-level Levenshtein.  CER = distance / len(truth).
 
 Engines:
-  --engine kindleocr   (default) runs ../kindleocr --image CROP and reads
+  --engine yomi   (default) runs bin/yomi --image CROP and reads
                        stdout text. Add extra engine flags via --engine-arg
                        (e.g. --engine-arg=--vertical for forced tategaki).
   --from-json DIR      score pre-computed outputs instead of running an
-                       engine: DIR/<category>/<name>.json in the kindleocr
+                       engine: DIR/<category>/<name>.json in the yomi
                        NDJSON payload shape ({"lines":[{"text":...}]}), or
                        DIR/<category>/<name>.txt as plain text. This is how
                        later engines (Live Text, manga-ocr, PaddleOCR) reuse
@@ -42,7 +42,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 GT_DIR = HERE / "gt"
-KINDLEOCR = HERE.parent / "kindleocr"
+# Where yomi lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(HERE.parent / "tools"))
+from paths import OCR_BIN as YOMI_BIN
 # Canonical categories first, then any extra gt/ subdirectory (e.g. the
 # generated aozora_* sets) discovered on disk.
 _CANON = ("horizontal", "tategaki", "manga", "game", "browser")
@@ -88,12 +91,12 @@ def levenshtein(a, b):
     return prev[-1]
 
 
-def run_kindleocr(crop, extra_args):
+def run_yomi(crop, extra_args):
     p = subprocess.run(
-        [str(KINDLEOCR), "--image", str(crop), *extra_args],
+        [str(YOMI_BIN), "--image", str(crop), *extra_args],
         capture_output=True, text=True, timeout=120)
     if p.returncode != 0:
-        raise RuntimeError(f"kindleocr exit {p.returncode}: {p.stderr.strip()}")
+        raise RuntimeError(f"yomi exit {p.returncode}: {p.stderr.strip()}")
     return p.stdout
 
 
@@ -110,8 +113,8 @@ def read_precomputed(json_dir, category, stem):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--engine", default="kindleocr",
-                    help="engine to run (default: kindleocr)")
+    ap.add_argument("--engine", default="yomi",
+                    help="engine to run (default: yomi)")
     ap.add_argument("--engine-arg", action="append", default=[],
                     help="extra flag passed to the engine (repeatable)")
     ap.add_argument("--from-json", metavar="DIR",
@@ -156,8 +159,8 @@ def main():
                     if raw is None:
                         errors.append(f"{crop.name}: no precomputed output")
                         continue
-                elif args.engine == "kindleocr":
-                    raw = run_kindleocr(crop, args.engine_arg)
+                elif args.engine == "yomi":
+                    raw = run_yomi(crop, args.engine_arg)
                 else:
                     sys.exit(f"unknown engine: {args.engine}")
             except Exception as e:  # engine crash on one crop != run abort

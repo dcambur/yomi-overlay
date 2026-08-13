@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does kindleocr report a truthful frame for a FULLSCREEN window?
+"""Does yomi report a truthful frame for a FULLSCREEN window?
 
 Fullscreen is the case the windowed test never exercised, and it is also the
 game case: a fullscreen window lives on its own Space, and the capture falls
@@ -13,7 +13,11 @@ import json, pathlib, subprocess, sys, time, urllib.request
 
 # Derived, not written down: a literal path only describes one checkout.
 REPO = pathlib.Path(__file__).resolve().parent.parent
-OCR = str(REPO / "kindleocr")
+# Where yomi lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(REPO / "tools"))
+from paths import OCR_BIN
+OCR = str(OCR_BIN)
 
 def ctrl(path, timeout=20):
     return urllib.request.urlopen("http://127.0.0.1:43199" + path, timeout=timeout).read()
@@ -35,7 +39,7 @@ def probe(label):
     print(f"  electron getBounds : {bounds['x']},{bounds['y']} {bounds['width']}x{bounds['height']}")
     print(f"  contents screenX/Y : {origin['sx']},{origin['sy']} {origin['iw']}x{origin['ih']}")
     if not payload:
-        print("  kindleocr          : NO PAYLOAD (window not capturable)")
+        print("  yomi          : NO PAYLOAD (window not capturable)")
         return 1
     f = payload["frame"]
     w = payload.get("window", {})

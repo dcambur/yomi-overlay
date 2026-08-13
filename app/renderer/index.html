@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- No 'unsafe-inline' for either scripts or styles: nothing in this page is
+     inline any more, so the renderer can only run code that ships with it. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+<title>Yomi overlay</title>
+<link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="layer"></div>
+  <div id="hud">overlay ready — <b>Shift</b> + point (popup stays after release)</div>
+  <div id="popup"></div>
+
+<!-- Load order matters: these are classic scripts, not modules, so each one
+     must be defined before the file that uses it. popup.js owns HOW a result
+     looks; renderer.js owns WHEN one shows. -->
+<script src="hud.js"></script>
+<script src="placement.js"></script>
+<script src="glyph-layer.js"></script>
+<script src="popup.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>

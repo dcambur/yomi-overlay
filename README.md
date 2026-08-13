@@ -1,19 +1,15 @@
 # Yomi Overlay
 
-Yomitan-style popup dictionary lookups over **any** macOS window — Kindle,
-BOOK☆WALKER in a browser, a manga reader, a PDF viewer, a fullscreen game.
+Yomitan-style popup dictionary lookups over any macOS window. Kindle, BOOK☆WALKER in a browser, a manga reader, a PDF viewer, a fullscreen game. If it puts Japanese text on your screen, you can point at a word and get a definition.
 
-The target window is captured as pixels, OCR'd with Apple's Vision and Live Text
-engines, and an invisible text layer is positioned over the real glyphs. Hold
-**Shift** and point (or click) to look a word up. Nothing touches the source
-file and no DRM is involved — it reads what is already on screen.
+Kindle doesn't expose its text, so this doesn't ask it to. It captures the target window as pixels, runs Apple's Vision and Live Text OCR over them, and lays an invisible text layer on top of the real glyphs. Hold Shift and point (or click) and you get a popup. Nothing touches the source file and there's no DRM anywhere in the picture; it just reads what's already on screen.
 
-Handles horizontal (yokogaki) and vertical (tategaki) Japanese, including pages
-that mix both, and strips furigana out of the pixels before recognition so ruby
-text doesn't fuse into the base line.
+It handles horizontal (yokogaki) and vertical (tategaki) text, including pages that mix both, and it erases furigana from the pixels before OCR so the ruby text doesn't fuse into the base line.
+
+Roughly how it fits together:
 
 ```
-kindleocr (Swift CLI)                Yomi Overlay (Electron)
+yomi (Swift CLI)                Yomi Overlay (Electron)
   pick target window                   display-sized transparent NSPanel
   capture ONLY that window             one invisible <span> per glyph
   Vision / Live Text OCR (ja-JP) ──▶   Shift/click → lookup → popup
@@ -24,14 +20,12 @@ kindleocr (Swift CLI)                Yomi Overlay (Electron)
 
 ## Requirements
 
-| | |
-|---|---|
-| **macOS** | 13+ in principle (ScreenCaptureKit + Live Text). Developed and measured on **macOS 26.5, Apple Silicon** — that is the only configuration with numbers behind it. |
-| **Xcode command line tools** | `swiftc`, to build the capture helper. `xcode-select --install` |
-| **Node.js** | Only for `npm install`; the app runs on Electron 43's bundled Node 22 (`node:sqlite`). |
-| **Python 3** | 3.8+, stdlib only, for the dictionary fetch and index build. |
-| **Disk** | ~370 MB index + ~260 MB dictionary zips. The optional manga-ocr second-opinion tier adds ~2 GB of wheels and a ~450 MB model. |
-| **Permissions** | Screen Recording (required) and Accessibility (for the trigger). See below. |
+- macOS 13 or later in principle, since it needs ScreenCaptureKit and Live Text. In practice it's only been tested on macOS 26.5 on Apple Silicon.
+- Xcode command line tools, for swiftc: `xcode-select --install`
+- Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node 22 (it uses node:sqlite).
+- Python 3.8+, stdlib only. Used to fetch dictionaries and build the index.
+- Disk space: the index is about 370 MB and the dictionary zips another 260 MB. The optional manga-ocr second-opinion tier adds around 2 GB of wheels plus a ~450 MB model.
+- Two macOS permissions: Screen Recording (required) and Accessibility (for the trigger).
 
 ## Install
 
@@ -41,163 +35,87 @@ cd yomi-overlay
 ./setup.sh
 ```
 
-`setup.sh` is idempotent — run it again after moving the project or upgrading
-Electron and it redoes only what is missing. It:
+setup.sh does everything: creates a stable self-signed "Yomi Overlay Dev" signing certificate, runs npm install, downloads the freely licensed dictionaries via tools/fetch-dicts.py, builds index.db (takes a few minutes), installs the optional manga-ocr sidecar venv (skippable, the app works without it), packages and installs /Applications/Yomi Overlay.app, and opens the two Privacy panes for you. It's idempotent, so it's safe to re-run after moving the project or upgrading Electron; it only redoes what's missing.
 
-1. creates a stable self-signed **"Yomi Overlay Dev"** signing certificate,
-2. runs `npm install`,
-3. downloads the freely licensed dictionaries (`overlay/fetch-dicts.py`),
-4. builds `index.db` (a few minutes),
-5. installs the optional manga-ocr sidecar venv (skippable; the app runs
-   without it),
-6. packages and installs `/Applications/Yomi Overlay.app`,
-7. opens the two Privacy panes for you.
+Expect up to two password/confirmation dialogs the first time: one to trust the new certificate and one to let codesign use its key. That only happens once.
 
-Expect up to two password/confirmation dialogs on the first run — trusting the
-new certificate, and letting `codesign` use its key. That is the once.
-
-**Build the OCR helper** (setup.sh does not, deliberately — it is a one-liner
-you will re-run often):
+The OCR helper builds separately, since you'll rebuild it far more often than the rest:
 
 ```bash
-swiftc -O -parse-as-library KindleOCR.swift -o kindleocr
+ocr/build.sh
 ```
 
-### Permissions — two of them, different failure modes
+## Permissions
 
-| Permission | Needed for | Symptom without it |
-|---|---|---|
-| **Screen Recording** | all capture | nothing works; the app warns on launch |
-| **Accessibility** | the global Shift/click trigger | silently degrades to Shift **+ mouse movement** |
+Screen Recording is required for all capture. Without it nothing works, and the app warns you at launch. Accessibility powers the global Shift/click trigger. Without that one the app silently degrades: Shift only registers while the mouse is moving. That failure mode leaves nothing in the logs, which is annoying, so the menu-bar item tells you when the permission is missing. Add /Applications/Yomi Overlay.app under System Settings → Privacy & Security → each list.
 
-System Settings → Privacy & Security → each list → add `/Applications/Yomi Overlay.app`.
+## Dictionaries
 
-The Accessibility degradation is invisible from the logs, so the menu-bar item
-says when it is missing.
-
-### Dictionaries
-
-`overlay/fetch-dicts.py` downloads the freely licensed set: **Jitendex**,
-**JMnedict**, **KANJIDIC**, **JPDB** and **BCCWJ** frequency lists.
-
-Commercial monolinguals (三省堂, 明鏡, 旺文社, 実用) and NHK pitch accent are
-**not** fetched and are not redistributed here. Drop your own Yomitan `.zip`
-files into `overlay/dicts/` and re-run:
+tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. The commercial monolinguals (三省堂, 明鏡, 旺文社, 実用) and NHK pitch accent are not fetched and not redistributed. If you own them, drop the Yomitan .zip files into data/dicts/ and rebuild:
 
 ```bash
-python3 overlay/build-index.py
+python3 tools/build-index.py
 ```
 
-Any zip is classified by the banks it contains, so a dictionary you add is
-picked up without editing the script.
+The indexer classifies any zip by the banks it contains, so a dictionary you add gets picked up without editing the script.
 
-## Use
+## Using it
 
-Launch from Spotlight. The app has no Dock icon (`LSUIElement`) — the **読**
-menu-bar item is the way in:
+Launch from Spotlight. There's no Dock icon (LSUIElement); the 読 item in the menu bar is the way in. It has Settings… (⌘⌥S) for picking the target window and showing/hiding/reordering dictionaries, Restart capture, and Quit.
 
-- **Settings…** (⌘⌥S) — pick the target window, show/hide and reorder dictionaries
-- **Restart capture**, **Quit**
+In the window picker, clicking an app follows whichever window that app is showing. Shift-click to pin one specific window instead.
 
-In the window picker, click an **app** to follow whichever window it shows, or
-**shift-click** to pin one specific window.
-
-Reading: hold **Shift** and point, or click. The popup stays after you release
-and closes when you move ~90 px clear of it. Hover mode (no modifier, dwell to
-fire) is in Settings → Lookup.
+Then read. Hold Shift and point, or click. The popup stays up after you release and closes once you move about 90px clear of it. There's also a hover mode (no modifier, dwell to fire) under Settings → Lookup.
 
 ## Configuration
 
-`overlay/config.json` is written on first launch; `overlay/config.js` holds the
-defaults. Settings covers the common keys; the rest are edit-and-restart.
+data/config.json is written on first launch; the defaults live in app/main/config.js. The Settings window covers the common keys, the rest are edit-and-restart:
 
-| Key | Default | Meaning |
-|---|---|---|
-| `target` | — | bundle id / window id of the app being read |
-| `interval` | `0.6` | seconds between capture passes |
-| `trigger.mode` | `hover` | `hold` (modifier + point) or `hover` (dwell) |
-| `trigger.modifier` | `shift` | `shift`\|`control`\|`option`\|`command` |
-| `trigger.hoverDelayMs` | `70` | dwell before a hover lookup fires |
-| `engine` | `auto` | `auto`\|`vision`\|`livetext` |
-| `voting.passes` | `3` | re-OCR a static page N times and majority-vote per character |
-| `voting.everyN` | `2` | vote on every Nth unchanged pass |
-| `tier2.mode` | `shadow` | manga-ocr second opinion: `shadow` (log disagreements) or `off` |
+- `target` — bundle id / window id of the app being read
+- `interval` — seconds between capture passes (default 0.6)
+- `trigger.mode` — `hold` (modifier + point) or `hover` (dwell). Default hold.
+- `trigger.modifier` — shift, control, option, or command. Default shift.
+- `trigger.hoverDelayMs` — dwell before a hover lookup fires (default 250)
+- `engine` — auto, vision, or livetext. Default auto.
+- `voting.passes` — re-OCR a static page N times and majority-vote per character (default 3; 1 disables)
+- `voting.everyN` — vote on every Nth unchanged pass (default 2)
+- `tier2.mode` — the manga-ocr second opinion. `shadow` logs disagreements, `off` disables it. Default shadow.
 
-**Deploying a change is: quit the app, relaunch.** No rebuild — the `.app`
-bundle contains only a loader that reads `main.js`, `index.html` and `lookup.js`
-from this directory and spawns `kindleocr` from it. That is also what makes the
-macOS permission grants survive every code change (see
-[ARCHITECTURE.md](ARCHITECTURE.md) §6). Rebuilding `kindleocr` or `index.db`
-likewise needs only a restart.
+## Deploying a change
+
+Quit the app and relaunch. That's it, no rebuild. The .app bundle contains only a loader that reads the real code out of the project directory and spawns yomi from it. This is also what keeps the macOS permission grants alive across code changes ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) section 6 explains how). Rebuilding yomi or index.db also just needs a restart.
 
 ## Troubleshooting
 
-**Nothing appears.** Check `/tmp/yomi-overlay.log`. The overlay hides after 8 s
-with no capture, which is the correct behaviour when the target's Space is not
-on screen — macOS does not composite an inactive Space, so there are no pixels.
+Nothing appears: check /tmp/yomi-overlay.log. The overlay hides itself after 8 seconds with no capture, and that's correct behavior when the target's Space isn't on screen. macOS doesn't composite an inactive Space, so there are literally no pixels to read.
 
-**Shift does nothing unless the mouse is moving.** Accessibility is not granted.
+Shift does nothing unless the mouse is moving: Accessibility isn't granted.
 
-**Geometry looks wrong** (spans offset from the glyphs). Do not theorise. In
-order: `./kindleocr --dump /tmp/x.png` and *look* at the image; compare the
-`[win] target frame` line in the log against `./kindleocr --list-all`; check
-whether the target window is on the active Space. ARCHITECTURE.md §1–4 explains
-each.
+Geometry looks wrong, spans offset from the glyphs: don't guess at it. Run `./bin/yomi --dump /tmp/x.png` and look at the image, compare the `[win] target frame` line in the log against `./bin/yomi --list-all`, and check whether the target window is on the active Space. Sections 1–4 of [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) walk through each case.
 
-**`kindleocr not found`.** Build it (above). If the path in the dialog is not
-where the project lives, the loader resolved the wrong directory — fix
-`~/Library/Application Support/Yomi Overlay/project-path`, or set
-`YOMI_OVERLAY_DIR`.
+"yomi not found": build it. If the path in the dialog isn't where the project actually lives, the loader resolved the wrong directory. Fix ~/Library/Application Support/Yomi Overlay/project-path, or set YOMI_OVERLAY_DIR.
 
-**Captures hang while testing.** A running overlay holds a ScreenCaptureKit
-session, which stalls one-shot captures. Quit the app first.
+Captures hang while you're testing: a running overlay holds a ScreenCaptureKit session, which stalls one-shot captures. Quit the app first.
 
 ## Development
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing anything — it documents
-the **load-bearing decisions**, each of which was paid for with a real bug
-(stale fullscreen window bounds, cross-Space window selection, panel-chasing
-races, glyph-layer drift). [CONVENTIONS.md](CONVENTIONS.md) is the house style;
-[PLAN.md](PLAN.md) and [INTEGRATION.md](INTEGRATION.md) are the roadmap and the
-measurement log.
+Start with [docs/README.md](docs/README.md), which indexes the rest. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) documents the decisions that each cost a real bug to learn (stale fullscreen window bounds, cross-Space window selection, panel-chasing races, glyph-layer drift). Read it before changing things. [docs/CONVENTIONS.md](docs/CONVENTIONS.md) is house style.
 
-| Path | Role |
-|---|---|
-| [KindleOCR.swift](KindleOCR.swift) | window selection, capture, OCR, per-glyph geometry, tategaki reflow, furigana stripping, global event monitor |
-| [overlay/main.js](overlay/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
-| [overlay/index.html](overlay/index.html) | glyph layer, hit-testing, popup show/dismiss state |
-| [overlay/popup.js](overlay/popup.js) | popup presentation — markup, pitch graphs, placement |
-| [overlay/lookup.js](overlay/lookup.js) | multi-length lookup + Yomitan deinflection |
-| [overlay/build-index.py](overlay/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
-| [overlay/shell/bootstrap.js](overlay/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory |
-| [test/](test/) | alignment/selection suites and the CER harness |
+Layout: ocr/Sources/ is the Swift capture and OCR helper. app/ is the Electron side, split into main/ (main process), renderer/ (the overlay window), preload/ (the IPC boundary), and shell/ (the loader). tools/ has the build scripts and test/ has the suites.
 
-Tests take ground truth from a live DOM (`Range.getBoundingClientRect()` of real
-text on a real page) and from the window server. They need the overlay
-**stopped** and the rig's windows on the active Space. `test/gt/` corpora are
-not in the repo — regenerate with `test/gt/gen_aozora.py`.
+Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or windows. `test/golden.sh` is a byte-exact regression check over the OCR helper's output; it needs a built binary. The test/verify*.py suites take their ground truth from a live DOM and the window server, so they need the overlay stopped and Screen Recording granted. The test/gt/ corpora aren't in the repo; regenerate them with test/gt/gen_aozora.py.
 
 ## Known gaps
 
-- Per-glyph boxes are interpolated inside Vision's *word*-level boxes under
-  `.accurate`; alignment is always slightly approximate.
-- Words split across a line break can't be looked up as one unit.
+- Per-glyph boxes are interpolated inside Vision's word-level boxes, so alignment is always a bit approximate.
+- A word split across a line break can't be looked up as one unit.
 - No Anki export yet.
-- Tategaki on real reader apps is young — the engine passes the DOM-truth suite
-  but has had limited validation against real Kindle pages with furigana.
+- Tategaki on real reader apps is young. It passes the DOM-truth test suite, but hasn't been validated much against real Kindle pages with furigana.
 
 ## License and credits
 
-**GPL-3.0-or-later** — see [LICENSE](LICENSE).
+GPL-3.0-or-later, see [LICENSE](LICENSE). app/vendor/yomitan/ comes from [yomidevs/yomitan](https://github.com/yomidevs/yomitan) (GPL-3.0), unmodified except for two import paths. Vendoring it means the deinflector uses the real condition-typed transform chains rather than a reimplementation, which is how 信じられている resolves to 信じる. It's also why this project is GPL-3.0.
 
-`overlay/yomitan/` is taken from [yomidevs/yomitan](https://github.com/yomidevs/yomitan)
-(GPL-3.0), unmodified apart from two import paths. It provides the real,
-condition-typed transform chains — not a reimplementation — so 信じられている
-resolves to 信じる. That vendored code is why this project is GPL-3.0.
+No dictionary data is redistributed here. Jitendex, JMnedict and KANJIDIC carry their own licenses, and commercial dictionaries are yours to supply.
 
-Dictionary data is **not** redistributed here. Jitendex, JMnedict and KANJIDIC
-carry their own licenses; commercial dictionaries are the user's own to supply.
-
-Personal-use tool. The loader-outside-bundle trick that keeps macOS permissions
-alive is deliberately not distribution-safe, and there is no notarization or
-updater.
+This is a personal-use tool. The loader-outside-the-bundle trick that keeps permissions alive isn't distribution-safe, and there's no notarization and no updater.

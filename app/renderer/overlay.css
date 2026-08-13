@@ -1,0 +1,134 @@
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: transparent;
+    font-family: "Hiragino Sans", -apple-system, system-ui, sans-serif;
+    cursor: default;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  /* One span per recognised glyph, sitting exactly on top of the real one.
+     Invisible, but hit-testable — which is all a lookup needs. */
+  .g {
+    position: absolute;
+    color: transparent;
+    line-height: 1;
+    white-space: pre;
+  }
+
+  /* The run of glyphs the current match covers. */
+  .g.hit {
+    background: rgba(255, 214, 0, 0.30);
+    box-shadow: 0 0 0 1px rgba(255, 190, 0, 0.55) inset;
+    border-radius: 2px;
+  }
+
+  #layer { position: absolute; inset: 0; }
+  #hud {
+    position: fixed; top: 8px; left: 8px;
+    font-size: 11px; color: #fff;
+    background: rgba(0,0,0,0.55);
+    padding: 4px 8px; border-radius: 5px;
+    pointer-events: none;
+    opacity: 0; transition: opacity .25s;
+  }
+  #hud.show { opacity: 1; }
+
+
+  #popup {
+    position: absolute; display: none;
+    /* Stable geometry, scaled to the window rather than fixed pixels: the
+       overlay matches the target window, so vw/vh track the reader's size.
+       Clamped so it stays readable on a small window and never dominates a
+       large one. Content scrolls inside instead of resizing the box. */
+    width: clamp(250px, 26vw, 410px);
+    height: clamp(160px, 32vh, 380px);
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain;
+    /* Darker base than the cards, so the cards read as the content surface
+       and the popup itself as the tray holding them. */
+    background: rgba(16, 15, 20, 0.97);
+    color: #e9e6df;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 9px;
+    padding: 6px;
+    /* 13px gothic. Mincho's thin strokes are genuinely hard to read at 11px,
+       and gloss text is the thing you actually read — Mincho is reserved for
+       the headword, where the size carries it. */
+    font-size: 13px; line-height: 1.5;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.5);
+    z-index: 10;
+  }
+  #popup::-webkit-scrollbar { width: 5px; }
+  #popup::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 3px; }
+
+  /* One card per headword group. Every group is equal rank — same headword
+     size, same surface; priority is carried by order alone (longest match
+     first), so the eye separates groups by card edges, not by type scale. */
+  #popup .card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 6px;
+    padding: 8px 10px 7px;
+  }
+  #popup .card + .card { margin-top: 6px; }
+
+  #popup .term {
+    font-size: 17px; font-family: "Hiragino Mincho ProN", serif;
+    font-weight: 600;
+    margin-bottom: 0; line-height: 1.3;
+  }
+  #popup .hdr-rd { margin-top: 2px; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+
+  /* Pitch accent, Yomitan-style: one span per mora, high morae carry an
+     overline, and the mora before the downstep also carries a falling right
+     edge. Heiban gets a rising left edge on mora 2 and no fall. */
+  .pitch { font-size: 13px; color: #d3b072; letter-spacing: .02em; }
+  .pitch .m { padding: 1px 0; border-top: 1px solid transparent; }
+  .pitch .m.hi { border-top-color: #d3b072; }
+  .pitch .m.fall { border-right: 1px solid #d3b072; padding-right: 1px; }
+  .pitch-num { color: #8d8778; font-size: 10.5px; }
+
+  #popup .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+  .chip {
+    display: inline-block; font-size: 10px; letter-spacing: .03em;
+    color: #9d9484; border: 1px solid rgba(255,255,255,0.14);
+    padding: 0 4px; border-radius: 3px; line-height: 1.6;
+  }
+  .chip.base { color: #a8c6a0; border-color: rgba(140,190,130,0.35); }
+  .chip.freq { color: #8d95a8; border-color: rgba(140,150,190,0.3); }
+
+  #popup .ent { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.07); }
+  #popup .ent-hd { display: flex; align-items: baseline; gap: 6px; }
+  /* Source chip, tinted by dictionary kind — bilingual, monolingual, grammar,
+     names, kanji — so the eye can pick the entry type before reading it. */
+  .src {
+    display: inline-block; font-size: 10px; letter-spacing: .04em;
+    padding: 0 4px; border-radius: 3px; border: 1px solid;
+    flex: 0 0 auto;
+  }
+  .src.bi    { color: #8fb8d8; border-color: rgba(120,170,220,0.4); }
+  .src.mono  { color: #a8c6a0; border-color: rgba(140,190,130,0.4); }
+  .src.gram  { color: #c2a3d0; border-color: rgba(180,140,210,0.4); }
+  .src.name  { color: #9d9484; border-color: rgba(255,255,255,0.14); }
+  .src.kanji { color: #d8a889; border-color: rgba(220,150,110,0.4); }
+  #popup .ent .rd { color: #d3b072; font-size: 12px; }
+
+  /* Bilingual senses: bulleted English list, markers dimmed so the text
+     carries the row. */
+  #popup .gl { margin: 3px 0 0 0; padding-left: 15px; }
+  #popup .gl li { margin: 2px 0; }
+  #popup .gl li::marker { color: #6f6857; }
+  /* Monolingual / grammar senses carry their own ①❶ numbering — no bullets,
+     hanging indent so wrapped lines align under the text, not the number. */
+  #popup .gl.plain { list-style: none; padding-left: 2px; }
+  #popup .gl.plain li { padding-left: 14px; text-indent: -14px; margin: 2.5px 0; }
+  /* Usage examples quoted in the sense line (「━政治」) render dimmer. */
+  #popup .ex { color: #97907f; }
+  /* Kanji readings: labelled 音 / 訓 rows. */
+  #popup .kv { margin-top: 2px; }
+  #popup .kv b {
+    color: #d8a889; font-weight: 500; font-size: 10.5px;
+    border: 1px solid rgba(220,150,110,0.35); border-radius: 3px;
+    padding: 0 3px; margin-right: 4px;
+  }
+  #popup .ja { font-family: "Hiragino Mincho ProN", serif; white-space: pre-wrap; }

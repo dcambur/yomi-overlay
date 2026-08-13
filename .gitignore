@@ -3,23 +3,25 @@
 __pycache__/
 *.pyc
 
-# Built artifacts — rebuilt by setup.sh
-kindleocr
-overlay/index.db
-overlay/dictionaries.json
-overlay/node_modules/
-overlay/.venv/
+# Everything generated lives in two directories, so "what is source" is a
+# property of the layout rather than a list that has to be maintained.
+#
+#   data/  index.db, dictionaries.json, config.json, dicts/, .venv/
+#          Rebuilt by setup.sh. The dictionary zips are licensed content, none
+#          of it ours to redistribute: tools/fetch-dicts.py downloads the
+#          freely licensed set, and commercial monolinguals are the user's own
+#          to supply. config.json is per-machine state (target window,
+#          dictionary order, trigger) created on first launch;
+#          app/main/config.js holds the defaults.
+#   bin/   Compiled helpers. Rebuild with ocr/build.sh.
+data/
+bin/
+
+app/node_modules/
 test/node_modules/
 
-# Dictionary data. Licensed content, none of it ours to redistribute.
-# overlay/fetch-dicts.py downloads the freely licensed set; commercial
-# monolinguals are the user's own to supply.
-overlay/dicts/*
-!overlay/dicts/.gitkeep
-
-# Per-machine state: target window, dictionary order, trigger settings.
-# Created on first launch; overlay/config.js holds the defaults.
-overlay/config.json
+# Golden-master recordings (regenerate: test/golden.sh record baseline)
+test/golden/
 
 # Ground-truth corpora. ~200 MB of rendered pages, regenerable from the
 # generators below, and the epub/kakuyomu sets are copyrighted source text.

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to a PR makes the first run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that needs neither macOS nor the ~600 MB of generated data.
+  checks:
+    name: syntax, unit tests, conventions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: Syntax
+        run: |
+          set -e
+          find app tools test -name '*.js' -not -path '*/node_modules/*' \
+            -exec node --check {} \;
+          find . -name '*.sh' -not -path '*/node_modules/*' \
+            -exec bash -n {} \;
+          python3 -m py_compile $(find tools test -name '*.py')
+
+      - name: Unit tests
+        # lookup.test.js needs data/index.db (~370 MB, generated, gitignored),
+        # so it is skipped here and runs locally. The suites listed below need
+        # nothing but node.
+        run: node --test test/unit/child.test.js test/unit/config.test.js
+
+      - name: Conventions
+        run: tools/check-conventions.sh
+
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          severity: warning
+          ignore_paths: app/node_modules
+
+  # The Swift helper only compiles on macOS, and compiling it is the check.
+  swift:
+    name: build yomi
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: ocr/build.sh
+      - name: The commands the golden harness cannot see
+        # golden.sh needs test/gt/ (~200 MB, gitignored) AND is machine-local:
+        # Vision's model version differs between macOS releases, so a byte-exact
+        # baseline recorded on a laptop cannot be reproduced on a runner. These
+        # four paths need no corpus and no permission, and they are where the
+        # multi-line string literals live.
+        run: |
+          set -e
+          ./bin/yomi --help > /dev/null
+          ./bin/yomi --check-permission || true   # exits 3 without the grant
+          ./bin/yomi --list-all | python3 -c 'import json,sys; json.load(sys.stdin)'
+          echo "CLI paths OK"

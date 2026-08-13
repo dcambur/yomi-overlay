@@ -8,7 +8,7 @@ benchmark data; exclude them from reported numbers once real crops exist.
 ## Collecting a crop
 
 1. Stop the overlay (a running watch loop stalls one-shot SCK captures).
-2. Put real content on screen, then: `../../kindleocr --dump /tmp/page.png`
+2. Put real content on screen, then: `../../bin/yomi --dump /tmp/page.png`
    (or any screenshot). Crop the region you'll transcribe (Preview, or
    `sips -c`). Save as `<category>/<shortname>.png`.
 3. Hand-type the truth into `<category>/<shortname>.txt`:
@@ -39,7 +39,7 @@ python3 ../cer.py --category epub_h --category epub_v --sample 50
 ## Scoring
 
 ```
-python3 ../cer.py                       # all categories, kindleocr engine
+python3 ../cer.py                       # all categories, yomi engine
 python3 ../cer.py --category tategaki --engine-arg=--vertical
 python3 ../cer.py --from-json /path/outputs   # any other engine's outputs
 python3 ../cer.py --min-crops 90        # the real gate once the set is full

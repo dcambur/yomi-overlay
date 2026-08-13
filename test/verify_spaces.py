@@ -7,14 +7,18 @@ lookups appeared to work while every glyph was displaced by the difference
 between the two windows' frames.
 
 A window on an inactive Space is not composited, so the window server's
-on-screen list is the authority. This asserts kindleocr agrees with it —
+on-screen list is the authority. This asserts yomi agrees with it —
 and never reports a frame that lies off every display.
 """
 import json, pathlib, subprocess, sys, time, urllib.request
 
 # Derived, not written down: a literal path only describes one checkout.
 REPO = pathlib.Path(__file__).resolve().parent.parent
-OCR = str(REPO / "kindleocr")
+# Where yomi lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(REPO / "tools"))
+from paths import OCR_BIN
+OCR = str(OCR_BIN)
 
 def ctrl(path, timeout=30):
     return urllib.request.urlopen("http://127.0.0.1:43199" + path, timeout=timeout).read()
@@ -41,7 +45,7 @@ def bounds(which):
     return json.loads(ctrl("/bounds"))[which]
 
 def case(label, want=None):
-    """Assert kindleocr agrees with the window server.
+    """Assert yomi agrees with the window server.
 
     The invariant, independent of which Space happens to be active: if the app
     has windows composited on the active Space, capture must target the
@@ -56,7 +60,7 @@ def case(label, want=None):
     mine = [(i, w["width"], w["height"]) for i, w in live.items()
             if w["bundle"] == "com.github.Electron"]
     print("  active-Space windows (this app): " + (str(mine) if mine else "none"))
-    print(f"  kindleocr chose   : {f}")
+    print(f"  yomi chose   : {f}")
 
     if not mine:
         ok = f is None

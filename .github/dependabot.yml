@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Electron is the only real dependency, and it is the one that matters:
+  # a major bump changes the bundled Node (node:sqlite lives there) and can
+  # change sandbox defaults. Monthly, so it is a decision rather than noise.
+  - package-ecosystem: npm
+    directory: /app
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }

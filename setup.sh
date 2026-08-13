@@ -7,13 +7,13 @@
 #   1. a self-signed "Yomi Overlay Dev" certificate is created here (no
 #      Keychain Access clicking), so the app's designated requirement is
 #      certificate-based instead of a per-build cdhash, and
-#   2. the bundle contains only shell/bootstrap.js — code, kindleocr and the
+#   2. the bundle contains only shell/bootstrap.js — code, yomi and the
 #      index all load from this directory, so editing them never touches the
 #      bundle at all. Ordinary changes need an app restart, nothing more.
 #
 # TCC attributes both Screen Recording and Accessibility to the *responsible
-# app* (Yomi Overlay), not to the kindleocr child it spawns — so rebuilding
-# kindleocr costs nothing either.
+# app* (Yomi Overlay), not to the yomi child it spawns — so rebuilding
+# yomi costs nothing either.
 #
 # Expect up to two password/confirmation dialogs on the first run (trusting the
 # new certificate, letting codesign use its key). That is the once.
@@ -21,7 +21,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OVERLAY="$HERE/overlay"
+# One file knows the layout; this script asks it. See tools/paths.sh.
+. "$HERE/tools/paths.sh"
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 BUNDLE_ID="local.yomioverlay"
@@ -64,44 +65,44 @@ EOF
 fi
 
 # --- 2. Node dependencies -----------------------------------------------------
-if [ -d "$OVERLAY/node_modules/electron" ]; then
+if [ -d "$APP_DIR/node_modules/electron" ]; then
   step "npm dependencies present — skipping"
 else
   step "Installing npm dependencies"
-  ( cd "$OVERLAY" && npm install )
+  ( cd "$APP_DIR" && npm install )
 fi
 
 # --- 3. Dictionaries ----------------------------------------------------------
-if ls "$OVERLAY"/dicts/*.zip >/dev/null 2>&1; then
+if ls "$DATA_DIR"/dicts/*.zip >/dev/null 2>&1; then
   step "Dictionaries present — skipping download"
 else
   step "Downloading freely licensed dictionaries"
-  python3 "$OVERLAY/fetch-dicts.py"
+  python3 "$TOOLS_DIR/fetch-dicts.py"
 fi
 
 # --- 4. Lookup index ----------------------------------------------------------
-if [ -f "$OVERLAY/index.db" ] && [ -f "$OVERLAY/dictionaries.json" ]; then
-  step "index.db present — skipping build (re-run overlay/build-index.py after adding dictionaries)"
+if [ -f "$DATA_DIR/index.db" ] && [ -f "$DATA_DIR/dictionaries.json" ]; then
+  step "index.db present — skipping build (re-run tools/build-index.py after adding dictionaries)"
 else
   step "Building the lookup index (takes a few minutes)"
-  python3 "$OVERLAY/build-index.py"
+  python3 "$TOOLS_DIR/build-index.py"
 fi
 
 # --- 4.5 Tier-2 sidecar (manga-ocr) -------------------------------------------
 # Optional: the overlay runs fine without it (tier2 disables itself with a log
 # line). ~2GB of wheels + a ~450MB model download on first use.
-if [ -x "$OVERLAY/.venv/bin/python" ] && "$OVERLAY/.venv/bin/python" -c 'import manga_ocr' 2>/dev/null; then
+if [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -c 'import manga_ocr' 2>/dev/null; then
   step "manga-ocr sidecar present — skipping"
 else
   step "Installing manga-ocr sidecar venv (Tier-2 second opinion; ~2GB)"
-  python3 -m venv "$OVERLAY/.venv"
-  "$OVERLAY/.venv/bin/pip" install --quiet manga-ocr || \
+  python3 -m venv "$VENV_DIR"
+  "$VENV_DIR/bin/pip" install --quiet manga-ocr || \
     step "manga-ocr install failed — tier2 will stay off (rerun setup.sh to retry)"
 fi
 
 # --- 5. Package, sign, install ------------------------------------------------
 step "Building and installing Yomi Overlay.app (signed with \"$IDENTITY\")"
-"$OVERLAY/build-app.sh"
+"$TOOLS_DIR/build-app.sh"
 
 REQ="$(codesign -d -r- "/Applications/Yomi Overlay.app" 2>&1 | grep '^designated' || true)"
 case "$REQ" in
@@ -139,7 +140,7 @@ echo "    Launch:   open -a 'Yomi Overlay'   (or Spotlight; look for the 読 men
 echo "    Settings: ⌘⌥S — pick the target window (shift-click pins one window)"
 echo
 echo "    From now on:"
-echo "      edit overlay JS / rebuild kindleocr  → just restart the app"
+echo "      edit app JS / rebuild yomi  → just restart the app"
 echo "      re-run build-app.sh (Electron bump)  → same identity, permissions kept"
 echo "      moving the project                   → re-run this script (or edit the"
 echo "                                             pointer file build-app.sh writes)"
