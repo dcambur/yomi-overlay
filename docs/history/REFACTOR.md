@@ -1,7 +1,16 @@
 # Refactoring plan
 
+> **Historical record.** This describes the codebase *before* the 2026-08
+> restructure and the plan that was executed against it. It is kept because the
+> reasoning — especially the sourced findings and the measurements behind each
+> decision — is why the current shape is what it is. For how things are now,
+> read [ARCHITECTURE](../ARCHITECTURE.md) and [CONVENTIONS](../CONVENTIONS.md).
+>
+> One item here is **not** finished: the phantom-typed coordinate rects, scoped
+> in REFACTOR-INTEGRATION step 4b-3 and carried forward in [PLAN](../PLAN.md).
+
 Structural work only. Every load-bearing decision in
-[ARCHITECTURE.md](ARCHITECTURE.md) §1–9 stays exactly as it behaves today —
+[ARCHITECTURE.md](../ARCHITECTURE.md) §1–9 stays exactly as it behaves today —
 this plan moves that logic and names it, it does not rethink it. The
 measurement comments travel with their code, unedited.
 

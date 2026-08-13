@@ -14,16 +14,42 @@ yomi (Swift CLI)                Yomi Overlay (Electron)
                                        index.db (SQLite) + Yomitan deinflector
 ```
 
-| File | Role |
+## Where things live
+
+```
+ocr/Sources/          the capture + OCR helper (Swift, one binary: bin/yomi)
+  CLI/                argument parsing, one file per subcommand
+  Capture/            window selection, capture geometry, the crop channel
+  Recognition/        the two engines, orientation policy, voting, per-run session
+  Geometry/           coordinate spaces, ink masks, tategaki reflow, furigana
+  Model/ Output/      what a recognised page is; the NDJSON contract
+app/
+  main.js             wiring: builds the parts, connects them, handles shutdown
+  main/               main-process modules (see below)
+  renderer/           the overlay window: glyph layer, placement, popup, hud
+  settings/           the settings window
+  preload/            the entire trust boundary between renderer and Node
+  shell/              the app bundle's ENTIRE contents — see section 6
+  vendor/yomitan/     third-party deinflection tables
+tools/                build scripts, bundle inputs, the path resolvers
+data/  bin/           generated: index.db, dicts, venv, config / compiled helpers
+test/                 unit (unattended) · golden (unattended) · verify (hands-on)
+```
+
+| Piece | Role |
 |---|---|
-| [ocr/Sources/](../ocr/Sources/) | window selection, capture, OCR, per-glyph geometry, window enumeration, global event monitor |
-| [app/main.js](../app/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
-| [app/renderer/index.html](../app/renderer/index.html) | glyph layer, hit-testing, popup show/dismiss state |
-| [app/renderer/popup.js](../app/renderer/popup.js) | popup presentation only (markup, pitch graphs, placement) via `window.popupView` |
+| [ocr/Sources/Capture/](../ocr/Sources/Capture/) | which window, and turning it into pixels with truthful geometry (§1–2) |
+| [ocr/Sources/Recognition/](../ocr/Sources/Recognition/) | Vision and Live Text, the policy choosing between them, temporal voting |
+| [ocr/Sources/Geometry/](../ocr/Sources/Geometry/) | tategaki reflow (§9), furigana stripping, the shared ink primitives |
+| [app/main/supervised-child.js](../app/main/supervised-child.js) | both helper processes: spawn, NDJSON, restart, watchdog |
+| [app/main/overlay-window.js](../app/main/overlay-window.js) | the panel; pinning it to a display and telling the renderer where the target is (§4) |
+| [app/main/tier2.js](../app/main/tier2.js) | the manga-ocr second opinion, shadow mode only |
+| [app/main/ipc.js](../app/main/ipc.js) | every channel the renderer can use, and the validation on it |
 | [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + Yomitan deinflection (main process: `node:sqlite` is sync) |
-| [tools/build-index.py](../tools/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
-| [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads real code from this directory |
-| [test/](../test/) | deterministic alignment/selection suites |
+| [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |
+| [app/renderer/popup.js](../app/renderer/popup.js) | how a result looks — markup, pitch graphs, placement |
+| [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory (§6) |
+| [tools/build-index.py](../tools/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` (§8) |
 
 ## The load-bearing decisions
 

@@ -20,7 +20,7 @@ decisions there are invariants for every phase below.
    core meta-finding: nobody in this field publishes a CER, so the only
    decision-grade evidence is measured on this project's own content.
 2. **The geometry layer is the invariant.** The ink-run cell splitter
-   (`tategakiCells` / `reflowStrip`, `KindleOCR.swift:625` / `:675`) and
+   (`tategakiCells` / `reflowStrip` in `ocr/Sources/Geometry/Tategaki.swift`) and
    strip-position mapping (`:776-831`) stay, regardless of which recognizer
    supplies text. It is the only mechanism with a measured placement number
    (77%) and it is what makes recognizers swappable.
@@ -58,7 +58,7 @@ decisions there are invariants for every phase below.
   `--from-json` for foreign engines), `test/gt/` scaffold + README. Synthetic
   smoke crops only so far — **the real 100-crop set is still to collect.**
 - **2026-08-08 — Phase 1 landed (code).** `LiveText` binding in
-  KindleOCR.swift (runtime `VKCImageAnalyzer` lookup, dlopen of
+  `ocr/Sources/Recognition/LiveTextEngine.swift` (runtime `VKCImageAnalyzer` lookup, dlopen of
   VisionKitCore, 10 s timeout, 3-strikes degrade to Vision, per-char
   `.children()` quads verified against known glyph positions);
   `--engine auto|vision|livetext` (+ `engine` config key, main.js passes it);
@@ -155,7 +155,7 @@ decisions there are invariants for every phase below.
     reading sessions before any non-shadow mode; per-category word-level CER
     comparison LT-vs-manga-ocr (E2) to decide if Tier 2 should ever override.
 - **2026-08-08 — Phase 4 landed (filter + hints).** `markRuby()` in
-  KindleOCR.swift marks furigana lines: all guards required at once — page
+  `ocr/Sources/Geometry/Furigana.swift` marks furigana lines: all guards required at once — page
   height-bimodal vs the MAX height (not a percentile: ruby lines OUTNUMBER
   base lines on dense pages, measured), ≥80% kana, 35–65% of an adjacent
   base line's height, positioned above (horizontal) / right (vertical)
@@ -333,7 +333,7 @@ gated on numbers from this harness.
   Add a `--from-json` mode reading any engine's text output so later engines
   (Live Text, manga-ocr, PaddleOCR) reuse the same scorer. `yomi` needs a
   small `--image PATH` mode (recognize a PNG from disk instead of capturing) —
-  add it to `parseArgs()` (`KindleOCR.swift:65`) and route into
+  add it to `parseArgs()` (`ocr/Sources/CLI/Options.swift`) and route into
   `recognizeAuto` with a null geometry; this also makes every later
   head-to-head reproducible.
 - A test that can pass with no input is broken: assert ≥ 90 crops scored.
@@ -350,7 +350,7 @@ Tier-1 recognizer. Categorical gain expected on vertical text (cited: 618 vs 6
 chars on the same real Kindle page — a single third-party test that **this
 phase must re-validate before anything depends on it**).
 
-### 1.1 Implementation — inside `KindleOCR.swift`, ObjC-runtime binding
+### 1.1 Implementation — `Recognition/LiveTextEngine.swift`, ObjC-runtime binding
 No new process. Bind the private classes at runtime (Swift can do everything
 `ocrmac` does via PyObjC):
 
@@ -439,19 +439,19 @@ codepoint-variant error class.
 ### 2.2 Extend the glyph record (the "stable internal representation")
 The report's closing directive: per-character glyph records carrying position,
 confidence, orientation, provenance — recognizers swappable behind it.
-- Swift: extend `CharBox` (`KindleOCR.swift:710`) with
+- Swift: extend `CharBox` (`ocr/Sources/Model/Line.swift`) with
   `conf: Double?` (nil = engine gave none) and keep emitting compact NDJSON:
   add `"f"` (confidence) only when present; payload stays
   backward-compatible (renderer ignores unknown keys). Line-level: add
   `"engine":"vision|livetext"`. Orientation today exists only as **one
-  payload-level `vertical` boolean** (`KindleOCR.swift:1160`) — sufficient
+  payload-level `vertical` boolean** (`ocr/Sources/Output/Payload.swift`) — sufficient
   while orientation is per-page; if mixed-orientation pages ever land, move
   it to per-line at that point.
 - Renderer (`index.html:330-338`): store `c.f` on the span dataset; no visual
   change yet.
 
 ### 2.3 Temporal voting in the watch loop
-Site: the watch loop at `KindleOCR.swift:1070`, after the frame-hash check
+Site: the watch loop in `ocr/Sources/CLI/WatchCommand.swift`, after the frame-hash check
 (`:1105`) — the pixels-unchanged case currently short-circuits to an
 `unchanged` heartbeat (`:1110`). Change:
 - On unchanged frames, still re-OCR every Nth pass (N=2..3) up to **3 votes**
@@ -461,7 +461,7 @@ Site: the watch loop at `KindleOCR.swift:1070`, after the frame-hash check
   either a payload or the `"unchanged":true` heartbeat — including voting
   passes and the post-vote stable state. Without it an unchanged page looks
   identical to a vanished window and the overlay hides itself mid-read
-  (the comment at `KindleOCR.swift:1106-1109` was paid for). Second trap:
+  (the comment in `Recognition/Voting.swift` was paid for). Second trap:
   emission is deduped via `payload != lastText` (`:1162`) — a voted payload
   identical to the previous emission gets suppressed into the heartbeat
   branch; write the voting emit against that dedup, don't assume it lands.

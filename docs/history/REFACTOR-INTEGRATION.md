@@ -1,5 +1,14 @@
 # Refactor integration plan — executable handoff
 
+> **Historical record.** This describes the codebase *before* the 2026-08
+> restructure and the plan that was executed against it. It is kept because the
+> reasoning — especially the sourced findings and the measurements behind each
+> decision — is why the current shape is what it is. For how things are now,
+> read [ARCHITECTURE](../ARCHITECTURE.md) and [CONVENTIONS](../CONVENTIONS.md).
+>
+> One item here is **not** finished: the phantom-typed coordinate rects, scoped
+> in REFACTOR-INTEGRATION step 4b-3 and carried forward in [PLAN](../PLAN.md).
+
 **Audience: an agent executing the refactor.** [REFACTOR.md](REFACTOR.md) holds
 the diagnosis and the measurements; this file holds the procedure. Read
 [docs order](#step-1-read-order) first, then execute steps in order.

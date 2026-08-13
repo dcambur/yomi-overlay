@@ -6,6 +6,14 @@ Each stage has an acceptance benchmark — no stage is "done" on vibes.
 
 ## Already done (don't re-plan these)
 
+- ✅ **Structure (2026-08).** One 2756-line Swift file became 25 grouped by
+  pipeline stage; `main.js` 813 → 224 lines with no module-scope state;
+  `index.html` 739 → 25. Layout is `ocr/ app/ tools/ data/ bin/ docs/` with one
+  path resolver per language. The capture helper is `yomi`, not `kindleocr`.
+- ✅ **Unattended tests (2026-08).** `test/unit/run.sh` — 32 assertions, ~3s,
+  no permissions or windows — plus `test/golden.sh`, a byte-exact golden master
+  over `yomi --image`. Neither existed before.
+
 - ✅ Pitch-accent graph (mora overline + downstep, Yomitan-style) — was the
   research doc's Stage 0 headliner.
 - ✅ Type-aware popup rendering (bilingual / monolingual / grammar / names /
@@ -151,10 +159,31 @@ known words render dimmed on the glyph layer.*
 - Adaptive capture: pause when target not frontmost; capture on page-turn
   only (frame-hash deltas already exist).
 - Search history + export.
-- Security hardening: validate IPC payloads, `sandbox: true` where possible.
+- ~~Security hardening: validate IPC payloads, `sandbox: true` where possible.~~
+  ✅ **Done (2026-08).** Every channel is validated in
+  [app/main/ipc.js](../app/main/ipc.js), and settings that reach the capture
+  child's argv are clamped in `config.js`. `sandbox` needed no code: measured,
+  `process.sandboxed === true` under the panel's own `webPreferences`, because
+  Electron has sandboxed renderers by default since 20.0.0. The CSP also lost
+  `'unsafe-inline'` for both scripts and styles once nothing was inline.
 - Packaging: notarization + updater — only relevant if the app is ever
   distributed; the loader-outside-bundle TCC trick is personal-use-only by
   design and would need rethinking for distribution.
+
+## Carried forward from the restructure
+
+- **Phantom-typed coordinate rects (Swift).** Measured: 72 `CGRect`/`CGPoint`/
+  `CGSize` sites across 16 files, five coordinate spaces. Deferred as too large
+  to attach to the restructure, and half-applied it is worse than none. The
+  hazard is live: `RecognizedLine.box` is normalised **top-left**, `Line.box`
+  normalised **bottom-left**, both plain `CGRect`, converted inside one
+  expression in `mapFlatLines` (`y: 1 - l.box.maxY`). Three comments warn;
+  nothing enforces. A scoped first slice touching six files is in
+  [history/REFACTOR-INTEGRATION.md](history/REFACTOR-INTEGRATION.md) step 4b-3.
+  Golden-master covers every one of those conversions.
+- **A smoke test for the four CLI paths golden cannot see** (`--list-all`,
+  `--list`, `--frame`, `--check-permission`). Those hold the multi-line string
+  literals, which is exactly where a formatting change does silent damage.
 
 ## Explicitly out of scope (per current decision)
 
