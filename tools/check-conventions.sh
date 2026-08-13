@@ -8,7 +8,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/paths.sh"
-cd "$PROJECT_ROOT"
+cd "$PROJECT_ROOT" || exit 2
 
 fail=0
 ok()   { printf '  ok    %s\n' "$1"; }
@@ -17,7 +17,8 @@ bad()  { printf '  FAIL  %s\n' "$1"; shift; printf '        %s\n' "$@"; fail=1; 
 # --- the app bundle holds only the loader (ARCHITECTURE section 6) -----------
 # electron-packager copies app/shell wholesale. Anything parked there is baked
 # into the signed bundle, which is what the loader trick exists to avoid.
-extra=$(ls -A app/shell | grep -vE '^(bootstrap\.js|package\.json)$' || true)
+extra=$(find app/shell -mindepth 1 -maxdepth 1 \
+        ! -name 'bootstrap.js' ! -name 'package.json' -print)
 if [ -z "$extra" ]; then ok "app/shell holds only the loader"
 else bad "app/shell has extra files — they would be baked into the .app" "$extra"; fi
 
