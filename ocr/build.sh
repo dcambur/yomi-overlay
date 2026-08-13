@@ -16,5 +16,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../tools/paths.sh"
 
 mkdir -p "$BIN_DIR"
-swiftc -O -parse-as-library "$OCR_SRC"/*.swift -o "$OCR_BIN"
+# Recursive: sources are grouped into subdirectories by pipeline stage.
+# Read loop rather than mapfile — macOS ships bash 3.2, which has no mapfile.
+# Sorted so the compiler sees a stable order and the build is reproducible.
+SWIFT=()
+while IFS= read -r f; do SWIFT+=("$f"); done < <(find "$OCR_SRC" -name '*.swift' | sort)
+[ "${#SWIFT[@]}" -gt 0 ] || { echo "no Swift sources under $OCR_SRC" >&2; exit 1; }
+swiftc -O -parse-as-library "${SWIFT[@]}" -o "$OCR_BIN"
 echo "built $OCR_BIN"
