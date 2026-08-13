@@ -1,17 +1,14 @@
 // The invisible text layer: one span per recognised glyph, sitting exactly on
 // top of the real one.
 //
-// This file exists for one invariant that used to be spread across eight
-// module-scope variables and three hundred lines: **contentSig must always
-// describe what is actually in the DOM.** Advancing it while keeping old
-// spans is what let drift ratchet — see ARCHITECTURE section 5.
+// One invariant justifies the file: **contentSig must always describe what is
+// actually in the DOM.** Advancing it while keeping old spans is what let drift
+// ratchet — ARCHITECTURE section 5.
 //
-// apply() names the four outcomes that were four unlabelled exits:
-//
-//   'identical'  the payload matches the DOM; nothing to do
-//   'patched'    a voted correction was written into the existing spans
-//   'kept'       the payload was refused as jitter; spans left alone
-//   'rebuilt'    the layer was torn down and rebuilt
+// apply() returns which of four things happened:
+//   'identical' matches the DOM · 'patched' voted correction written in place
+//   'kept'      refused as jitter · 'rebuilt' torn down and rebuilt
+
 (() => {
   const layer = document.getElementById('layer');
 
@@ -41,6 +38,7 @@ let frameSig = '';
 
 // Vision jitters glyph boxes by about a pixel between passes, so only a shift
 // larger than that counts as a real re-layout.
+
 const LAYOUT_EPSILON_PX = 3;
 
 function firstCharOf(line) {

@@ -1,12 +1,7 @@
 // The Vision binding, normalized to the shared line/char shape.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
+import CoreGraphics
 import Vision
 
 /// CJK symbols, kana, ideographs and full-width forms — what a tategaki

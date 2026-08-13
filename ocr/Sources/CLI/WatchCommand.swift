@@ -1,15 +1,8 @@
 // --watch: the capture loop. One pass per interval, emitting a payload,
 // a heartbeat, or an idle marker — never nothing.
-//
-// Split from Main.main(); see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
-
+import CoreGraphics
 
 /// The gap between passes, spent watching the window we just captured instead
 /// of sleeping through it.

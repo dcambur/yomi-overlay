@@ -1,14 +1,8 @@
 // Which way the page reads, decided by trying it, and the engine policy
 // that follows from the answer.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 /// Which recognizer reads the pixels. `auto` prefers Live Text and degrades to
 /// Vision when the private classes are missing or misbehave; `vision` is the

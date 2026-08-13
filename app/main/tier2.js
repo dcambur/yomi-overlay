@@ -1,15 +1,10 @@
-// ---- Tier 2: manga-ocr second opinion (INTEGRATION.md Phase 3) ----
+// Tier 2: the manga-ocr second opinion (INTEGRATION.md Phase 3).
 //
-// Shadow mode: on a lookup, the matched word's exact region is cropped by the
-// yomi watch process (crop command channel), read by the resident
-// manga-ocr sidecar, and the disagreement with Tier 1 is LOGGED — the popup
-// still shows Tier-1 text. The disagreement rate is the first real accuracy
-// signal and costs a log file. Measured: whole pages/lines make manga-ocr
-// hallucinate (its ViT resizes to 224x224); word-sized crops read at ~14% CER
-// in ~160ms on MPS — so only tight word regions are ever sent.
-//
-// Nine module-scope variables and a queue lived at the top of main.js for
-// this one feature. They are a session, so they live in one now.
+// Shadow mode: on a lookup, the matched word's region is cropped by the watch
+// process, read by the resident sidecar, and the disagreement with Tier 1 is
+// LOGGED — the popup still shows Tier-1 text. Measured: whole lines make
+// manga-ocr hallucinate (its ViT resizes to 224x224); word-sized crops read at
+// ~14% CER in ~160ms, so only tight word regions are ever sent.
 
 const { ipcMain } = require('electron');
 const { spawn } = require('child_process');

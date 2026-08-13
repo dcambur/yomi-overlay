@@ -1,14 +1,8 @@
 // Vertical text: column and cell detection, the reflow strip, and
 // re-anchoring native-vertical reads onto measured cells.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 // MARK: - Tategaki reflow
 //

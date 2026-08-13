@@ -12,6 +12,7 @@
 // have to be visible to the caller afterwards.
 
 import Foundation
+import CoreGraphics
 
 final class RecognitionSession {
     /// Which way the page's text runs. Sticky across passes: probing both

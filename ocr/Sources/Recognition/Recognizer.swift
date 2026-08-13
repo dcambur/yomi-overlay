@@ -1,14 +1,8 @@
 // Recognition orchestration: reflow, furigana strip, engine dispatch, and
 // the mapping of recognised boxes back onto the page.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 func recognize(_ image: CGImage, geometry: Geometry? = nil,
                vertical: Bool = false,
@@ -39,7 +33,6 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
         subject = stripped.image
         hintBands = stripped.hints
     }
-
 
     // Engine dispatch. Both engines are normalized to one intermediate shape
     // — lines with per-character boxes in top-left normalized subject
@@ -115,7 +108,6 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
         }
     }
 
-
     // Re-flowed page: a recognised line corresponds to one source column.
     if let rf = reflow, let g = geometry {
         return mapReflowedStrip(lines, reflow: rf, image: image,
@@ -128,7 +120,6 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     attachHints(&result, hints: hintBands, subject: subject, geometry: geometry)
     return result
 }
-
 
 func order(_ lines: [Line], vertical: Bool) -> [String] {
     let sorted: [Line]

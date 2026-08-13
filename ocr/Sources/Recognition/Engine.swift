@@ -24,6 +24,7 @@
 //
 // One shared vocabulary, two named engines, an explicit policy.
 
+import Foundation
 import CoreGraphics
 
 /// One recognised character and where it sits, in normalised subject

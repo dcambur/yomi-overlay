@@ -1,14 +1,9 @@
 // The window-enumeration commands: --list-all, --list, --debug, --frame.
-//
-// Split from Main.main(); see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
+import CoreGraphics
+import AppKit
 import ScreenCaptureKit
-import Vision
-
 
 /// --list-all: every capturable window as JSON, for the settings picker.
 func runListAllCommand() -> Never {

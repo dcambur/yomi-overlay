@@ -1,14 +1,10 @@
 // Which window the user is actually looking at, and how much of it they
 // can see. ARCHITECTURE section 2 and 3 live here.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
+import CoreGraphics
+import AppKit
 import ScreenCaptureKit
-import Vision
 
 // Default target when none is specified. Any window can be targeted instead —
 // BOOK☆WALKER in a browser, a manga reader, a PDF viewer — via --bundle/--window.

@@ -1,14 +1,9 @@
 // Pixel-level primitives: ink masks, run detection, and the image
 // transforms built on them. Shared by Tategaki and Furigana.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
+import CoreGraphics
 import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
 
 /// Writes a captured frame to disk. Diagnostic only: what ScreenCaptureKit
 /// actually hands back — image size and where the window sits inside it — is

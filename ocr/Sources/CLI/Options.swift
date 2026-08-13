@@ -1,13 +1,7 @@
 // Every flag the tool accepts, and how it is parsed.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 struct Options {
     var vertical = false

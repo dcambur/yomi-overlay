@@ -1,14 +1,8 @@
 // The NDJSON contract with the overlay. stdout is data; stderr is
 // diagnostics.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 func jsonEscape(_ s: String) -> String {
     var out = ""

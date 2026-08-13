@@ -1,13 +1,7 @@
 // The coordinate spaces this pipeline moves boxes between.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 /// A box in normalised image coordinates with a TOP-LEFT origin.
 ///

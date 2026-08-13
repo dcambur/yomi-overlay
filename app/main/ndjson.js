@@ -1,13 +1,8 @@
 // NDJSON off a child's stdout.
 //
-// This was written out three times — once for the capture child, once for the
-// event monitor, once for the tier-2 sidecar — and each copy had the same four
-// steps and the same two easy mistakes: parsing a chunk instead of a line, and
-// dropping the trailing partial line instead of carrying it.
-//
-// A chunk boundary falls wherever the pipe decides. `{"frame":{"x":0` is a
-// perfectly ordinary read, and a payload with two thousand glyph boxes is
-// several kilobytes, so the split is not hypothetical.
+// A chunk boundary falls wherever the pipe decides — `{"frame":{"x":0` is an
+// ordinary read when a payload carries two thousand glyph boxes — so lines,
+// not chunks, and the trailing partial is carried forward.
 
 /**
  * Returns a `data` handler that calls `onObject` once per complete JSON line.

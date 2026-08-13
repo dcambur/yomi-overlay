@@ -1,13 +1,7 @@
 // Majority vote across re-reads of a static page.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 // MARK: - Temporal voting (INTEGRATION.md Phase 2)
 

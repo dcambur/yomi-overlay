@@ -1,13 +1,7 @@
 // The stdin crop channel serving regions of the last captured frame.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
 
 // MARK: - Crop command channel (INTEGRATION.md Phase 3)
 //

@@ -4,11 +4,9 @@
 // an ordinary flat read, and one that attaches erased ruby to the line it
 // belongs to. Each was a block inside a 343-line function; none of the logic
 // changed.
-//
-// Split from Recognizer.swift; see docs/REFACTOR.md.
 
-import CoreGraphics
 import Foundation
+import CoreGraphics
 
 /// Re-flowed page: a recognised line corresponds to one source column.
 func mapReflowedStrip(_ lines: [RecognizedLine],

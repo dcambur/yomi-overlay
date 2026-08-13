@@ -1,14 +1,8 @@
 // --image: recognize a PNG from disk instead of capturing.
-//
-// Split from Main.main(); see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
+import CoreGraphics
 import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
-
 
 /// Recognizes a file. Needs no permission and no ScreenCaptureKit session,
 /// so it runs while the overlay is up — a one-shot capture would stall on

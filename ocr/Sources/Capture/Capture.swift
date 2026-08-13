@@ -5,17 +5,13 @@
 // display, another app, or the desktop. If no target window is found the tool
 // exits non-zero rather than falling back to anything broader.
 
+import Foundation
+import CoreGraphics
+import AppKit
+import ScreenCaptureKit
+
 // Turning a chosen window into pixels plus truthful geometry.
 // ARCHITECTURE section 1 lives here.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
-
-import AppKit
-import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
 
 enum CaptureError: Error, CustomStringConvertible {
     case timedOut(Double)

@@ -1,15 +1,10 @@
 // --events: the global modifier/click monitor. Nothing here touches
 // capture or recognition; it exists because the overlay panel cannot
 // see these events itself.
-//
-// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
-import ScreenCaptureKit
-import Vision
+import CoreGraphics
+import AppKit
 
 /// Streams global Shift presses and clicks as NDJSON.
 ///

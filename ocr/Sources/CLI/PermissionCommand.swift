@@ -1,14 +1,8 @@
 // --check-permission: report Screen Recording status and exit.
-//
-// Split from Main.main(); see docs/REFACTOR.md.
 
-import AppKit
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
+import CoreGraphics
 import ScreenCaptureKit
-import Vision
-
 
 /// Reports whether Screen Recording has been granted.
 ///

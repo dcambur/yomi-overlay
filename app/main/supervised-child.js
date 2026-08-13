@@ -1,18 +1,12 @@
-// A long-lived child process that is expected to outlive its own crashes.
+// A long-lived child process expected to outlive its own crashes.
 //
-// Both helpers the app spawns need the same seven things: spawn, report a
-// spawn failure usefully, parse NDJSON off stdout, restart on an unexpected
-// exit with a backoff, NOT restart when we killed it on purpose, escalate to
-// SIGKILL if it will not go, and — for the capture child — notice that it has
-// gone silent while still running.
+// Spawn, report a spawn failure usefully, parse NDJSON off stdout, restart on
+// an unexpected exit with a backoff, do NOT restart when we killed it, escalate
+// to SIGKILL if it will not go, and optionally notice it has gone silent while
+// still running. Both helpers need all of that; they differ only in the backoff
+// and whether they get a watchdog.
 //
-// That was two near-identical copies plus a third partial one, with the state
-// for each spread across module-scope variables (ocr, ocrRestartTimer,
-// ocrBackoff, ocrLastOutput, ocrWatchdogFired, events, and the deliberate flag
-// stapled onto the ChildProcess object).
-//
-// Behaviour is deliberately unchanged from those copies; test/unit/child.test.js
-// encodes it.
+// test/unit/child.test.js encodes the behaviour.
 
 const { spawn } = require('child_process');
 const { lineSplitter } = require('./ndjson.js');
