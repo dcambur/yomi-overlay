@@ -17,7 +17,7 @@ import zipfile
 
 from paths import DICTS as DEST
 
-UA = {"User-Agent": "kindle-reader-setup"}
+UA = {"User-Agent": "yomi-overlay-setup"}
 
 # Roughly TheMoeWay's recommended Yomitan stack, restricted to sources that
 # are actually freely licensed. Jitendex supersedes raw JMdict (same EDRDG

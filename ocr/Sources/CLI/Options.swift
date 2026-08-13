@@ -96,7 +96,7 @@ func parseArgs() -> Options {
         case "--out", "-o": o.outPath = it.next()
         case "--help", "-h":
             print("""
-            yomi — OCR the Kindle window only
+            yomi — OCR one target window, nothing else
 
               --list          list matching windows and exit
               --list-all      list every capturable window as JSON and exit
@@ -113,7 +113,7 @@ func parseArgs() -> Options {
               --check-permission  report Screen Recording status as JSON
               --bundle ID     target an app by bundle id (repeatable)
               --window ID     target one specific window id
-              --frame, -f     print Kindle window bounds as JSON and exit
+              --frame, -f     print the target window's bounds and exit
               --vertical, -v  vertical (tategaki) reading order
               --watch, -w     re-capture continuously
               --interval N    seconds between captures in watch mode (default 1.5)

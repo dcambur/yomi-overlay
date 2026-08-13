@@ -242,7 +242,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 }
             }
         } catch {
-            // In watch mode a failure is usually transient: the Kindle
+            // In watch mode a failure is usually transient: the target
             // Space isn't composited while another desktop is active.
             // Keep retrying instead of dying.
             guard opts.watch else {

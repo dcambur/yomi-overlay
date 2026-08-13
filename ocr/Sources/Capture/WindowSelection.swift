@@ -58,7 +58,7 @@ func shareableContent(timeout: Double = 12) async throws -> SCShareableContent {
 
 func targetWindows() async throws -> [SCWindow] {
     // onScreenWindowsOnly must be false: a window living on another macOS Space
-    // is not "on screen", so Kindle disappears from enumeration the moment you
+    // is not "on screen", so the target disappears from enumeration the moment you
     // switch desktops. Enumerate everything, then prefer visible windows.
     let content = try await shareableContent()
     return content.windows.filter { w in

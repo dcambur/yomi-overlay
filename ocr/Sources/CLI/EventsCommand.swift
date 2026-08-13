@@ -13,7 +13,7 @@ import Vision
 
 /// Streams global Shift presses and clicks as NDJSON.
 ///
-/// The overlay cannot see these itself: it is focusable:false (so Kindle keeps
+/// The overlay cannot see these itself: it is focusable:false (so the target keeps
 /// keyboard focus) and click-through (so page turns still work), which means
 /// only mouse-move messages ever reach it. A global monitor is the only way to
 /// trigger a lookup without requiring the cursor to move.

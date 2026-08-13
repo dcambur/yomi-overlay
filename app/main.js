@@ -1,4 +1,4 @@
-// Transparent overlay pinned to the Kindle window, carrying an invisible
+// Transparent overlay pinned to the target window, carrying an invisible
 // text layer positioned over the real glyphs. Hold Shift and point at a word.
 //
 // Scoping: yomi only ever captures the target window (see ocr/Sources/).
@@ -118,9 +118,9 @@ function stopChild(p, then) {
   if (t.unref) t.unref();
 }
 
-// The panel joins every Space (that is what lets it float over Kindle's
+// The panel joins every Space (that is what lets it float over the target's
 // fullscreen Space), so it would otherwise follow you onto desktops with no
-// Kindle on them — which is exactly what it did, for eight seconds at a time,
+// target on them — which is exactly what it did, for eight seconds at a time,
 // while this timeout was the ONLY thing that hid it.
 //
 // It is no longer that. "The target is not visible" now arrives as a
@@ -147,7 +147,7 @@ function hideOverlay(why) {
 
 function noteActivity(win) {
   if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => hideOverlay(`no Kindle capture for ${IDLE_HIDE_MS}ms`),
+  idleTimer = setTimeout(() => hideOverlay(`no capture for ${IDLE_HIDE_MS}ms`),
                          IDLE_HIDE_MS);
 }
 
@@ -183,8 +183,8 @@ function createWindow() {
     // (below the menu bar, above the Dock), and every clamp displaces the
     // glyph layer by the clamped amount.
     enableLargerThanScreen: true,
-    show: false,              // stay hidden until Kindle is located
-    focusable: false,         // keyboard focus stays with Kindle
+    show: false,              // stay hidden until the target is located
+    focusable: false,         // keyboard focus stays with the target
     skipTaskbar: true,
     // NSPanel, not NSWindow. A plain window can join all ordinary desktops
     // but never enters another app's fullscreen Space — it just sits on the
@@ -199,13 +199,13 @@ function createWindow() {
   });
 
   // Must outrank the menu bar: at 'floating' a y=0 request is clamped to
-  // y=30, which offsets the whole glyph layer against a fullscreen Kindle.
+  // y=30, which offsets the whole glyph layer against a fullscreen target.
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
   // Don't let macOS treat the overlay itself as fullscreen-capable.
   win.setFullScreenable(false);
   // forward:true — the renderer sees mousemove (so hover works) while clicks
-  // and scroll fall through to Kindle underneath.
+  // and scroll fall through to the target underneath.
   win.setIgnoreMouseEvents(true, { forward: true });
   // Electron 36+ passes a details object; the old positional arguments are
   // deprecated and warn on every launch.
@@ -286,7 +286,7 @@ function startOCR() {
           win.showInactive();
           // Re-apply after showing. Set only at creation time, macOS commonly
           // drops the fullscreen-auxiliary collection behaviour, and the window
-          // then lands on the ordinary desktop instead of over Kindle's
+          // then lands on the ordinary desktop instead of over the target's
           // fullscreen Space.
           win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
           win.setAlwaysOnTop(true, 'screen-saver');
@@ -534,7 +534,7 @@ ipcMain.handle('lookup', (_e, text, hint) => {
 });
 
 // The renderer grabs the mouse only while the cursor is over the popup, so
-// everything else keeps falling through to Kindle.
+// everything else keeps falling through to the target.
 ipcMain.on('set-interactive', (_e, want) => {
   if (!win || want === interactive) return;
   interactive = want;

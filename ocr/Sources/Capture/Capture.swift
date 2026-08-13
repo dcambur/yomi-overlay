@@ -1,8 +1,8 @@
 // yomi — capture ONLY the target window, OCR Japanese text, emit plain text.
 //
 // Scoping guarantee: the capture filter is constructed from a single SCWindow
-// belonging to the Kindle process. There is no code path that captures the
-// display, another app, or the desktop. If no Kindle window is found the tool
+// belonging to the target process. There is no code path that captures the
+// display, another app, or the desktop. If no target window is found the tool
 // exits non-zero rather than falling back to anything broader.
 
 // Turning a chosen window into pixels plus truthful geometry.
@@ -24,7 +24,7 @@ enum CaptureError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .timedOut(let s):
-            return "capture timed out after \(s)s — this happens when Kindle is in "
+            return "capture timed out after \(s)s — this happens when the target is in "
                 + "native fullscreen on another Space. Exit fullscreen (green button / "
                 + "ctrl-cmd-F) and retry."
         case .discoveryTimedOut(let s):

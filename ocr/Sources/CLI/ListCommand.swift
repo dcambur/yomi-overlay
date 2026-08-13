@@ -86,7 +86,7 @@ func runDebugCommand() async throws -> Never {
 /// --list: the target's matching windows.
 func runListCommand(_ windows: [SCWindow]) -> Never {
     if windows.isEmpty {
-        print("no Kindle windows found")
+        print("no matching windows found")
     } else {
         for w in windows {
             let title = w.title ?? "(untitled)"
@@ -98,7 +98,7 @@ func runListCommand(_ windows: [SCWindow]) -> Never {
 
 /// --frame: stream the target window's bounds as NDJSON.
 func runFrameCommand(_ opts: Options) async throws -> Never {
-    // Emit the Kindle window bounds as NDJSON so the overlay can
+    // Emit the target window's bounds as NDJSON so the overlay can
     // track it with one long-lived process instead of respawning.
     repeat {
         if let w = (try? await chooseWindow()) ?? nil {
