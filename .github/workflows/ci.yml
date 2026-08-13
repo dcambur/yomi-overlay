@@ -20,7 +20,7 @@ jobs:
     name: syntax, unit tests, conventions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
 
@@ -52,7 +52,7 @@ jobs:
     name: build yomi
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: ocr/build.sh
       - name: The commands the golden harness cannot see
