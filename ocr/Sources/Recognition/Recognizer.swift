@@ -144,7 +144,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     //   - The reflow strip: Vision (LT re-segments across cells, 66% vs 77%).
     //   - Probe passes (orientation unknown): LT, so the native-vertical
     //     detection below can fire; the post-probe re-read lands on Vision.
-    var raw: [LiveText.RLine]? = nil
+    var raw: [RecognizedLine]? = nil
     if session.engineMode != .vision, LiveText.usable, reflow == nil,
        session.engineMode == .livetext || session.orientation != .horizontal {
         raw = await LiveText.analyze(subject)
@@ -177,7 +177,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
             session.flatReadNativeVertical = true
         }
     }
-    var lines: [LiveText.RLine] = try raw
+    var lines: [RecognizedLine] = try raw
         ?? visionLines(subject, unrotate: vertical && reflow == nil,
                        wantChars: geometry != nil || reflow != nil)
 
@@ -262,7 +262,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // Column x for reading order, from the CHARACTER quads: LT's vertical
     // line boxes are unreliable (adjacent kakuyomu columns came back swapped
     // when sorted by line midX; the char quads are the ones placing at 89%).
-    func colX(_ l: LiveText.RLine) -> Double {
+    func colX(_ l: RecognizedLine) -> Double {
         guard !l.chars.isEmpty else { return l.box.midX }
         return l.chars.reduce(0.0) { $0 + $1.box.midX } / Double(l.chars.count)
     }

@@ -28,8 +28,6 @@ import Vision
 // one stderr line. Live Text emits NO confidence signal (ocrmac hardcodes
 // 1.0) — never treat its output as high-confidence.
 enum LiveText {
-    struct Char { let ch: String; let box: CGRect }   // normalized, TOP-LEFT origin
-    struct RLine { let text: String; let box: CGRect; let chars: [Char] }
 
     // VKCImageAnalyzer lives in VisionKitCore.framework, which a plain CLI
     // does not link. dlopen once, then look the classes up.
@@ -76,7 +74,7 @@ enum LiveText {
         return unsafeBitCast(imp, to: RectFn.self)(quad, sel)
     }
 
-    private enum Outcome { case ok([RLine]); case error; case timeout }
+    private enum Outcome { case ok([RecognizedLine]); case error; case timeout }
 
     /// One analysis pass over `image`. nil = the engine failed this pass and
     /// the caller must fall back to Vision.
@@ -90,7 +88,7 @@ enum LiveText {
     /// a dedicated worker thread's loop never sees the completion; a
     /// semaphore blocks the drain outright. Awaiting a continuation is the
     /// one shape that frees the main thread to drain while VisionKit works.
-    static func analyze(_ image: CGImage) async -> [RLine]? {
+    static func analyze(_ image: CGImage) async -> [RecognizedLine]? {
         guard usable,
               let anaCls: AnyObject = analyzerClass,
               let reqCls: AnyObject = requestClass else { return nil }
@@ -192,25 +190,25 @@ enum LiveText {
     /// Walk analysis.allLines() -> line.string()/quad()/children(). Children
     /// are per-character for CJK; latin tokens can be multi-character, whose
     /// box is subdivided evenly so downstream always sees one entry per char.
-    private static func extract(_ analysis: AnyObject) -> [RLine] {
+    private static func extract(_ analysis: AnyObject) -> [RecognizedLine] {
         guard let all = msg(analysis, "allLines") as? [AnyObject] else { return [] }
-        var out: [RLine] = []
+        var out: [RecognizedLine] = []
         for lineObj in all {
             guard let text = msg(lineObj, "string") as? String, !text.isEmpty
             else { continue }
-            var chars: [Char] = []
+            var chars: [RecognizedChar] = []
             if let children = msg(lineObj, "children") as? [AnyObject] {
                 for c in children {
                     guard let s = msg(c, "string") as? String, !s.isEmpty else { continue }
                     let box = quadBox(c)
                     let n = s.count
                     if n == 1 {
-                        chars.append(Char(ch: s, box: box))
+                        chars.append(RecognizedChar(ch: s, box: box))
                     } else {
                         let w = box.width / CGFloat(n)
                         for (i, ch) in s.enumerated() {
                             if String(ch).trimmingCharacters(in: .whitespaces).isEmpty { continue }
-                            chars.append(Char(ch: String(ch),
+                            chars.append(RecognizedChar(ch: String(ch),
                                               box: CGRect(x: box.minX + CGFloat(i) * w,
                                                           y: box.minY,
                                                           width: w, height: box.height)))
@@ -218,7 +216,7 @@ enum LiveText {
                     }
                 }
             }
-            out.append(RLine(text: text, box: quadBox(lineObj), chars: chars))
+            out.append(RecognizedLine(text: text, box: quadBox(lineObj), chars: chars))
         }
         return out
     }

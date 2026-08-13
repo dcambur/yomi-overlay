@@ -69,11 +69,11 @@ func looksPicketFence(_ lines: [Line]) -> Bool {
 /// boxes are the better horizontal geometry; measured, the reason committed
 /// horizontal uses Vision at all).
 func verticalRemainder(_ subject: CGImage,
-                       horizontal: [LiveText.RLine]) async -> [LiveText.RLine] {
+                       horizontal: [RecognizedLine]) async -> [RecognizedLine] {
     guard LiveText.usable else { return [] }
     guard let lt = await LiveText.analyze(subject), !lt.isEmpty else { return [] }
     let W = Double(subject.width), H = Double(subject.height)
-    var out: [LiveText.RLine] = []
+    var out: [RecognizedLine] = []
     for l in lt {
         guard l.chars.count >= 2 else { continue }
         let xs = l.chars.map { $0.box.midX * W }

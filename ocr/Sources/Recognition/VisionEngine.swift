@@ -23,7 +23,7 @@ func isCJK(_ u: Unicode.Scalar) -> Bool {
 /// The Vision path, normalized to the shared intermediate shape (top-left
 /// normalized boxes, one entry per character).
 func visionLines(_ subject: CGImage, unrotate: Bool, wantChars: Bool)
-        throws -> [LiveText.RLine] {
+        throws -> [RecognizedLine] {
     let request = VNRecognizeTextRequest()
     request.recognitionLanguages = ["ja-JP", "en-US"]
     request.recognitionLevel = .accurate
@@ -35,11 +35,11 @@ func visionLines(_ subject: CGImage, unrotate: Bool, wantChars: Bool)
     try handler.perform([request])
     guard let observations = request.results else { return [] }
 
-    var out: [LiveText.RLine] = []
+    var out: [RecognizedLine] = []
     for obs in observations {
         guard let top = obs.topCandidates(1).first else { continue }
         let s = top.string
-        var chars: [LiveText.Char] = []
+        var chars: [RecognizedChar] = []
         if wantChars {
             for idx in s.indices {
                 let chStr = String(s[idx])
@@ -49,13 +49,13 @@ func visionLines(_ subject: CGImage, unrotate: Bool, wantChars: Bool)
                 // boundingBox(for:) returns a quad; use its axis-aligned bounds.
                 var n = NBox(vision: q.boundingBox)
                 if unrotate { n = n.unrotatedCCW }
-                chars.append(LiveText.Char(
+                chars.append(RecognizedChar(
                     ch: chStr,
                     box: CGRect(x: n.x, y: n.y, width: n.w, height: n.h)))
             }
         }
         let lb = NBox(vision: obs.boundingBox)
-        out.append(LiveText.RLine(
+        out.append(RecognizedLine(
             text: s,
             box: CGRect(x: lb.x, y: lb.y, width: lb.w, height: lb.h),
             chars: chars))
