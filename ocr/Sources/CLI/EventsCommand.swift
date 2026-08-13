@@ -61,3 +61,16 @@ func streamEvents(modifier: String) {
     FileHandle.standardError.write(
         "event monitor started (needs Accessibility permission)\n".data(using: .utf8)!)
 }
+
+/// --events: start the monitor, then park forever.
+func runEventsCommand(_ opts: Options) async -> Never {
+    streamEvents(modifier: opts.modifier)
+    // Park the task forever. Sleeping keeps the main queue (and
+    // therefore the run loop the monitors deliver on) draining,
+    // without the run-loop calls that Swift 6 forbids in an async
+    // context.
+    while true {
+        try? await Task.sleep(nanoseconds: 3_600_000_000_000)
+    }
+    exit(0)
+}
