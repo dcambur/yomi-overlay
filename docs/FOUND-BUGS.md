@@ -29,13 +29,13 @@ re-recorded in the same commit.
 
 ---
 
-## 2. Rebuilding `kindleocr` costs one denied capture
+## 2. Rebuilding `yomi` costs one denied capture
 
 [setup.sh](../setup.sh) claims:
 
 > TCC attributes both Screen Recording and Accessibility to the *responsible
-> app* (Yomi Overlay), not to the kindleocr child it spawns — so rebuilding
-> kindleocr costs nothing either.
+> app* (Yomi Overlay), not to the yomi child it spawns — so rebuilding
+> yomi costs nothing either.
 
 Almost right. Measured 2026-08-13: after `ocr/build.sh` produced a binary with
 a new ad-hoc cdhash (`ef965068…` → `6123449e…`), the first capture of the next
@@ -45,7 +45,7 @@ app launch failed with
 SCStreamErrorDomain Code=-3801 "The user declined TCCs for application, window, display capture"
 ```
 
-`kindleocr` exited 1, the supervisor restarted it, and the error did not recur
+`yomi` exited 1, the supervisor restarted it, and the error did not recur
 — on that launch or the next. So the grant does survive a rebuild, but the
 first attempt against a never-before-seen child binary is refused.
 
@@ -58,6 +58,6 @@ existing supervision already handles it, and per CONVENTIONS.md, deleting a
 mechanism beats adding a correction to one.
 
 Uncertain: whether the trigger is the cdhash, the path change
-(`reader/kindleocr` → `reader/bin/kindleocr`), or both. Both changed in the
+(`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
 same step. To separate them, restore a previously-run binary at the *new* path
 and relaunch: if it captures first try, the cdhash is the trigger.

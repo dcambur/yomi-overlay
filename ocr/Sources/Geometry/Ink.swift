@@ -1,7 +1,7 @@
 // Pixel-level primitives: ink masks, run detection, and the image
 // transforms built on them. Shared by Tategaki and Furigana.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

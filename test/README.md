@@ -3,7 +3,7 @@
 Verifies the full pipeline against ground truth, no eyeballing:
 
 1. **Selection** — two same-bundle, same-size Electron windows; asserts
-   kindleocr follows the *frontmost* as z-order flips (the multi-Chrome-window
+   yomi follows the *frontmost* as z-order flips (the multi-Chrome-window
    failure mode).
 2. **Alignment** — window A loads the real kakuyomu.jp homepage; ground truth
    is the live DOM (`Range.getBoundingClientRect()` of actual text nodes —
@@ -24,7 +24,7 @@ python3 verify.py                                                       # ~1 min
 curl -s http://127.0.0.1:43199/quit                                     # tear down
 ```
 
-Needs: built `../bin/kindleocr`, network (loads kakuyomu.jp), Screen Recording
+Needs: built `../bin/yomi`, network (loads kakuyomu.jp), Screen Recording
 granted to the terminal's host app. The overlay app should not already be
 running (E2E launches its own instance; single-instance lock would fire).
 

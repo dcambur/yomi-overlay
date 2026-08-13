@@ -59,7 +59,7 @@ const VENV_DIR = path.join(DATA_DIR, '.venv');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 
 /** The capture helper. Spawn failures here are reported by name in main.js. */
-const OCR_BIN = path.join(BIN_DIR, 'kindleocr');
+const OCR_BIN = path.join(BIN_DIR, 'yomi');
 
 module.exports = {
   PROJECT_ROOT, APP_DIR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,

@@ -5,7 +5,7 @@ reading pixels, not text. Nothing touches the source file and no DRM is
 involved — it recognises what is already on screen.
 
 ```
-kindleocr (Swift CLI)                Yomi Overlay (Electron)
+yomi (Swift CLI)                Yomi Overlay (Electron)
   pick target window                   display-sized transparent NSPanel
   capture ONLY that window             one invisible <span> per glyph
   Vision OCR (ja-JP)          ──▶      Shift/click → lookup → popup
@@ -158,7 +158,7 @@ a rebuild**, and the bundle's hash never moves. A stable self-signed certificate
 a real repackage keeps the grants.
 
 **Deployment is: quit the app, relaunch.** Nothing else. This includes a rebuilt
-`kindleocr` and a rebuilt `index.db`.
+`yomi` and a rebuilt `index.db`.
 
 ### 7. Two permissions, different failure modes
 
@@ -185,7 +185,7 @@ indent for monolingual, labelled 音/訓 rows for kanji.
 
 ## Data flow, one pass
 
-1. `kindleocr --json --watch` picks the frontmost active-Space window of the
+1. `yomi --json --watch` picks the frontmost active-Space window of the
    target, captures, hashes the frame, and skips OCR when nothing moved
    (emitting an `unchanged` heartbeat so "static page" ≠ "window gone").
    When no window qualifies it emits an `idle` marker instead of going silent

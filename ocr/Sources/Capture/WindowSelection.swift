@@ -1,7 +1,7 @@
 // Which window the user is actually looking at, and how much of it they
 // can see. ARCHITECTURE section 2 and 3 live here.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

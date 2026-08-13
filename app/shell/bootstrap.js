@@ -13,7 +13,7 @@
 // changes means we rarely have to repackage at all.
 //
 // So the bundle holds only this file, and the real main process is loaded from
-// the project directory — the same place index.db, dicts/ and kindleocr are
+// the project directory — the same place index.db, dicts/ and yomi are
 // already read from (see paths.js). Editing main.js, index.html or lookup.js
 // then needs nothing but a restart of the app.
 //

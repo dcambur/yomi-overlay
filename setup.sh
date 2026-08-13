@@ -7,13 +7,13 @@
 #   1. a self-signed "Yomi Overlay Dev" certificate is created here (no
 #      Keychain Access clicking), so the app's designated requirement is
 #      certificate-based instead of a per-build cdhash, and
-#   2. the bundle contains only shell/bootstrap.js — code, kindleocr and the
+#   2. the bundle contains only shell/bootstrap.js — code, yomi and the
 #      index all load from this directory, so editing them never touches the
 #      bundle at all. Ordinary changes need an app restart, nothing more.
 #
 # TCC attributes both Screen Recording and Accessibility to the *responsible
-# app* (Yomi Overlay), not to the kindleocr child it spawns — so rebuilding
-# kindleocr costs nothing either.
+# app* (Yomi Overlay), not to the yomi child it spawns — so rebuilding
+# yomi costs nothing either.
 #
 # Expect up to two password/confirmation dialogs on the first run (trusting the
 # new certificate, letting codesign use its key). That is the once.
@@ -140,7 +140,7 @@ echo "    Launch:   open -a 'Yomi Overlay'   (or Spotlight; look for the 読 men
 echo "    Settings: ⌘⌥S — pick the target window (shift-click pins one window)"
 echo
 echo "    From now on:"
-echo "      edit app JS / rebuild kindleocr  → just restart the app"
+echo "      edit app JS / rebuild yomi  → just restart the app"
 echo "      re-run build-app.sh (Electron bump)  → same identity, permissions kept"
 echo "      moving the project                   → re-run this script (or edit the"
 echo "                                             pointer file build-app.sh writes)"

@@ -1,7 +1,7 @@
 // Transparent overlay pinned to the Kindle window, carrying an invisible
 // text layer positioned over the real glyphs. Hold Shift and point at a word.
 //
-// Scoping: kindleocr only ever captures the Kindle window (see ocr/Sources/KindleOCR.swift).
+// Scoping: yomi only ever captures the target window (see ocr/Sources/).
 // This process renders on top of it and never reads any other window.
 
 const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, dialog, shell,
@@ -33,7 +33,7 @@ logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
 const cfg = require('./main/config.js');
 
-const { OCR_BIN: KINDLEOCR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
+const { OCR_BIN: YOMI_BIN, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
         ASSETS_DIR, TOOLS_DIR, VENV_DIR } = require('./paths.js');
 
 // Shown in the app switcher and menu bar instead of "Electron".
@@ -81,21 +81,21 @@ let lastOffset = { fx: NaN, fy: NaN };
 // a signature because the value is a list.
 let lastCovers = '';
 
-// kindleocr is found beside the project directory paths.js resolves, so an
+// yomi is found beside the project directory paths.js resolves, so an
 // unbuilt helper (or a bad YOMI_OVERLAY_DIR) means spawn() fails with ENOENT.
 // A ChildProcess with no 'error' listener
 // rethrows, which would take the whole app down before anything is on screen —
 // catch it and say exactly which file to edit.
 function reportSpawnFailure(what, err) {
-  console.error(`[${what}] could not start kindleocr: ${err.message}`);
+  console.error(`[${what}] could not start yomi: ${err.message}`);
   if (err.code !== 'ENOENT' || binaryMissingReported) return;
   binaryMissingReported = true;
   dialog.showMessageBox({
     type: 'error',
-    title: 'kindleocr not found',
+    title: 'yomi not found',
     message: 'Yomi Overlay cannot find its capture helper.',
     detail:
-      `Expected it at:\n${KINDLEOCR}\n\n` +
+      `Expected it at:\n${YOMI_BIN}\n\n` +
       'Build it with:\n  ocr/build.sh\n\n' +
       'If that path is not where the project lives, the loader resolved the ' +
       'wrong directory — fix ~/Library/Application Support/Yomi Overlay/' +
@@ -244,7 +244,7 @@ function startOCR() {
     '--vote-every', String(voting.everyN ?? 2),
     ...cfg.targetArgs()];
   console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
-  const proc = spawn(KINDLEOCR, args);
+  const proc = spawn(YOMI_BIN, args);
   ocr = proc;
   ocrLastOutput = Date.now();
   ocrWatchdogFired = false;
@@ -348,7 +348,7 @@ function startOCR() {
   proc.on('exit', (code, signal) => {
     if (proc.deliberate || ocr !== proc) return;
     ocr = null;
-    console.error(`[ocr] kindleocr exited (code=${code} signal=${signal}); ` +
+    console.error(`[ocr] yomi exited (code=${code} signal=${signal}); ` +
                   `restarting in ${ocrBackoff}ms — its stderr above says why ` +
                   `(revoked Screen Recording is one cause)`);
     ocrRestartTimer = setTimeout(() => { ocrRestartTimer = null; startOCR(); }, ocrBackoff);
@@ -359,7 +359,7 @@ function startOCR() {
 // Global Shift / click monitor. Lets a lookup fire without the cursor having
 // to move — the overlay itself can only see forwarded mouse-move messages.
 function startEvents() {
-  const proc = spawn(KINDLEOCR, ['--events', '--modifier', cfg.trigger().modifier]);
+  const proc = spawn(YOMI_BIN, ['--events', '--modifier', cfg.trigger().modifier]);
   events = proc;
 
   proc.on('error', err => {
@@ -396,7 +396,7 @@ function startEvents() {
 // ---- Tier 2: manga-ocr second opinion (INTEGRATION.md Phase 3) ----
 //
 // Shadow mode: on a lookup, the matched word's exact region is cropped by the
-// kindleocr watch process (crop command channel), read by the resident
+// yomi watch process (crop command channel), read by the resident
 // manga-ocr sidecar, and the disagreement with Tier 1 is LOGGED — the popup
 // still shows Tier-1 text. The disagreement rate is the first real accuracy
 // signal and costs a log file. Measured: whole pages/lines make manga-ocr
@@ -607,7 +607,7 @@ app.whenReady().then(() => {
 function checkPermission() {
   const { execFileSync } = require('child_process');
   try {
-    const out = execFileSync(KINDLEOCR, ['--check-permission'], { timeout: 5000 });
+    const out = execFileSync(YOMI_BIN, ['--check-permission'], { timeout: 5000 });
     hasScreenRecording = JSON.parse(out.toString()).screenRecording === true;
   } catch (e) {
     // A missing binary is a different problem with a different fix; blaming
@@ -638,7 +638,7 @@ function checkPermission() {
 }
 
 // Accessibility powers the global Shift/click monitor. Without it the monitors
-// in kindleocr --events never fire — silently, by design of the API — and the
+// in yomi --events never fire — silently, by design of the API — and the
 // only way to look a word up is Shift *plus mouse movement*. That degradation
 // is invisible: the process is running, the log is clean, and Shift simply does
 // nothing when held still. Report it the way Screen Recording is reported.
@@ -730,7 +730,7 @@ ipcMain.handle('cfg:get', () => cfg.load());
 ipcMain.handle('cfg:windows', async () => {
   const { execFile } = require('child_process');
   return new Promise(resolve => {
-    execFile(KINDLEOCR, ['--list-all'], (err, stdout) => {
+    execFile(YOMI_BIN, ['--list-all'], (err, stdout) => {
       if (err) return resolve([]);
       let list = [];
       try { list = JSON.parse(stdout); } catch { return resolve([]); }
@@ -786,7 +786,7 @@ ipcMain.on('cfg:close', () => {
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 
-// kindleocr does not die with its parent, so an unclean shutdown would leave
+// yomi does not die with its parent, so an unclean shutdown would leave
 // two processes capturing the screen with no UI left to stop them. 'quit' alone
 // misses SIGINT/SIGTERM (a terminal ^C, Activity Monitor, a logout).
 function killChildren() {

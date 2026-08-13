@@ -6,7 +6,7 @@
 //
 // Window B is a same-bundle decoy of the same size (the "several Chrome
 // windows" scenario): the selection test flips z-order between A and B and
-// asserts kindleocr follows the frontmost window.
+// asserts yomi follows the frontmost window.
 const { app, BrowserWindow } = require('electron');
 const http = require('http');
 

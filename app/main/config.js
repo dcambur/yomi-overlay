@@ -37,7 +37,7 @@ const DEFAULTS = {
   dictionaries: DEFAULT_DICTIONARIES,
   interval: 0.6,
   trigger: DEFAULT_TRIGGER,
-  // Which recognizer kindleocr uses: 'auto' prefers Live Text (private
+  // Which recognizer yomi uses: 'auto' prefers Live Text (private
   // VisionKit — reads tategaki natively) and degrades to Vision on failure;
   // 'vision' is the one-line revert (INTEGRATION.md Phase 1).
   engine: 'auto',
@@ -109,7 +109,7 @@ function enabledDictionaries() {
   return load().dictionaries.filter(d => d.enabled).map(d => d.name);
 }
 
-/** Arguments selecting the capture target for kindleocr. */
+/** Arguments selecting the capture target for yomi. */
 function targetArgs() {
   const t = load().target || {};
   if (t.windowId) return ['--window', String(t.windowId)];

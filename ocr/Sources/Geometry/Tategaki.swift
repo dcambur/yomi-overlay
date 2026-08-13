@@ -1,7 +1,7 @@
 // Vertical text: column and cell detection, the reflow strip, and
 // re-anchoring native-vertical reads onto measured cells.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

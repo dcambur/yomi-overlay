@@ -13,7 +13,7 @@ that mix both, and strips furigana out of the pixels before recognition so ruby
 text doesn't fuse into the base line.
 
 ```
-kindleocr (Swift CLI)                Yomi Overlay (Electron)
+yomi (Swift CLI)                Yomi Overlay (Electron)
   pick target window                   display-sized transparent NSPanel
   capture ONLY that window             one invisible <span> per glyph
   Vision / Live Text OCR (ja-JP) ──▶   Shift/click → lookup → popup
@@ -125,9 +125,9 @@ defaults. Settings covers the common keys; the rest are edit-and-restart.
 
 **Deploying a change is: quit the app, relaunch.** No rebuild — the `.app`
 bundle contains only a loader that reads `main.js`, `index.html` and `lookup.js`
-from this directory and spawns `kindleocr` from it. That is also what makes the
+from this directory and spawns `yomi` from it. That is also what makes the
 macOS permission grants survive every code change (see
-[ARCHITECTURE.md](ARCHITECTURE.md) §6). Rebuilding `kindleocr` or `index.db`
+[ARCHITECTURE.md](ARCHITECTURE.md) §6). Rebuilding `yomi` or `index.db`
 likewise needs only a restart.
 
 ## Troubleshooting
@@ -139,12 +139,12 @@ on screen — macOS does not composite an inactive Space, so there are no pixels
 **Shift does nothing unless the mouse is moving.** Accessibility is not granted.
 
 **Geometry looks wrong** (spans offset from the glyphs). Do not theorise. In
-order: `./bin/kindleocr --dump /tmp/x.png` and *look* at the image; compare the
-`[win] target frame` line in the log against `./bin/kindleocr --list-all`; check
+order: `./bin/yomi --dump /tmp/x.png` and *look* at the image; compare the
+`[win] target frame` line in the log against `./bin/yomi --list-all`; check
 whether the target window is on the active Space. ARCHITECTURE.md §1–4 explains
 each.
 
-**`kindleocr not found`.** Build it (above). If the path in the dialog is not
+**`yomi not found`.** Build it (above). If the path in the dialog is not
 where the project lives, the loader resolved the wrong directory — fix
 `~/Library/Application Support/Yomi Overlay/project-path`, or set
 `YOMI_OVERLAY_DIR`.

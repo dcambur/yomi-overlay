@@ -53,7 +53,7 @@ decisions there are invariants for every phase below.
 
 ## Progress log
 
-- **2026-08-08 — Phase 0 landed.** `kindleocr --image PATH` (recognize a PNG,
+- **2026-08-08 — Phase 0 landed.** `yomi --image PATH` (recognize a PNG,
   no SCK/permission), `test/cer.py` (NFKC + Levenshtein, per-category,
   `--from-json` for foreign engines), `test/gt/` scaffold + README. Synthetic
   smoke crops only so far — **the real 100-crop set is still to collect.**
@@ -133,7 +133,7 @@ decisions there are invariants for every phase below.
     to Phase 3's second engine (independent error distribution).
 - **2026-08-08 — Phase 3 landed (shadow mode).** manga-ocr Tier-2 chain, all
   links verified: renderer sends the matched word's exact glyph-box union →
-  `main.js` throttles (400 ms) → kindleocr crop command channel (stdin
+  `main.js` throttles (400 ms) → yomi crop command channel (stdin
   `crop id x y w h path`, served from the LAST captured frame on the main
   loop — no second SCK session, replies never interleave with payload
   writes, 2x upscale) → `overlay/mangaocr_sidecar.py` (venv, MPS, NDJSON,
@@ -196,7 +196,7 @@ decisions there are invariants for every phase below.
     CER regressions zero. (One suite timeout traced to the overlay running
     concurrently — the documented SCK conflict, not a code fault.)
 - **2026-08-08 — Phase 5 landed: cell splitter rebuilt + quad re-anchoring.**
-  New instrumentation first: `kindleocr --cells` + `test/cellbench.py`
+  New instrumentation first: `yomi --cells` + `test/cellbench.py`
   (renders exact-grid pages across a size×pitch matrix, scores cells with no
   recognizer in the loop). Baseline: recall 0.39–0.77, fragment/merge chaos
   below 20px. Splitter rebuilt (columns stay coarse; per-column rows at
@@ -315,7 +315,7 @@ gated on numbers from this harness.
 ### 0.1 Ground-truth set
 - Collect **100 crops**: 20 each of (a) horizontal Kindle, (b) tategaki Kindle
   *with furigana*, (c) manga bubbles, (d) a game, (e) a browser page.
-- Capture crops with the existing `kindleocr --dump /tmp/x.png` path (stop the
+- Capture crops with the existing `yomi --dump /tmp/x.png` path (stop the
   overlay first — concurrent SCK sessions stall one-shot captures).
 - Hand-transcribe each into a sidecar `.txt` (same basename). Store under
   `test/gt/{horizontal,tategaki,manga,game,browser}/`.
@@ -329,9 +329,9 @@ gated on numbers from this harness.
 - Input: engine output text + ground truth. Pipeline: strip `#ruby:` lines
   (flag to include), NFKC-normalize both sides, strip whitespace, compute
   character-level Levenshtein. Report per-crop CER and per-category mean.
-- Engine adapters: initially one — run `kindleocr` one-shot on a crop image.
+- Engine adapters: initially one — run `yomi` one-shot on a crop image.
   Add a `--from-json` mode reading any engine's text output so later engines
-  (Live Text, manga-ocr, PaddleOCR) reuse the same scorer. `kindleocr` needs a
+  (Live Text, manga-ocr, PaddleOCR) reuse the same scorer. `yomi` needs a
   small `--image PATH` mode (recognize a PNG from disk instead of capturing) —
   add it to `parseArgs()` (`KindleOCR.swift:65`) and route into
   `recognizeAuto` with a null geometry; this also makes every later
@@ -365,7 +365,7 @@ No new process. Bind the private classes at runtime (Swift can do everything
   `.quad().boundingBox()`, `.children()` (children are per-character quads
   for CJK — `VKWKLineInfo.children` of `VKWKTextInfo`, each with a quad).
 - Drive it headless with a `CFRunLoopRunInMode` spin (the ocrmac pattern);
-  no NSApplication needed — kindleocr already runs as a CLI.
+  no NSApplication needed — yomi already runs as a CLI.
 
 ### 1.2 Availability probe + fallback chain (mandatory, WebKit pattern)
 - At startup: probe `NSClassFromString` for both classes **and** run a canary
@@ -496,7 +496,7 @@ log disagreements vs Tier 1, promote only on measured CER win.
 There is no Python-at-runtime precedent in the repo (Python is build-time
 only) — this creates one, deliberately minimal:
 - Long-running process, spawned/supervised by `main.js` exactly like the two
-  `kindleocr` children (`startOCR()` pattern at `main.js:207`, incl. the
+  `yomi` children (`startOCR()` pattern at `main.js:207`, incl. the
   backoff/restart logic at `:283-290`). Model loads once, stays warm.
 - Protocol: NDJSON over stdin/stdout — request
   `{"id":n,"image":"/path/crop.png"}`, reply
@@ -521,7 +521,7 @@ low-confidence line, or explicit config `tier2.mode: 'always'|'gated'|'off'`.
 - Renderer → `preload.js` → `main.js`: new IPC `tier2Lookup(lineRect)` carrying
   the line's frame-space rect (renderer already has per-char boxes; union the
   line).
-- `main.js` → `kindleocr`: add a **stdin command channel** to the watch
+- `main.js` → `yomi`: add a **stdin command channel** to the watch
   process — a line `crop x y w h path\n` makes it write that sub-rect of the
   *last captured frame* (upscaled 2×, matching PLAN.md's cursor-region
   re-OCR idea) to `path` and ack on stdout as

@@ -81,7 +81,7 @@ racing something.
 
 - **Deploying a change = quit and relaunch the app.** No rebuild. See
   [ARCHITECTURE.md](ARCHITECTURE.md) §6.
-- Rebuild `kindleocr` with `ocr/build.sh`.
+- Rebuild `yomi` with `ocr/build.sh`.
 - Rebuild the app bundle (`tools/build-app.sh`) only when `bootstrap.js`,
   `extend.plist`, the icon, or the Electron version changes.
 - Re-run `tools/build-index.py` after adding dictionaries to `data/dicts/`.
@@ -92,7 +92,7 @@ racing something.
 
 ## Gotchas that will bite again
 
-- Concurrent SCK sessions: a running overlay makes one-shot `kindleocr` captures
+- Concurrent SCK sessions: a running overlay makes one-shot `yomi` captures
   hang. Stop the app before testing.
 - Ordinary windows cannot join another app's fullscreen Space; a test rig that
   must be visible there needs `type: 'panel'` + `visibleOnFullScreenScreen`.

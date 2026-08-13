@@ -1,6 +1,6 @@
 // The coordinate spaces this pipeline moves boxes between.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

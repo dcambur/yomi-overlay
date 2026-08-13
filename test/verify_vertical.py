@@ -15,7 +15,7 @@ import json, pathlib, subprocess, sys, time, urllib.request
 
 # Derived, not written down: a literal path only describes one checkout.
 REPO = pathlib.Path(__file__).resolve().parent.parent
-# Where kindleocr lives is not this suite's business — ask the one file
+# Where yomi lives is not this suite's business — ask the one file
 # that knows the layout. Keeps the suites working across a move.
 sys.path.insert(0, str(REPO / "tools"))
 from paths import OCR_BIN

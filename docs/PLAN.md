@@ -43,7 +43,7 @@ What was planned vs what measurement forced:
   column). The plan's "rotate + map boxes back" step is dead — kept here so
   it is not re-proposed.
 - ✅ **Reflow engine instead** (`tategakiCells` / `reflowStrip` in
-  KindleOCR.swift): ink-mask column detection → ink-run character cells
+  ocr/Sources/Geometry/Tategaki.swift): ink-mask column detection → ink-run character cells
   (NOT fixed-pitch — line spacing is a reader setting; assuming 1 em cut
   glyphs in half) → upright cells composed into a horizontal strip → Vision
   reads the strip natively → each recognised character maps back to its

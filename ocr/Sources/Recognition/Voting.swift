@@ -1,6 +1,6 @@
 // Majority vote across re-reads of a static page.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

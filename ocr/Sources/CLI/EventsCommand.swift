@@ -2,7 +2,7 @@
 // capture or recognition; it exists because the overlay panel cannot
 // see these events itself.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

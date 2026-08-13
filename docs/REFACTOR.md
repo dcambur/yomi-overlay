@@ -102,7 +102,7 @@ a comment but does not express in a type.
 ```
 reader/
   KindleOCR.swift      2756-line monolith at the root
-  kindleocr            the binary it builds, beside it
+  yomi            the binary it builds, beside it
   setup.sh
   overlay/             ← five unrelated things at one level:
     main.js …            main process
@@ -121,7 +121,7 @@ Neither domain- nor feature-separated. Source and generated data are
 interleaved; `.gitignore` needs six entries to describe which is which.
 
 **The reason it is like this is real, and any restructure must respect it:**
-`paths.js` sets `DATA_DIR = __dirname` and `OCR_BIN = DATA_DIR/../kindleocr`,
+`paths.js` sets `DATA_DIR = __dirname` and `OCR_BIN = DATA_DIR/../yomi`,
 i.e. *code location and data location are deliberately the same directory*, and
 `shell/bootstrap.js` finds the app by probing that directory for `main.js`.
 That coupling is what makes ARCHITECTURE §6 work (restart, don't rebuild;
@@ -141,7 +141,7 @@ verification gate below meaningful.
 The prerequisite for every folder change. Today, seven places independently
 know the layout: `paths.js`, `shell/bootstrap.js`, `build-app.sh`, `setup.sh`,
 `build-index.py`, `main.js` (the `.venv` path, line 450), and four test scripts
-(`REPO / "kindleocr"`).
+(`REPO / "yomi"`).
 
 Replace `paths.js` with a resolver that separates the three roots that are
 currently one:
@@ -150,7 +150,7 @@ currently one:
 PROJECT_ROOT   // from YOMI_OVERLAY_DIR / the pointer file — what bootstrap found
 APP_DIR        // JS that the bundle loads
 DATA_DIR       // index.db, dictionaries.json, config.json, dicts/
-BIN_DIR        // kindleocr
+BIN_DIR        // yomi
 TOOLS_DIR      // .venv, mangaocr_sidecar.py
 ```
 
@@ -193,7 +193,7 @@ reader/
     build-app.sh    paths.sh  paths.py
   data/                   gitignored: index.db, dictionaries.json,
                           config.json, dicts/, .venv/
-  bin/                    gitignored: kindleocr
+  bin/                    gitignored: yomi
   test/
   docs/                   ARCHITECTURE.md CONVENTIONS.md PLAN.md
                           INTEGRATION.md REFACTOR.md
@@ -209,7 +209,7 @@ commit, no content edits); app launches; `test/` runs green.
 ### Stage 2 — Split `KindleOCR.swift` (2–3 days)
 
 Mechanical extraction first. `swiftc` takes a file list, so the build becomes
-`swiftc -O -parse-as-library ocr/Sources/*.swift -o bin/kindleocr` — no
+`swiftc -O -parse-as-library ocr/Sources/*.swift -o bin/yomi` — no
 `Package.swift` needed, and the "single command, no manifest" property in
 CONVENTIONS.md survives.
 
@@ -273,7 +273,7 @@ Then, in separate commits, the four abstractions:
    recognition function.
 
 **Gate — this is the important one.** Before any Swift edit, capture golden
-output: run `bin/kindleocr --image --json` over the whole `test/gt/` corpus
+output: run `bin/yomi --image --json` over the whole `test/gt/` corpus
 (plus the vertical, furigana and mixed pages) and store the NDJSON. After each
 commit, re-run and diff **byte for byte**. The `--image` path needs no
 permission, no window, and no ScreenCaptureKit session, so it runs anywhere and
@@ -297,7 +297,7 @@ app/main/ndjson.js          lineSplitter(onObject) — kills 3 copies
 app/main/supervised-child.js  class SupervisedChild
 app/main/overlay-window.js  panel lifecycle, ensureCover, show/hide,
                             offset + covers dedupe and dispatch
-app/main/ocr-source.js      the kindleocr watch child; routes idle /
+app/main/ocr-source.js      the yomi watch child; routes idle /
                             heartbeat / capture / crop
 app/main/trigger-source.js  the events child; screen→window coords
 app/main/tier2.js           class Tier2Probe — sidecar lifecycle, queue,
@@ -329,7 +329,7 @@ window(s)`, `[ocr] …`, `[tier2] … agree/DISAGREE`, `layer@`). CONVENTIONS.md
 treats those as load-bearing, so their disappearance is a regression. Then:
 swipe Spaces (overlay hides in ~0.15s, §3), drag a window over the target
 (lookups refuse inside the cover, §2), retarget from settings (glyph layer
-resets), kill `kindleocr` by hand (restarts with backoff), quit via ⌃C (no
+resets), kill `yomi` by hand (restarts with backoff), quit via ⌃C (no
 orphan processes).
 
 ### Stage 4 — Split the renderer (1–2 days)

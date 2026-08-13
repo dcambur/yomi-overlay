@@ -1,7 +1,7 @@
 // Ruby: finding it, erasing it before recognition, and marking what
 // survives as a reading hint rather than text.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

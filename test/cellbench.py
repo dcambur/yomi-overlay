@@ -2,7 +2,7 @@
 """Cell-splitter benchmark — Phase 5.
 
 Renders tategaki grid pages with EXACT known character positions across a
-(font size x char pitch) matrix, runs `kindleocr --image --cells`, and scores
+(font size x char pitch) matrix, runs `yomi --image --cells`, and scores
 the detected cells against truth with no recognizer in the loop.
 
 Metrics per page:
@@ -23,10 +23,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
-# Where kindleocr lives is not this suite's business — ask the one file
+# Where yomi lives is not this suite's business — ask the one file
 # that knows the layout. Keeps the suites working across a move.
 sys.path.insert(0, str(HERE.parent / "tools"))
-from paths import OCR_BIN as KINDLEOCR
+from paths import OCR_BIN as YOMI_BIN
 OUT = Path("/tmp/cellbench")
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 
@@ -63,7 +63,7 @@ def render(size, pitch):
 
 
 def score(path, truth):
-    r = subprocess.run([str(KINDLEOCR), "--image", str(path), "--cells"],
+    r = subprocess.run([str(YOMI_BIN), "--image", str(path), "--cells"],
                        capture_output=True, text=True, timeout=60)
     cols = json.loads(r.stdout)["columns"]
     cells = [c for col in cols for c in col]

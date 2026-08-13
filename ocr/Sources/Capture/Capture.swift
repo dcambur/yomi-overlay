@@ -1,4 +1,4 @@
-// KindleOCR — capture ONLY the Kindle window, OCR Japanese text, emit plain text.
+// yomi — capture ONLY the target window, OCR Japanese text, emit plain text.
 //
 // Scoping guarantee: the capture filter is constructed from a single SCWindow
 // belonging to the Kindle process. There is no code path that captures the
@@ -8,7 +8,7 @@
 // Turning a chosen window into pixels plus truthful geometry.
 // ARCHITECTURE section 1 lives here.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation

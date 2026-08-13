@@ -1,6 +1,6 @@
 // Every flag the tool accepts, and how it is parsed.
 //
-// Split from the single-file KindleOCR.swift; see docs/REFACTOR.md.
+// Split from the original single-file OCR helper; see docs/REFACTOR.md.
 
 import AppKit
 import Foundation
@@ -96,7 +96,7 @@ func parseArgs() -> Options {
         case "--out", "-o": o.outPath = it.next()
         case "--help", "-h":
             print("""
-            kindleocr — OCR the Kindle window only
+            yomi — OCR the Kindle window only
 
               --list          list matching windows and exit
               --list-all      list every capturable window as JSON and exit

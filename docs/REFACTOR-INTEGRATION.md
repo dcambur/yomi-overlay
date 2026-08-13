@@ -125,7 +125,7 @@ Before touching anything, read in this order:
 Then confirm the environment:
 
 ```bash
-cd reader && ls bin/kindleocr 2>/dev/null || ls kindleocr
+cd reader && ls bin/yomi 2>/dev/null || ls yomi
 ```
 
 **GUI apps cannot be launched from an agent shell.** Every gate below that says
@@ -139,7 +139,7 @@ Batch those requests — do not interrupt per step.
 **Goal:** a byte-exact regression net that runs without permissions, without a
 window, and while the overlay is running.
 
-`kindleocr --image` is the ideal harness and already exists: it needs no
+`yomi --image` is the ideal harness and already exists: it needs no
 ScreenCaptureKit session, no Screen Recording grant, and no target window.
 
 ### Actions
@@ -148,7 +148,7 @@ ScreenCaptureKit session, no Screen Recording grant, and no target window.
 
 ```bash
 #!/bin/bash
-# Golden-master harness for the refactor. Runs kindleocr over every ground-truth
+# Golden-master harness for the refactor. Runs yomi over every ground-truth
 # image and writes one NDJSON file per image. Structural changes must not move
 # a single byte of the output.
 #
@@ -156,7 +156,7 @@ ScreenCaptureKit session, no Screen Recording grant, and no target window.
 #   test/golden.sh check   baseline    # diff current against it
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OCR="${KINDLEOCR:-$HERE/../kindleocr}"
+OCR="${YOMI_BIN:-$HERE/../yomi}"
 MODE="${1:?usage: golden.sh record|check DIR}"
 OUT="${2:?usage: golden.sh record|check DIR}"
 DEST="$HERE/golden/$OUT"
@@ -218,7 +218,7 @@ diff -r test/golden/probe-a test/golden/probe-b && echo "DETERMINISTIC"
 Today seven places independently know the layout: `overlay/paths.js`,
 `overlay/shell/bootstrap.js`, `overlay/build-app.sh`, `setup.sh`,
 `overlay/build-index.py`, `overlay/main.js:450` (the `.venv` path), and four
-test scripts (`REPO / "kindleocr"`).
+test scripts (`REPO / "yomi"`).
 
 ### Actions
 
@@ -228,7 +228,7 @@ test scripts (`REPO / "kindleocr"`).
 PROJECT_ROOT   // from YOMI_OVERLAY_DIR or the pointer file — what bootstrap found
 APP_DIR        // the JS the bundle loads
 DATA_DIR       // index.db, dictionaries.json, config.json, dicts/
-BIN_DIR        // kindleocr
+BIN_DIR        // yomi
 TOOLS_DIR      // .venv, mangaocr_sidecar.py
 ```
 
@@ -269,7 +269,7 @@ from Step 2 and `bootstrap.js`'s `FALLBACK`.**
 reader/
   ocr/
     Sources/*.swift
-    build.sh                      swiftc -O -parse-as-library Sources/*.swift -o ../bin/kindleocr
+    build.sh                      swiftc -O -parse-as-library Sources/*.swift -o ../bin/yomi
   app/
     main.js                       entry the bundle loads (thin wiring)
     main/                         main-process modules
@@ -284,7 +284,7 @@ reader/
     build-app.sh    paths.sh  paths.py
   data/                           gitignored: index.db, dictionaries.json,
                                   config.json, dicts/, .venv/
-  bin/                            gitignored: kindleocr
+  bin/                            gitignored: yomi
   test/
   docs/                           ARCHITECTURE CONVENTIONS PLAN INTEGRATION
                                   REFACTOR REFACTOR-INTEGRATION
@@ -379,7 +379,7 @@ Per file, apply the house layout: `// MARK: - Label` at file scope (no hyphen
 inside a type), contents ordered most-visible-first.
 
 Update `ocr/build.sh` and `tools/build-app.sh` to
-`swiftc -O -parse-as-library ocr/Sources/*.swift -o bin/kindleocr`. (Verified
+`swiftc -O -parse-as-library ocr/Sources/*.swift -o bin/yomi`. (Verified
 working with globals across files and `@main` in any file.)
 
 **Gate after 4a:** `test/golden.sh check baseline` → `GOLDEN OK`. Byte-exact.
@@ -468,7 +468,7 @@ app/main/ndjson.js             lineSplitter(onObject)  ← kills 3 copies
 app/main/supervised-child.js   class SupervisedChild
 app/main/overlay-window.js     panel lifecycle, ensureCover, show/hide,
                                offset + covers dedupe and dispatch
-app/main/ocr-source.js         the kindleocr watch child; routes
+app/main/ocr-source.js         the yomi watch child; routes
                                idle / heartbeat / capture / crop
 app/main/trigger-source.js     the events child; screen→window coords
 app/main/tier2.js              class Tier2Probe + editDistance (its only caller)
@@ -517,9 +517,9 @@ a regression.
 | swipe to another Space | overlay hides in ~0.15s (`[win] hidden — target has no visible window`) |
 | drag a window over the target | `[win] covered by 1 window(s)`; lookups inside it do nothing |
 | retarget in settings | glyph layer resets; `[win] target frame …` for the new window |
-| `pkill kindleocr` | `[ocr] kindleocr exited …; restarting in 1000ms`, then recovery |
+| `pkill yomi` | `[ocr] yomi exited …; restarting in 1000ms`, then recovery |
 | hover a word twice | `[tier2] …ms d=… agree` or `DISAGREE` |
-| quit with ⌃C | no orphan `kindleocr` (`pgrep kindleocr` empty) |
+| quit with ⌃C | no orphan `yomi` (`pgrep yomi` empty) |
 
 ---
 

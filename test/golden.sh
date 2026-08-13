@@ -1,7 +1,7 @@
 #!/bin/bash
 # Golden-master harness for the refactor (REFACTOR-INTEGRATION.md step 0).
 #
-# Runs kindleocr over a fixed image corpus and stores one NDJSON payload plus
+# Runs yomi over a fixed image corpus and stores one NDJSON payload plus
 # one stderr transcript per image. A STRUCTURAL change must not move a single
 # byte of either. Behaviour changes are expected to move bytes — that is the
 # point: this harness is what makes "move code, or change code, never both"
@@ -28,16 +28,16 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Where kindleocr lives is not this harness's business — ask the one file that
-# knows the layout. KINDLEOCR still overrides, for A/B-ing two builds.
+# Where yomi lives is not this harness's business — ask the one file that
+# knows the layout. YOMI_BIN still overrides, for A/B-ing two builds.
 . "$HERE/../tools/paths.sh"
-OCR="${KINDLEOCR:-$OCR_BIN}"
+OCR="${YOMI_BIN:-$OCR_BIN}"
 CORPUS="$HERE/golden-corpus.txt"
 
 MODE="${1:-}"
 NAME="${2:-}"
 [ -n "$MODE" ] && [ -n "$NAME" ] || { echo "usage: golden.sh record|check NAME" >&2; exit 2; }
-[ -x "$OCR" ] || { echo "no kindleocr at $OCR" >&2; exit 2; }
+[ -x "$OCR" ] || { echo "no yomi at $OCR" >&2; exit 2; }
 [ -f "$CORPUS" ] || { echo "no corpus list at $CORPUS" >&2; exit 2; }
 
 run_corpus() {
