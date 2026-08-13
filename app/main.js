@@ -737,7 +737,7 @@ ipcMain.handle('cfg:windows', async () => {
       // Never offer our own overlay, and drop helper popovers (autofill
       // panels, notification chrome) that are never a reading surface.
       const skip = new Set([
-        'com.github.Electron', 'local.kindleoverlay',
+        'com.github.Electron', 'local.yomioverlay',
         'com.apple.SafariPlatformSupport.Helper',
         'com.apple.notificationcenterui', 'com.apple.controlcenter',
         'com.apple.spotlight', 'com.raycast.macos',
