@@ -1,14 +1,14 @@
 // Transparent overlay pinned to the Kindle window, carrying an invisible
 // text layer positioned over the real glyphs. Hold Shift and point at a word.
 //
-// Scoping: kindleocr only ever captures the Kindle window (see KindleOCR.swift).
+// Scoping: kindleocr only ever captures the Kindle window (see ocr/Sources/KindleOCR.swift).
 // This process renders on top of it and never reads any other window.
 
 const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, dialog, shell,
         systemPreferences, screen } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
-const { lookup, open: openDict, initTransformer } = require('./lookup.js');
+const { lookup, open: openDict, initTransformer } = require('./main/lookup.js');
 
 // Launched from Spotlight there is no terminal, so stdout goes nowhere and a
 // startup failure is invisible. Mirror everything to a file.
@@ -31,10 +31,10 @@ process.on('unhandledRejection', e => logf('UNHANDLED', e && e.stack || e));
 process.on('exit', c => logf('process exit code=' + c));
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
-const cfg = require('./config.js');
+const cfg = require('./main/config.js');
 
 const { OCR_BIN: KINDLEOCR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
-        ASSETS_DIR, TOOLS_DIR } = require('./paths.js');
+        ASSETS_DIR, TOOLS_DIR, VENV_DIR } = require('./paths.js');
 
 // Shown in the app switcher and menu bar instead of "Electron".
 app.setName('Yomi Overlay');
@@ -96,7 +96,7 @@ function reportSpawnFailure(what, err) {
     message: 'Yomi Overlay cannot find its capture helper.',
     detail:
       `Expected it at:\n${KINDLEOCR}\n\n` +
-      'Build it with:\n  swiftc -O -parse-as-library KindleOCR.swift -o kindleocr\n\n' +
+      'Build it with:\n  ocr/build.sh\n\n' +
       'If that path is not where the project lives, the loader resolved the ' +
       'wrong directory — fix ~/Library/Application Support/Yomi Overlay/' +
       'project-path or set YOMI_OVERLAY_DIR.',
@@ -192,7 +192,7 @@ function createWindow() {
     // a fullscreen app.
     type: 'panel',
     webPreferences: {
-      preload: path.join(PRELOAD_DIR, 'preload.js'),
+      preload: path.join(PRELOAD_DIR, 'overlay.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -448,7 +448,7 @@ function pokeSidecarIdle() {
 
 function ensureSidecar() {
   if (sidecar || sidecarDisabled) return;
-  const py = path.join(TOOLS_DIR, '.venv', 'bin', 'python');
+  const py = path.join(VENV_DIR, 'bin', 'python');
   const script = path.join(TOOLS_DIR, 'mangaocr_sidecar.py');
   let p;
   try { p = spawn(py, [script], { cwd: TOOLS_DIR }); }
@@ -465,7 +465,7 @@ function ensureSidecar() {
       // Import/model failure is not transient — degrade honestly, once.
       sidecarDisabled = true;
       logf('[tier2] sidecar unavailable (exit ' + code + '); tier2 off for this session. ' +
-           'Run: cd overlay && python3 -m venv .venv && .venv/bin/pip install manga-ocr');
+           'Run: reader/setup.sh (installs the sidecar venv under data/.venv)');
     } else if (code !== null && code !== 0) {
       logf('[tier2] sidecar exited ' + code + '; will respawn on next request');
     }
@@ -709,7 +709,7 @@ function openSettings() {
   settingsWin = new BrowserWindow({
     width: 560, height: 520, title: 'Overlay Settings',
     webPreferences: {
-      preload: path.join(PRELOAD_DIR, 'preload-settings.js'),
+      preload: path.join(PRELOAD_DIR, 'settings.js'),
       contextIsolation: true, nodeIntegration: false,
     },
   });

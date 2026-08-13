@@ -46,7 +46,7 @@ Electron and it redoes only what is missing. It:
 
 1. creates a stable self-signed **"Yomi Overlay Dev"** signing certificate,
 2. runs `npm install`,
-3. downloads the freely licensed dictionaries (`overlay/fetch-dicts.py`),
+3. downloads the freely licensed dictionaries (`tools/fetch-dicts.py`),
 4. builds `index.db` (a few minutes),
 5. installs the optional manga-ocr sidecar venv (skippable; the app runs
    without it),
@@ -60,7 +60,7 @@ new certificate, and letting `codesign` use its key. That is the once.
 you will re-run often):
 
 ```bash
-swiftc -O -parse-as-library KindleOCR.swift -o kindleocr
+ocr/build.sh
 ```
 
 ### Permissions — two of them, different failure modes
@@ -77,15 +77,15 @@ says when it is missing.
 
 ### Dictionaries
 
-`overlay/fetch-dicts.py` downloads the freely licensed set: **Jitendex**,
+`tools/fetch-dicts.py` downloads the freely licensed set: **Jitendex**,
 **JMnedict**, **KANJIDIC**, **JPDB** and **BCCWJ** frequency lists.
 
 Commercial monolinguals (三省堂, 明鏡, 旺文社, 実用) and NHK pitch accent are
 **not** fetched and are not redistributed here. Drop your own Yomitan `.zip`
-files into `overlay/dicts/` and re-run:
+files into `data/dicts/` and re-run:
 
 ```bash
-python3 overlay/build-index.py
+python3 tools/build-index.py
 ```
 
 Any zip is classified by the banks it contains, so a dictionary you add is
@@ -108,7 +108,7 @@ fire) is in Settings → Lookup.
 
 ## Configuration
 
-`overlay/config.json` is written on first launch; `overlay/config.js` holds the
+`data/config.json` is written on first launch; `app/main/config.js` holds the
 defaults. Settings covers the common keys; the rest are edit-and-restart.
 
 | Key | Default | Meaning |
@@ -139,8 +139,8 @@ on screen — macOS does not composite an inactive Space, so there are no pixels
 **Shift does nothing unless the mouse is moving.** Accessibility is not granted.
 
 **Geometry looks wrong** (spans offset from the glyphs). Do not theorise. In
-order: `./kindleocr --dump /tmp/x.png` and *look* at the image; compare the
-`[win] target frame` line in the log against `./kindleocr --list-all`; check
+order: `./bin/kindleocr --dump /tmp/x.png` and *look* at the image; compare the
+`[win] target frame` line in the log against `./bin/kindleocr --list-all`; check
 whether the target window is on the active Space. ARCHITECTURE.md §1–4 explains
 each.
 
@@ -163,13 +163,13 @@ measurement log.
 
 | Path | Role |
 |---|---|
-| [KindleOCR.swift](KindleOCR.swift) | window selection, capture, OCR, per-glyph geometry, tategaki reflow, furigana stripping, global event monitor |
-| [overlay/main.js](overlay/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
-| [overlay/index.html](overlay/index.html) | glyph layer, hit-testing, popup show/dismiss state |
-| [overlay/popup.js](overlay/popup.js) | popup presentation — markup, pitch graphs, placement |
-| [overlay/lookup.js](overlay/lookup.js) | multi-length lookup + Yomitan deinflection |
-| [overlay/build-index.py](overlay/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
-| [overlay/shell/bootstrap.js](overlay/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory |
+| [ocr/Sources/](ocr/Sources/) | window selection, capture, OCR, per-glyph geometry, tategaki reflow, furigana stripping, global event monitor |
+| [app/main.js](app/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
+| [app/renderer/index.html](app/renderer/index.html) | glyph layer, hit-testing, popup show/dismiss state |
+| [app/renderer/popup.js](app/renderer/popup.js) | popup presentation — markup, pitch graphs, placement |
+| [app/main/lookup.js](app/main/lookup.js) | multi-length lookup + Yomitan deinflection |
+| [tools/build-index.py](tools/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
+| [app/shell/bootstrap.js](app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory |
 | [test/](test/) | alignment/selection suites and the CER harness |
 
 Tests take ground truth from a live DOM (`Range.getBoundingClientRect()` of real
@@ -190,7 +190,7 @@ not in the repo — regenerate with `test/gt/gen_aozora.py`.
 
 **GPL-3.0-or-later** — see [LICENSE](LICENSE).
 
-`overlay/yomitan/` is taken from [yomidevs/yomitan](https://github.com/yomidevs/yomitan)
+`app/vendor/yomitan/` is taken from [yomidevs/yomitan](https://github.com/yomidevs/yomitan)
 (GPL-3.0), unmodified apart from two import paths. It provides the real,
 condition-typed transform chains — not a reimplementation — so 信じられている
 resolves to 信じる. That vendored code is why this project is GPL-3.0.

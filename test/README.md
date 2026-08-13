@@ -13,7 +13,7 @@ Verifies the full pipeline against ground truth, no eyeballing:
 3. **Scroll** — scroll 900px, re-extract DOM truth, re-assert.
 4. **E2E** — runs the actual overlay pinned to the kakuyomu window and asserts
    the rendered layer position (the renderer's `layer@` log line) against an
-   independent OCR pass. Backs up and restores `overlay/config.json`.
+   independent OCR pass. Backs up and restores `data/config.json`.
 
 Run:
 
@@ -24,7 +24,7 @@ python3 verify.py                                                       # ~1 min
 curl -s http://127.0.0.1:43199/quit                                     # tear down
 ```
 
-Needs: built `../kindleocr`, network (loads kakuyomu.jp), Screen Recording
+Needs: built `../bin/kindleocr`, network (loads kakuyomu.jp), Screen Recording
 granted to the terminal's host app. The overlay app should not already be
 running (E2E launches its own instance; single-instance lock would fire).
 

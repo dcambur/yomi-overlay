@@ -8,7 +8,7 @@ benchmark data; exclude them from reported numbers once real crops exist.
 ## Collecting a crop
 
 1. Stop the overlay (a running watch loop stalls one-shot SCK captures).
-2. Put real content on screen, then: `../../kindleocr --dump /tmp/page.png`
+2. Put real content on screen, then: `../../bin/kindleocr --dump /tmp/page.png`
    (or any screenshot). Crop the region you'll transcribe (Preview, or
    `sips -c`). Save as `<category>/<shortname>.png`.
 3. Hand-type the truth into `<category>/<shortname>.txt`:

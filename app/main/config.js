@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { DATA_DIR } = require('./paths.js');
+const { DATA_DIR } = require('../paths.js');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const MANIFEST_PATH = path.join(DATA_DIR, 'dictionaries.json');
 

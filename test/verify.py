@@ -16,10 +16,10 @@ import json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.requ
 REPO = pathlib.Path(__file__).resolve().parent.parent
 # Where kindleocr lives is not this suite's business — ask the one file
 # that knows the layout. Keeps the suites working across a move.
-sys.path.insert(0, str(REPO / "overlay"))
+sys.path.insert(0, str(REPO / "tools"))
 from paths import OCR_BIN
 OCR = str(OCR_BIN)
-OVERLAY_DIR = str(REPO / "overlay")
+OVERLAY_DIR = str(REPO / "tools")
 ELECTRON = OVERLAY_DIR + "/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 LOG = "/tmp/yomi-overlay.log"
 

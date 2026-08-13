@@ -23,7 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const FALLBACK = '/Users/dcambur/Desktop/kindle_stuff/reader/overlay';
+const FALLBACK = '/Users/dcambur/Desktop/kindle_stuff/reader/app';
 // A pointer file means moving the project needs no rebuild either — just edit
 // this one line of text.
 const POINTER = path.join(

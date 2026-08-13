@@ -14,10 +14,11 @@ from pathlib import Path
 # This file sits one level below the checkout root.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-APP_DIR = PROJECT_ROOT / "overlay"
-DATA_DIR = APP_DIR
-TOOLS_DIR = APP_DIR
-BIN_DIR = PROJECT_ROOT
+APP_DIR = PROJECT_ROOT / "app"
+DATA_DIR = PROJECT_ROOT / "data"
+TOOLS_DIR = PROJECT_ROOT / "tools"
+BIN_DIR = PROJECT_ROOT / "bin"
+VENV_DIR = DATA_DIR / ".venv"
 
 DICTS = DATA_DIR / "dicts"
 INDEX_DB = DATA_DIR / "index.db"

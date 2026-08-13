@@ -16,14 +16,14 @@ kindleocr (Swift CLI)                Yomi Overlay (Electron)
 
 | File | Role |
 |---|---|
-| [KindleOCR.swift](KindleOCR.swift) | window selection, capture, OCR, per-glyph geometry, window enumeration, global event monitor |
-| [overlay/main.js](overlay/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
-| [overlay/index.html](overlay/index.html) | glyph layer, hit-testing, popup show/dismiss state |
-| [overlay/popup.js](overlay/popup.js) | popup presentation only (markup, pitch graphs, placement) via `window.popupView` |
-| [overlay/lookup.js](overlay/lookup.js) | multi-length lookup + Yomitan deinflection (main process: `node:sqlite` is sync) |
-| [overlay/build-index.py](overlay/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
-| [overlay/shell/bootstrap.js](overlay/shell/bootstrap.js) | the *entire* app bundle; loads real code from this directory |
-| [test/](test/) | deterministic alignment/selection suites |
+| [ocr/Sources/](../ocr/Sources/) | window selection, capture, OCR, per-glyph geometry, window enumeration, global event monitor |
+| [app/main.js](../app/main.js) | panel, child-process supervision, tray, settings, IPC, permissions |
+| [app/renderer/index.html](../app/renderer/index.html) | glyph layer, hit-testing, popup show/dismiss state |
+| [app/renderer/popup.js](../app/renderer/popup.js) | popup presentation only (markup, pitch graphs, placement) via `window.popupView` |
+| [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + Yomitan deinflection (main process: `node:sqlite` is sync) |
+| [tools/build-index.py](../tools/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` |
+| [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads real code from this directory |
+| [test/](../test/) | deterministic alignment/selection suites |
 
 ## The load-bearing decisions
 
@@ -154,7 +154,7 @@ macOS keys Screen Recording and Accessibility to the app's designated
 requirement. The bundle holds only `shell/bootstrap.js`, which loads `main.js`
 from the project directory at launch. Ordinary code changes need a **restart, not
 a rebuild**, and the bundle's hash never moves. A stable self-signed certificate
-(created by [setup.sh](setup.sh)) makes the requirement certificate-based so even
+(created by [setup.sh](../setup.sh)) makes the requirement certificate-based so even
 a real repackage keeps the grants.
 
 **Deployment is: quit the app, relaunch.** Nothing else. This includes a rebuilt

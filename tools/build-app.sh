@@ -31,7 +31,8 @@ BUILT="$OUT/$APP_NAME-darwin-arm64/$APP_NAME.app"
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
 
 echo "==> Building the Swift capture helper"
-swiftc -O -parse-as-library "$OCR_SRC" -o "$OCR_BIN"
+mkdir -p "$BIN_DIR"
+swiftc -O -parse-as-library "$OCR_SRC"/*.swift -o "$OCR_BIN"
 
 echo "==> Packaging the loader shell (Electron $ELECTRON_VERSION)"
 rm -rf "$OUT"
@@ -39,10 +40,10 @@ npx --yes @electron/packager "$SHELL_DIR" "$APP_NAME" \
   --platform=darwin --arch=arm64 \
   --electron-version="$ELECTRON_VERSION" \
   --app-bundle-id=local.yomioverlay \
-  --extend-info="$APP_DIR/extend.plist" \
+  --extend-info="$TOOLS_DIR/extend.plist" \
   --out="$OUT" --overwrite >/dev/null
 
-cp "$APP_DIR/icon.icns" "$BUILT/Contents/Resources/electron.icns"
+cp "$TOOLS_DIR/icon.icns" "$BUILT/Contents/Resources/electron.icns"
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
   echo "==> Signing with \"$IDENTITY\" (stable identity — permissions survive)"

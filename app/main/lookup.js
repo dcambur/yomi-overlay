@@ -9,7 +9,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const { DATA_DIR } = require('./paths.js');
+const { DATA_DIR } = require('../paths.js');
 const DB_PATH = path.join(DATA_DIR, 'index.db');
 const cfg = require('./config.js');
 
@@ -61,8 +61,8 @@ function open() {
 /** Yomitan's transformer is ESM; load it once, asynchronously. */
 async function initTransformer() {
   if (transformer) return transformer;
-  const { LanguageTransformer } = await import('./yomitan/language-transformer.js');
-  const { japaneseTransforms } = await import('./yomitan/japanese-transforms.js');
+  const { LanguageTransformer } = await import('../vendor/yomitan/language-transformer.js');
+  const { japaneseTransforms } = await import('../vendor/yomitan/japanese-transforms.js');
   const lt = new LanguageTransformer();
   lt.addDescriptor(japaneseTransforms);
   transformer = lt;

@@ -34,30 +34,34 @@ const APP_DIR = process.env.YOMI_OVERLAY_DIR || __dirname;
 const PROJECT_ROOT = path.resolve(APP_DIR, '..');
 
 /** Overlay window: index.html and its scripts. */
-const RENDERER_DIR = APP_DIR;
+const RENDERER_DIR = path.join(APP_DIR, 'renderer');
 
 /** Settings window: settings.html and its script. */
-const SETTINGS_DIR = APP_DIR;
+const SETTINGS_DIR = path.join(APP_DIR, 'settings');
 
 /** Preload scripts — the entire trust boundary between renderer and Node. */
-const PRELOAD_DIR = APP_DIR;
+const PRELOAD_DIR = path.join(APP_DIR, 'preload');
 
 /** Tray icons and other bundled image assets. */
-const ASSETS_DIR = APP_DIR;
+const ASSETS_DIR = path.join(APP_DIR, 'assets');
 
 /** Generated + user data: index.db, dictionaries.json, config.json, dicts/. */
-const DATA_DIR = APP_DIR;
+const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 
-/** Build/side scripts and the Python venv the tier-2 sidecar runs in. */
-const TOOLS_DIR = APP_DIR;
+/** Build and side scripts, including the tier-2 sidecar. */
+const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');
+
+/** The Python venv the tier-2 sidecar runs in. ~2 GB, so it lives with the
+ *  other generated bulk under data/ rather than beside the tracked scripts. */
+const VENV_DIR = path.join(DATA_DIR, '.venv');
 
 /** Compiled helpers. */
-const BIN_DIR = PROJECT_ROOT;
+const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 
 /** The capture helper. Spawn failures here are reported by name in main.js. */
 const OCR_BIN = path.join(BIN_DIR, 'kindleocr');
 
 module.exports = {
   PROJECT_ROOT, APP_DIR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
-  ASSETS_DIR, DATA_DIR, TOOLS_DIR, BIN_DIR, OCR_BIN,
+  ASSETS_DIR, DATA_DIR, TOOLS_DIR, VENV_DIR, BIN_DIR, OCR_BIN,
 };

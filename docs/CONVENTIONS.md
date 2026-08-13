@@ -30,7 +30,7 @@ history. Every one of them carries the reason and, where it exists, the number:
 
 Do not remove these. Do not add comments that restate the code.
 
-**Tests assert against ground truth, not against ourselves.** [test/](test/)
+**Tests assert against ground truth, not against ourselves.** [test/](../test/)
 takes truth from the live DOM (`Range.getBoundingClientRect()` of real text on a
 real page) and from the window server, then checks the pipeline against it. A
 test that can pass when nothing was captured is a broken test — assert a minimum
@@ -49,9 +49,9 @@ racing something.
 - Keep the "capture only the target window" guarantee visible in any code that
   touches filters. It is a privacy property, not an implementation detail.
 
-### Swift ([KindleOCR.swift](KindleOCR.swift))
+### Swift ([ocr/Sources/](../ocr/Sources/))
 - Single file, no package manifest — built with
-  `swiftc -O -parse-as-library KindleOCR.swift -o kindleocr`.
+  `ocr/build.sh`.
 - 4-space indent, ~90 column soft limit.
 - Emit **NDJSON**, one object per line, `fflush` after each. stdout is data;
   stderr is diagnostics.
@@ -63,7 +63,7 @@ racing something.
 ### JavaScript (main + renderer)
 - CommonJS, 2-space indent, semicolons, single quotes.
 - `contextIsolation: true`, `nodeIntegration: false`. The renderer reaches the
-  main process only through the narrow surface in [overlay/preload.js](overlay/preload.js);
+  main process only through the narrow surface in [app/preload/overlay.js](../app/preload/overlay.js);
   treat everything crossing IPC as untrusted.
 - Heavy/synchronous work (SQLite) lives in the main process so hover never janks.
 - Renderer logs go to the main log via the `console-message` hook — use them,
@@ -81,11 +81,11 @@ racing something.
 
 - **Deploying a change = quit and relaunch the app.** No rebuild. See
   [ARCHITECTURE.md](ARCHITECTURE.md) §6.
-- Rebuild `kindleocr` with `swiftc -O -parse-as-library KindleOCR.swift -o kindleocr`.
-- Rebuild the app bundle (`overlay/build-app.sh`) only when `bootstrap.js`,
+- Rebuild `kindleocr` with `ocr/build.sh`.
+- Rebuild the app bundle (`tools/build-app.sh`) only when `bootstrap.js`,
   `extend.plist`, the icon, or the Electron version changes.
-- Re-run `overlay/build-index.py` after adding dictionaries to `overlay/dicts/`.
-- Before claiming a geometry fix works, run [test/](test/) — all three suites.
+- Re-run `tools/build-index.py` after adding dictionaries to `data/dicts/`.
+- Before claiming a geometry fix works, run [test/](../test/) — all three suites.
   They need the overlay **stopped** (its watch loop holds a ScreenCaptureKit
   session that stalls one-shot captures) and the rig's windows on the active
   Space.

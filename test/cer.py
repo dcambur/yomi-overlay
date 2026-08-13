@@ -16,7 +16,7 @@ Scoring pipeline (applied symmetrically to hypothesis and truth):
   character-level Levenshtein.  CER = distance / len(truth).
 
 Engines:
-  --engine kindleocr   (default) runs ../kindleocr --image CROP and reads
+  --engine kindleocr   (default) runs bin/kindleocr --image CROP and reads
                        stdout text. Add extra engine flags via --engine-arg
                        (e.g. --engine-arg=--vertical for forced tategaki).
   --from-json DIR      score pre-computed outputs instead of running an
@@ -44,7 +44,7 @@ HERE = Path(__file__).resolve().parent
 GT_DIR = HERE / "gt"
 # Where kindleocr lives is not this suite's business — ask the one file
 # that knows the layout. Keeps the suites working across a move.
-sys.path.insert(0, str(HERE.parent / "overlay"))
+sys.path.insert(0, str(HERE.parent / "tools"))
 from paths import OCR_BIN as KINDLEOCR
 # Canonical categories first, then any extra gt/ subdirectory (e.g. the
 # generated aozora_* sets) discovered on disk.
