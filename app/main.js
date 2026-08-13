@@ -10,26 +10,11 @@ const { spawn } = require('child_process');
 const path = require('path');
 const { lookup, open: openDict, initTransformer } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
+const { logf } = require('./main/log.js');
+const { listWindows } = require('./main/window-list.js');
+const { openSettings, closeSettings } = require('./main/settings-window.js');
+const { createTier2 } = require('./main/tier2.js');
 
-// Launched from Spotlight there is no terminal, so stdout goes nowhere and a
-// startup failure is invisible. Mirror everything to a file.
-const LOG = '/tmp/yomi-overlay.log';
-function logf(...a) {
-  const line = `[${new Date().toISOString()}] ${a.join(' ')}\n`;
-  try { require('fs').appendFileSync(LOG, line); } catch {}
-  console.log(...a);
-}
-console.log = ((orig) => (...a) => {
-  try { require('fs').appendFileSync(LOG, a.join(' ') + '\n'); } catch {}
-  orig(...a);
-})(console.log);
-console.error = ((orig) => (...a) => {
-  try { require('fs').appendFileSync(LOG, 'ERR ' + a.join(' ') + '\n'); } catch {}
-  orig(...a);
-})(console.error);
-process.on('uncaughtException', e => logf('UNCAUGHT', e && e.stack || e));
-process.on('unhandledRejection', e => logf('UNHANDLED', e && e.stack || e));
-process.on('exit', c => logf('process exit code=' + c));
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
 const cfg = require('./main/config.js');
@@ -60,7 +45,6 @@ const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
 let win = null;
 let interactive = false;
 let idleTimer = null;
-let settingsWin = null;
 let tray = null;
 let hasScreenRecording = true;
 // The watch process emits a payload, heartbeat, or idle marker every pass, so
@@ -330,6 +314,8 @@ function onTriggerEvent(ev) {
   win.webContents.send('trigger', { type: ev.type, x, y });
 }
 
+const { onCropReply } = createTier2({ ocrChild });
+
 // Global modifier / click monitor. Lets a lookup fire without the cursor
 // having to move — the overlay itself can only see forwarded mouse-move
 // messages.
@@ -347,142 +333,6 @@ const eventsChild = new SupervisedChild({
   logError: (m) => console.error(m),
 });
 
-// ---- Tier 2: manga-ocr second opinion (INTEGRATION.md Phase 3) ----
-//
-// Shadow mode: on a lookup, the matched word's exact region is cropped by the
-// yomi watch process (crop command channel), read by the resident
-// manga-ocr sidecar, and the disagreement with Tier 1 is LOGGED — the popup
-// still shows Tier-1 text. The disagreement rate is the first real accuracy
-// signal and costs a log file. Measured: whole pages/lines make manga-ocr
-// hallucinate (its ViT resizes to 224x224); word-sized crops read at ~14% CER
-// in ~160ms on MPS — so only tight word regions are ever sent.
-let sidecar = null;
-let sidecarReady = false;
-let sidecarBuf = '';
-let sidecarDisabled = false;
-let sidecarIdleTimer = null;
-let tier2Seq = 0;
-let lastTier2At = 0;
-const tier2Pending = new Map();   // id -> {text, conf, t0}
-const tier2Queue = [];            // sidecar requests parked until ready
-
-function tier2Config() {
-  const c = cfg.load().tier2 || {};
-  return { mode: c.mode || 'shadow', idleKillMin: c.idleKillMin ?? 10 };
-}
-
-function editDistance(a, b) {
-  const A = Array.from(a), B = Array.from(b);
-  let prev = Array.from({ length: B.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= A.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= B.length; j++) {
-      cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1,
-                        prev[j - 1] + (A[i - 1] === B[j - 1] ? 0 : 1)));
-    }
-    prev = cur;
-  }
-  return prev[B.length];
-}
-
-function stopSidecar(why) {
-  if (!sidecar) return;
-  logf('[tier2] stopping sidecar (' + why + ')');
-  const p = sidecar; sidecar = null; sidecarReady = false;
-  try { p.stdin.end(); } catch {}
-  setTimeout(() => { try { p.kill(); } catch {} }, 2000);
-}
-
-function pokeSidecarIdle() {
-  if (sidecarIdleTimer) clearTimeout(sidecarIdleTimer);
-  const min = tier2Config().idleKillMin;
-  // The model holds ~1GB resident; on an 8GB machine it must not outlive use.
-  sidecarIdleTimer = setTimeout(() => stopSidecar('idle'), min * 60 * 1000);
-}
-
-function ensureSidecar() {
-  if (sidecar || sidecarDisabled) return;
-  const py = path.join(VENV_DIR, 'bin', 'python');
-  const script = path.join(TOOLS_DIR, 'mangaocr_sidecar.py');
-  let p;
-  try { p = spawn(py, [script], { cwd: TOOLS_DIR }); }
-  catch (e) { sidecarDisabled = true; logf('[tier2] spawn failed: ' + e.message); return; }
-  sidecar = p; sidecarReady = false; sidecarBuf = '';
-  logf('[tier2] sidecar starting (model load takes ~10s)');
-  p.on('error', e => {
-    logf('[tier2] error: ' + e.message);
-    if (sidecar === p) { sidecar = null; sidecarDisabled = true; }
-  });
-  p.on('exit', code => {
-    if (sidecar === p) { sidecar = null; sidecarReady = false; }
-    if (code === 2 || code === 3) {
-      // Import/model failure is not transient — degrade honestly, once.
-      sidecarDisabled = true;
-      logf('[tier2] sidecar unavailable (exit ' + code + '); tier2 off for this session. ' +
-           'Run: reader/setup.sh (installs the sidecar venv under data/.venv)');
-    } else if (code !== null && code !== 0) {
-      logf('[tier2] sidecar exited ' + code + '; will respawn on next request');
-    }
-  });
-  p.stderr.on('data', d => {
-    const s = d.toString().trim();
-    if (s) process.stderr.write('[tier2] ' + s + '\n');
-  });
-  p.stdout.on('data', chunk => {
-    sidecarBuf += chunk.toString();
-    const ls = sidecarBuf.split('\n');
-    sidecarBuf = ls.pop();
-    for (const l of ls) {
-      if (!l.trim()) continue;
-      let r;
-      try { r = JSON.parse(l); } catch { continue; }
-      if (r.ready) {
-        sidecarReady = true;
-        logf('[tier2] ready on ' + r.device);
-        while (tier2Queue.length) p.stdin.write(tier2Queue.shift());
-        continue;
-      }
-      const pend = tier2Pending.get(r.id);
-      if (!pend) continue;
-      tier2Pending.delete(r.id);
-      if (r.error) { logf('[tier2] ocr error: ' + r.error); continue; }
-      const t2 = (r.text || '').normalize('NFKC');
-      const t1 = pend.text.normalize('NFKC');
-      const d = editDistance(t1, t2);
-      // The shadow signal. agree=yes rows build trust; d>0 rows are the
-      // candidate corrections a future non-shadow mode would surface.
-      logf(`[tier2] ${r.ms}ms d=${d} conf=${pend.conf.toFixed(2)} ` +
-           `t1='${t1}' t2='${t2}' ${d === 0 ? 'agree' : 'DISAGREE'}`);
-    }
-  });
-}
-
-function onCropReply(c) {
-  const pend = tier2Pending.get(c.id);
-  if (!pend) return;
-  if (!c.ok) { tier2Pending.delete(c.id); return; }
-  ensureSidecar();
-  if (sidecarDisabled || !sidecar) { tier2Pending.delete(c.id); return; }
-  pokeSidecarIdle();
-  const req = JSON.stringify({ id: c.id, image: c.path }) + '\n';
-  if (sidecarReady) sidecar.stdin.write(req);
-  else tier2Queue.push(req);
-}
-
-ipcMain.on('tier2', (_e, req) => {
-  if (tier2Config().mode === 'off' || sidecarDisabled) return;
-  if (!ocrChild.running || !req || !(req.w > 0 && req.h > 0)) return;
-  const now = Date.now();
-  if (now - lastTier2At < 400) return;   // hover spam guard
-  lastTier2At = now;
-  const id = ++tier2Seq;
-  tier2Pending.set(id, { text: String(req.text || ''), conf: +req.conf || 1, t0: now });
-  // Frame-relative points, the same space the payload's char boxes use.
-  const r = [req.x, req.y, req.w, req.h].map(v => Math.round(v)).join(' ');
-  if (!ocrChild.write(`crop ${id} ${r} /tmp/yomi-t2-${id}.png\n`)) {
-    tier2Pending.delete(id);
-  }
-});
 
 ipcMain.handle('lookup', (_e, text, hint) => {
   try { return lookup(text, 12, hint); } catch (e) { return null; }
@@ -635,56 +485,10 @@ function refreshTrayMenu() {
   ]));
 }
 
-function openSettings() {
-  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return; }
-  // Settings is the app's only regular window. Give it a Dock presence and
-  // real focus while it is open — an accessory app's window otherwise opens
-  // behind the frontmost app — and drop back to menu-bar-only on close.
-  if (app.dock) app.dock.show();
-  settingsWin = new BrowserWindow({
-    width: 560, height: 520, title: 'Overlay Settings',
-    webPreferences: {
-      preload: path.join(PRELOAD_DIR, 'settings.js'),
-      contextIsolation: true, nodeIntegration: false,
-    },
-  });
-  app.focus({ steal: true });
-  settingsWin.webContents.on('console-message', ({ message }) =>
-    console.log('[settings] ' + message));
-  settingsWin.webContents.on('preload-error', (_e, _p, err) =>
-    console.error('[settings] preload error: ' + err));
-  settingsWin.loadFile(path.join(SETTINGS_DIR, 'settings.html'));
-  settingsWin.on('closed', () => {
-    settingsWin = null;
-    if (app.dock) app.dock.hide();
-  });
-}
 
 ipcMain.handle('cfg:get', () => cfg.load());
 
-ipcMain.handle('cfg:windows', async () => {
-  const { execFile } = require('child_process');
-  return new Promise(resolve => {
-    execFile(YOMI_BIN, ['--list-all'], (err, stdout) => {
-      if (err) return resolve([]);
-      let list = [];
-      try { list = JSON.parse(stdout); } catch { return resolve([]); }
-      // Never offer our own overlay, and drop helper popovers (autofill
-      // panels, notification chrome) that are never a reading surface.
-      const skip = new Set([
-        'com.github.Electron', 'local.yomioverlay',
-        'com.apple.SafariPlatformSupport.Helper',
-        'com.apple.notificationcenterui', 'com.apple.controlcenter',
-        'com.apple.spotlight', 'com.raycast.macos',
-      ]);
-      list = list.filter(w =>
-        !skip.has(w.bundle) && w.width >= 400 && w.height >= 300);
-      list.sort((a, b) => (b.onScreen - a.onScreen) ||
-                          a.app.localeCompare(b.app));
-      resolve(list);
-    });
-  });
-});
+ipcMain.handle('cfg:windows', () => listWindows());
 
 ipcMain.handle('cfg:save', (_e, next) => {
   const before = cfg.trigger();
@@ -712,9 +516,7 @@ ipcMain.handle('cfg:save', (_e, next) => {
   return cfg.load();
 });
 
-ipcMain.on('cfg:close', () => {
-  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
-});
+ipcMain.on('cfg:close', () => closeSettings());
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 
