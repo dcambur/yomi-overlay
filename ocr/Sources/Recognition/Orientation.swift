@@ -14,18 +14,15 @@ import Vision
 /// Vision when the private classes are missing or misbehave; `vision` is the
 /// one-line revert (INTEGRATION.md Phase 1).
 enum EngineMode: String { case auto, vision, livetext }
-var engineMode: EngineMode = .auto
 
 /// Which way the page's text runs. Sticky across passes: probing both
 /// orientations costs a second Vision pass, which is the expensive step.
 /// `verticalNative` is a vertical page Live Text reads directly, columns as
 /// lines — no reflow (measured better than reflow: 99%/89% vs 94%/66%).
 enum Orientation { case unknown, horizontal, vertical, verticalNative }
-var orientation: Orientation = .unknown
 
 /// Set by recognize() when a flat Live Text read came back as native vertical
 /// columns; recognizeAuto turns it into orientation + the payload flag.
-var flatReadNativeVertical = false
 
 /// A "horizontal" read that is really a vertical page misread across its
 /// columns. The committed-horizontal escape used to be weight < 5 — but a
@@ -57,7 +54,6 @@ func looksPicketFence(_ lines: [Line]) -> Bool {
 
 /// Mixed-content merge note, one stderr line per distinct message — every
 /// committed-horizontal pass on a manga page would otherwise repeat it.
-var lastMixedNote = ""
 
 /// Columnar Live Text lines for text a committed-horizontal Vision read
 /// cannot see. Vision reads no vertical Japanese at all (measured: 618 vs 6
@@ -105,22 +101,23 @@ func verticalRemainder(_ subject: CGImage,
 /// only re-probed when the chosen orientation stops producing text — a page
 /// turn from a vertical novel into a horizontal afterword should switch over
 /// without the reader touching anything.
-func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
+func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool,
+                   session: RecognitionSession)
         async throws -> (lines: [Line], vertical: Bool) {
     func run(_ v: Bool) async throws -> [Line] {
-        try await recognize(image, geometry: geometry, vertical: v)
+        try await recognize(image, geometry: geometry, vertical: v, session: session)
     }
     func weight(_ ls: [Line]) -> Int { ls.reduce(0) { $0 + $1.text.count } }
 
     if forced {
-        orientation = .vertical
+        session.orientation = .vertical
         return (try await run(true), true)
     }
-    switch orientation {
+    switch session.orientation {
     case .horizontal:
         let h = try await run(false)
-        if flatReadNativeVertical && weight(h) >= 5 {
-            orientation = .verticalNative   // page turned into a vertical one
+        if session.flatReadNativeVertical && weight(h) >= 5 {
+            session.orientation = .verticalNative   // page turned into a vertical one
             return (h, true)
         }
         // Merged-vertical dominance: when the mixed-content merge's vertical
@@ -143,15 +140,15 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
                 "orientation: horizontal read is \(why) — re-probing\n"
                     .data(using: .utf8)!)
         }
-        orientation = .unknown          // stopped working — re-probe below
+        session.orientation = .unknown          // stopped working — re-probe below
     case .verticalNative:
         let h = try await run(false)
-        if flatReadNativeVertical && weight(h) >= 5 { return (h, true) }
-        orientation = .unknown
+        if session.flatReadNativeVertical && weight(h) >= 5 { return (h, true) }
+        session.orientation = .unknown
     case .vertical:
         let v = try await run(true)
         if weight(v) >= 5 { return (v, true) }
-        orientation = .unknown
+        session.orientation = .unknown
     case .unknown:
         break
     }
@@ -159,8 +156,8 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
     let h = try await run(false)
     // A native vertical read needs no second probe: it already carries true
     // page geometry, and the reflow alternative measures worse (89% vs 66%).
-    if flatReadNativeVertical && weight(h) >= 5 {
-        orientation = .verticalNative
+    if session.flatReadNativeVertical && weight(h) >= 5 {
+        session.orientation = .verticalNative
         FileHandle.standardError.write(
             "orientation: vertical (native Live Text read)\n".data(using: .utf8)!)
         return (h, true)
@@ -175,7 +172,7 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
     // treating that as a vertical page would scramble reading order.
     let vertical = weight(v) > hw * 2 && weight(v) >= 5
     if hw >= 5 || weight(v) >= 5 {
-        orientation = vertical ? .vertical : .horizontal
+        session.orientation = vertical ? .vertical : .horizontal
         let mode = vertical ? "vertical (tategaki)" : "horizontal"
         let note = "orientation: \(mode) (h=\(hw) v=\(weight(v)) chars)\n"
         FileHandle.standardError.write(note.data(using: .utf8)!)
@@ -184,7 +181,7 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool)
     // vertical page's h-probe mutilates columns). Now that the page is
     // committed horizontal, one re-read applies the strip if there is
     // anything to strip.
-    if !vertical, orientation == .horizontal, !detectRubyBands(image).isEmpty {
+    if !vertical, session.orientation == .horizontal, !detectRubyBands(image).isEmpty {
         return (try await run(false), false)
     }
     return (vertical ? v : h, vertical)

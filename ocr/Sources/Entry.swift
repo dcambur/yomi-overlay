@@ -12,8 +12,6 @@ struct Main {
     static func main() async {
         let opts = parseArgs()
 
-        if opts.assumeHorizontal { orientation = .horizontal }
-
         // Establish a window-server connection. Without this a plain CLI
         // process has no CGS connection and the capture path aborts with
         // "Assertion failed: (did_initialize) ... CGS_REQUIRE_INIT".

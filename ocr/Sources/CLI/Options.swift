@@ -44,6 +44,9 @@ struct Options {
     // collides with shift-click and some IME candidate selection, so it is
     // configurable; the overlay passes whatever the user chose.
     var modifier = "shift"
+    // Which recognizer reads the pixels. Was a file-scope var written by
+    // parseArgs as a side effect; it is a parsed option like any other.
+    var engine: EngineMode = .auto
 }
 
 func parseArgs() -> Options {
@@ -63,12 +66,11 @@ func parseArgs() -> Options {
         case "--check-permission": o.checkPerm = true
         case "--dump":
             o.dumpPath = it.next()
-            debugDumpPath = o.dumpPath
         case "--image":
             o.imagePath = it.next()
         case "--engine":
             if let e = it.next(), let m = EngineMode(rawValue: e.lowercased()) {
-                engineMode = m
+                o.engine = m
             } else {
                 FileHandle.standardError.write(
                     "usage: --engine auto|vision|livetext\n".data(using: .utf8)!)

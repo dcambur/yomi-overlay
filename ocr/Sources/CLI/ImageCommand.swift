@@ -43,13 +43,15 @@ func runImageCommand(_ opts: Options, path imgPath: String) async -> Never {
         exit(0)
     }
     let geom = Geometry(region: bounds, window: bounds)
+    let session = RecognitionSession(opts)
     do {
         var (lines, isVertical) = try await recognizeAuto(
-            image, geometry: geom, forced: opts.vertical)
+            image, geometry: geom, forced: opts.vertical, session: session)
         markRuby(&lines, vertical: isVertical)
         if opts.json {
             emit(buildPayload(lines, frame: bounds, window: bounds,
-                              vertical: isVertical, vote: 1),
+                              vertical: isVertical, vote: 1,
+                              engine: session.lastLoggedEngine),
                  to: opts.outPath)
         } else {
             // Reflowed vertical lines are already in reading order
@@ -57,7 +59,7 @@ func runImageCommand(_ opts: Options, path imgPath: String) async -> Never {
             // dropped from text output — readings are hints, not
             // text.
             let textLines = lines.filter { !$0.ruby }
-            let text = (orientation == .verticalNative
+            let text = (session.orientation == .verticalNative
             // Native-vertical lines are pre-sorted by their char
             // quads; order()'s 0.04 column-tie threshold exceeds a
             // dense page's column spacing (kakuyomu: 0.033) and

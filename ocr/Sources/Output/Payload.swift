@@ -69,7 +69,7 @@ func heartbeatJSON(frame f: CGRect) -> String {
 /// read); the renderer uses it to update voted corrections in place. `f` per
 /// char is the voting confidence, present only after a vote.
 func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
-                  vertical: Bool, vote: Int) -> String {
+                  vertical: Bool, vote: Int, engine: String) -> String {
     var parts: [String] = []
     for l in lines where !l.chars.isEmpty {
         let cs = l.chars.map { c -> String in
@@ -94,7 +94,7 @@ func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
         + "\"width\":\(Int(w.width)),\"height\":\(Int(w.height))}"
     let head = "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
         + "\"window\":\(windowJson),"
-    let meta = "\"vertical\":\(vertical),\"engine\":\"\(lastLoggedEngine)\",\"vote\":\(vote),"
+    let meta = "\"vertical\":\(vertical),\"engine\":\"\(engine)\",\"vote\":\(vote),"
     return head + meta + "\"lines\":[\(parts.joined(separator: ","))]}"
 }
 

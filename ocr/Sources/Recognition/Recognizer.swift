@@ -11,7 +11,8 @@ import ScreenCaptureKit
 import Vision
 
 func recognize(_ image: CGImage, geometry: Geometry? = nil,
-               vertical: Bool = false) async throws -> [Line] {
+               vertical: Bool = false,
+               session: RecognitionSession) async throws -> [Line] {
     // Vision cannot read tategaki at all — measured on a real vertical page:
     // 189 characters present, 0 recognised, 0 lines.
     // Vertical pages are re-flowed, not rotated — see the tategaki section.
@@ -21,7 +22,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
         reflow = reflowStrip(image, columns: cols)
     }
     var subject = reflow?.image ?? image
-    if vertical, let dp = debugDumpPath { dumpImage(subject, to: dp + ".rot.png") }
+    if vertical, let dp = session.debugDumpPath { dumpImage(subject, to: dp + ".rot.png") }
 
     // Furigana removal BEFORE recognition — ONLY once the page is COMMITTED
     // horizontal. Running it during the h-probe of a vertical page erases
@@ -30,7 +31,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // recognizeAuto re-reads once right after the probe commits horizontal,
     // so ruby'd pages still get the strip on their first real read.
     var hintBands: [(rect: CGRect, text: String)] = []
-    let stripEligible = !vertical && reflow == nil && orientation == .horizontal
+    let stripEligible = !vertical && reflow == nil && session.orientation == .horizontal
     if stripEligible {
         let candidates = detectRubyBands(subject)
         // Vet candidates by TEXT before erasing. Geometry alone swallowed a
@@ -144,14 +145,14 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     //   - Probe passes (orientation unknown): LT, so the native-vertical
     //     detection below can fire; the post-probe re-read lands on Vision.
     var raw: [LiveText.RLine]? = nil
-    if engineMode != .vision, LiveText.usable, reflow == nil,
-       engineMode == .livetext || orientation != .horizontal {
+    if session.engineMode != .vision, LiveText.usable, reflow == nil,
+       session.engineMode == .livetext || session.orientation != .horizontal {
         raw = await LiveText.analyze(subject)
     }
     // Which engine actually ran, once per switch. "auto" resolving to vision
     // silently would make a broken Live Text invisible; say so.
-    logEngineOnce(raw != nil ? "livetext" : "vision")
-    flatReadNativeVertical = false
+    session.logEngineOnce(raw != nil ? "livetext" : "vision")
+    session.flatReadNativeVertical = false
     if let lt = raw, reflow == nil, !vertical {
         // Live Text on a vertical page produces one of two shapes.
         //
@@ -173,7 +174,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
         }
         let columnar = cjk.filter { ($0.box.height * H) > 2 * ($0.box.width * W) }
         if cjk.count >= 2, columnar.count * 2 >= cjk.count {
-            flatReadNativeVertical = true
+            session.flatReadNativeVertical = true
         }
     }
     var lines: [LiveText.RLine] = try raw
@@ -188,14 +189,14 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // unchanged page never reaches recognition), and a forced
     // --engine vision keeps meaning Vision alone.
     let mergedFrom = lines.count
-    if raw == nil, reflow == nil, !vertical, orientation == .horizontal,
-       engineMode == .auto {
+    if raw == nil, reflow == nil, !vertical, session.orientation == .horizontal,
+       session.engineMode == .auto {
         let extra = await verticalRemainder(subject, horizontal: lines)
         if !extra.isEmpty {
             let note = "mixed: merged \(extra.count) vertical line(s) into a "
                 + "horizontal page\n"
-            if note != lastMixedNote {
-                lastMixedNote = note
+            if note != session.lastMixedNote {
+                session.lastMixedNote = note
                 FileHandle.standardError.write(note.data(using: .utf8)!)
             }
             lines.append(contentsOf: extra)
@@ -294,7 +295,7 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
                 let ys = l.chars.map { $0.box.midY * sh }
                 line.vertical = (ys.max()! - ys.min()!) > (xs.max()! - xs.min()!)
             } else {
-                line.vertical = flatReadNativeVertical
+                line.vertical = session.flatReadNativeVertical
             }
         }
 
@@ -321,11 +322,11 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // A native vertical read arrives in Live Text's own line order (leftmost
     // column first, measured). Columns read right-to-left; emit them that
     // way, matching the reflow path's "lines arrive in reading order".
-    if flatReadNativeVertical {
+    if session.flatReadNativeVertical {
         flat.sort { $0.colX > $1.colX }
     }
     var result = flat.map(\.line)
-    if flatReadNativeVertical, let g = geometry {
+    if session.flatReadNativeVertical, let g = geometry {
         reanchorVerticalChars(&result, image: subject, geometry: g)
     }
     // Attach erased-band ruby as reading hints to the line directly below

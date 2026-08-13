@@ -33,6 +33,9 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
 /// The watch loop. Re-resolves the target every pass so it survives a
 /// resize, a reopen, or a move to another Space.
 func runWatchLoop(_ opts: Options) async throws {
+    // One session for the whole loop: orientation is sticky across passes,
+    // which is the point of caching it at all.
+    let session = RecognitionSession(opts)
     var lastText = ""
     var failures = 0
     // The window the last pass captured, re-checked between passes so
@@ -106,7 +109,8 @@ func runWatchLoop(_ opts: Options) async throws {
                    stablePasses % opts.voteEvery == 0 {
                     let geom = Geometry(region: shot.region, window: shot.region)
                     let (pass, _) = try await recognizeAuto(
-                        shot.image, geometry: geom, forced: opts.vertical)
+                        shot.image, geometry: geom, forced: opts.vertical,
+                        session: session)
                     // A transient bad read (empty, half the page) must
                     // not tank every char's confidence; skip it.
                     let baseN = voteBuf[0].reduce(0) { $0 + $1.chars.count }
@@ -117,7 +121,8 @@ func runWatchLoop(_ opts: Options) async throws {
                         let f = CGRect(origin: shot.origin, size: shot.size)
                         let payload = buildPayload(
                             voted, frame: f, window: current.frame,
-                            vertical: lastVertical, vote: voteBuf.count)
+                            vertical: lastVertical, vote: voteBuf.count,
+                            engine: session.lastLoggedEngine)
                         if payload != lastText {
                             emit(payload, to: opts.outPath)
                             lastText = payload
@@ -163,7 +168,8 @@ func runWatchLoop(_ opts: Options) async throws {
             // Geometry is passed in text mode too: ruby detection
             // needs char boxes (heights + adjacency).
             var (lines, isVertical) = try await recognizeAuto(
-                shot.image, geometry: geom, forced: opts.vertical)
+                shot.image, geometry: geom, forced: opts.vertical,
+                session: session)
             markRuby(&lines, vertical: isVertical)
 
             // Fresh page: this read is vote 1 and the base layout the
@@ -181,7 +187,8 @@ func runWatchLoop(_ opts: Options) async throws {
                 let f = CGRect(origin: shot.origin, size: shot.size)
                 let payload = buildPayload(
                     lines, frame: f, window: current.frame,
-                    vertical: isVertical, vote: 1)
+                    vertical: isVertical, vote: 1,
+                    engine: session.lastLoggedEngine)
                 let parts = lines.filter { !$0.chars.isEmpty }
                 if payload != lastText {
                     emit(payload, to: opts.outPath)
@@ -211,7 +218,7 @@ func runWatchLoop(_ opts: Options) async throws {
             // are dropped from text output — that is the filter's
             // whole point (readings are hints, not text).
             let textLines = lines.filter { !$0.ruby }
-            let text = (orientation == .verticalNative
+            let text = (session.orientation == .verticalNative
                 // Native-vertical lines are pre-sorted by their char
                 // quads; order()'s 0.04 column-tie threshold exceeds a
                 // dense page's column spacing (kakuyomu: 0.033) and
