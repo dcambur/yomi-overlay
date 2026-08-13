@@ -1,4 +1,43 @@
-# Deterministic alignment & selection tests
+# Tests
+
+Three groups, by what they need to run:
+
+| Suite | Needs | Runs unattended |
+|---|---|---|
+| `unit/run.sh` | nothing | ✅ yes |
+| `golden.sh` | a built `bin/yomi` | ✅ yes |
+| `verify*.py` | Screen Recording, a live desktop, network | ❌ no |
+
+## Unattended: `unit/run.sh`
+
+No permission, no window, no network — safe while the overlay is running.
+
+```
+test/unit/run.sh            # everything
+test/unit/run.sh node       # pure-logic suites only
+```
+
+- **`lookup.test.js`** — deinflection, multi-length grouping, the ranking
+  chain, the kanji fallback and NFKC normalisation, against the real
+  `index.db`.
+- **`renderer.js`** — the glyph layer driven as a black box in a *hidden*
+  Electron window, through the real preload and the real IPC channels, with
+  payloads captured from the ground-truth corpus. Covers the rebuild gate
+  (ARCHITECTURE §5): identical / similar-and-refused / bounded-refusal escape
+  / page turn / re-layout / voted-patch-in-place, plus placement, reset,
+  dismiss and cover refusal.
+
+  The trick that makes rebuilds observable from outside: a rebuild does
+  `layer.innerHTML = ''`, so a property set on a live span survives if and only
+  if the layer was *not* rebuilt.
+
+## Unattended: `golden.sh`
+
+Byte-exact regression net over `bin/yomi --image`. See the header of the
+script.
+
+## Hands-on: the alignment & selection suites
+
 
 Verifies the full pipeline against ground truth, no eyeballing:
 
@@ -19,7 +58,7 @@ Run:
 
 ```
 cd test
-env -u ELECTRON_RUN_AS_NODE ../overlay/node_modules/.bin/electron . &   # opens 2 windows
+env -u ELECTRON_RUN_AS_NODE ../app/node_modules/.bin/electron . &   # opens 2 windows
 python3 verify.py                                                       # ~1 min
 curl -s http://127.0.0.1:43199/quit                                     # tear down
 ```
