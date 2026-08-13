@@ -14,7 +14,11 @@ import json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.requ
 
 # Derived, not written down: a literal path only describes one checkout.
 REPO = pathlib.Path(__file__).resolve().parent.parent
-OCR = str(REPO / "kindleocr")
+# Where kindleocr lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(REPO / "overlay"))
+from paths import OCR_BIN
+OCR = str(OCR_BIN)
 OVERLAY_DIR = str(REPO / "overlay")
 ELECTRON = OVERLAY_DIR + "/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 LOG = "/tmp/yomi-overlay.log"

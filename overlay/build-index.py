@@ -16,14 +16,12 @@ import json
 import sqlite3
 import sys
 import zipfile
-from pathlib import Path
 
-DICTS = Path(__file__).parent / "dicts"
-OUT = Path(__file__).parent / "index.db"
-# The dictionaries actually indexed, in priority order. The overlay's settings
-# window reads this: without it a dropped-in dictionary lands in the database
-# but never appears in the UI, so it can be neither hidden nor reordered.
-MANIFEST = Path(__file__).parent / "dictionaries.json"
+# MANIFEST lists the dictionaries actually indexed, in priority order. The
+# overlay's settings window reads it: without it a dropped-in dictionary lands
+# in the database but never appears in the UI, so it can be neither hidden nor
+# reordered.
+from paths import DICTS, MANIFEST, INDEX_DB as OUT
 
 # Dictionaries contributing definitions, in priority order.
 TERM_SOURCES = [

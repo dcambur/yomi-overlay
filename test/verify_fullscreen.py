@@ -13,7 +13,11 @@ import json, pathlib, subprocess, sys, time, urllib.request
 
 # Derived, not written down: a literal path only describes one checkout.
 REPO = pathlib.Path(__file__).resolve().parent.parent
-OCR = str(REPO / "kindleocr")
+# Where kindleocr lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(REPO / "overlay"))
+from paths import OCR_BIN
+OCR = str(OCR_BIN)
 
 def ctrl(path, timeout=20):
     return urllib.request.urlopen("http://127.0.0.1:43199" + path, timeout=timeout).read()

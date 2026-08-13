@@ -21,7 +21,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ELECTRON_VERSION="$(node -p "require('$HERE/package.json').devDependencies.electron.replace(/^[^0-9]*/, '')")"
+# One file knows the layout; this script asks it. See paths.sh.
+. "$HERE/paths.sh"
+ELECTRON_VERSION="$(node -p "require('$APP_DIR/package.json').devDependencies.electron.replace(/^[^0-9]*/, '')")"
 APP_NAME="Yomi Overlay"
 OUT="/tmp/pack"
 DEST="/Applications/$APP_NAME.app"
@@ -29,18 +31,18 @@ BUILT="$OUT/$APP_NAME-darwin-arm64/$APP_NAME.app"
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
 
 echo "==> Building the Swift capture helper"
-( cd "$HERE/.." && swiftc -O -parse-as-library KindleOCR.swift -o kindleocr )
+swiftc -O -parse-as-library "$OCR_SRC" -o "$OCR_BIN"
 
 echo "==> Packaging the loader shell (Electron $ELECTRON_VERSION)"
 rm -rf "$OUT"
-npx --yes @electron/packager "$HERE/shell" "$APP_NAME" \
+npx --yes @electron/packager "$SHELL_DIR" "$APP_NAME" \
   --platform=darwin --arch=arm64 \
   --electron-version="$ELECTRON_VERSION" \
   --app-bundle-id=local.yomioverlay \
-  --extend-info="$HERE/extend.plist" \
+  --extend-info="$APP_DIR/extend.plist" \
   --out="$OUT" --overwrite >/dev/null
 
-cp "$HERE/icon.icns" "$BUILT/Contents/Resources/electron.icns"
+cp "$APP_DIR/icon.icns" "$BUILT/Contents/Resources/electron.icns"
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
   echo "==> Signing with \"$IDENTITY\" (stable identity — permissions survive)"
@@ -61,12 +63,14 @@ sleep 1
 rm -rf "$DEST"
 cp -R "$BUILT" /Applications/
 
-# Record where the code lives, so a moved project needs no rebuild.
+# Record where the code lives, so a moved project needs no rebuild. This must
+# be the directory holding the entry main.js — bootstrap.js probes for exactly
+# that file, and paths.js derives every other root from it.
 SUPPORT="$HOME/Library/Application Support/$APP_NAME"
 mkdir -p "$SUPPORT"
-printf '%s\n' "$HERE" > "$SUPPORT/project-path"
+printf '%s\n' "$APP_DIR" > "$SUPPORT/project-path"
 
 echo
 echo "==> Done."
 codesign -d -r- "$DEST" 2>&1 | sed -n 's/^# designated/    designated/p'
-echo "    code loaded from: $HERE"
+echo "    code loaded from: $APP_DIR"

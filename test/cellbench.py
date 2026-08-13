@@ -23,7 +23,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
-KINDLEOCR = HERE.parent / "kindleocr"
+# Where kindleocr lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(HERE.parent / "overlay"))
+from paths import OCR_BIN as KINDLEOCR
 OUT = Path("/tmp/cellbench")
 MINCHO = "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"
 

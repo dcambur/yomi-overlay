@@ -42,7 +42,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 GT_DIR = HERE / "gt"
-KINDLEOCR = HERE.parent / "kindleocr"
+# Where kindleocr lives is not this suite's business — ask the one file
+# that knows the layout. Keeps the suites working across a move.
+sys.path.insert(0, str(HERE.parent / "overlay"))
+from paths import OCR_BIN as KINDLEOCR
 # Canonical categories first, then any extra gt/ subdirectory (e.g. the
 # generated aozora_* sets) discovered on disk.
 _CANON = ("horizontal", "tategaki", "manga", "game", "browser")

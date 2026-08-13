@@ -28,7 +28,10 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OCR="${KINDLEOCR:-$HERE/../kindleocr}"
+# Where kindleocr lives is not this harness's business — ask the one file that
+# knows the layout. KINDLEOCR still overrides, for A/B-ing two builds.
+. "$HERE/../overlay/paths.sh"
+OCR="${KINDLEOCR:-$OCR_BIN}"
 CORPUS="$HERE/golden-corpus.txt"
 
 MODE="${1:-}"

@@ -21,7 +21,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OVERLAY="$HERE/overlay"
+# One file knows the layout; this script asks it. See overlay/paths.sh.
+. "$HERE/overlay/paths.sh"
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 BUNDLE_ID="local.yomioverlay"
@@ -64,44 +65,44 @@ EOF
 fi
 
 # --- 2. Node dependencies -----------------------------------------------------
-if [ -d "$OVERLAY/node_modules/electron" ]; then
+if [ -d "$APP_DIR/node_modules/electron" ]; then
   step "npm dependencies present — skipping"
 else
   step "Installing npm dependencies"
-  ( cd "$OVERLAY" && npm install )
+  ( cd "$APP_DIR" && npm install )
 fi
 
 # --- 3. Dictionaries ----------------------------------------------------------
-if ls "$OVERLAY"/dicts/*.zip >/dev/null 2>&1; then
+if ls "$DATA_DIR"/dicts/*.zip >/dev/null 2>&1; then
   step "Dictionaries present — skipping download"
 else
   step "Downloading freely licensed dictionaries"
-  python3 "$OVERLAY/fetch-dicts.py"
+  python3 "$TOOLS_DIR/fetch-dicts.py"
 fi
 
 # --- 4. Lookup index ----------------------------------------------------------
-if [ -f "$OVERLAY/index.db" ] && [ -f "$OVERLAY/dictionaries.json" ]; then
+if [ -f "$DATA_DIR/index.db" ] && [ -f "$DATA_DIR/dictionaries.json" ]; then
   step "index.db present — skipping build (re-run overlay/build-index.py after adding dictionaries)"
 else
   step "Building the lookup index (takes a few minutes)"
-  python3 "$OVERLAY/build-index.py"
+  python3 "$TOOLS_DIR/build-index.py"
 fi
 
 # --- 4.5 Tier-2 sidecar (manga-ocr) -------------------------------------------
 # Optional: the overlay runs fine without it (tier2 disables itself with a log
 # line). ~2GB of wheels + a ~450MB model download on first use.
-if [ -x "$OVERLAY/.venv/bin/python" ] && "$OVERLAY/.venv/bin/python" -c 'import manga_ocr' 2>/dev/null; then
+if [ -x "$TOOLS_DIR/.venv/bin/python" ] && "$TOOLS_DIR/.venv/bin/python" -c 'import manga_ocr' 2>/dev/null; then
   step "manga-ocr sidecar present — skipping"
 else
   step "Installing manga-ocr sidecar venv (Tier-2 second opinion; ~2GB)"
-  python3 -m venv "$OVERLAY/.venv"
-  "$OVERLAY/.venv/bin/pip" install --quiet manga-ocr || \
+  python3 -m venv "$TOOLS_DIR/.venv"
+  "$TOOLS_DIR/.venv/bin/pip" install --quiet manga-ocr || \
     step "manga-ocr install failed — tier2 will stay off (rerun setup.sh to retry)"
 fi
 
 # --- 5. Package, sign, install ------------------------------------------------
 step "Building and installing Yomi Overlay.app (signed with \"$IDENTITY\")"
-"$OVERLAY/build-app.sh"
+"$TOOLS_DIR/build-app.sh"
 
 REQ="$(codesign -d -r- "/Applications/Yomi Overlay.app" 2>&1 | grep '^designated' || true)"
 case "$REQ" in

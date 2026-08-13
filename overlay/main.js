@@ -33,7 +33,8 @@ logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
 const cfg = require('./config.js');
 
-const { OCR_BIN: KINDLEOCR } = require('./paths.js');
+const { OCR_BIN: KINDLEOCR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
+        ASSETS_DIR, TOOLS_DIR } = require('./paths.js');
 
 // Shown in the app switcher and menu bar instead of "Electron".
 app.setName('Yomi Overlay');
@@ -191,7 +192,7 @@ function createWindow() {
     // a fullscreen app.
     type: 'panel',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(PRELOAD_DIR, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -221,7 +222,7 @@ function createWindow() {
     console.log('[renderer] loaded');
     sendTrigger();
   });
-  win.loadFile(path.join(__dirname, 'index.html'));
+  win.loadFile(path.join(RENDERER_DIR, 'index.html'));
 }
 
 /** Push trigger settings to the renderer, which does the modifier test itself. */
@@ -447,10 +448,10 @@ function pokeSidecarIdle() {
 
 function ensureSidecar() {
   if (sidecar || sidecarDisabled) return;
-  const py = path.join(__dirname, '.venv', 'bin', 'python');
-  const script = path.join(__dirname, 'mangaocr_sidecar.py');
+  const py = path.join(TOOLS_DIR, '.venv', 'bin', 'python');
+  const script = path.join(TOOLS_DIR, 'mangaocr_sidecar.py');
   let p;
-  try { p = spawn(py, [script], { cwd: __dirname }); }
+  try { p = spawn(py, [script], { cwd: TOOLS_DIR }); }
   catch (e) { sidecarDisabled = true; logf('[tier2] spawn failed: ' + e.message); return; }
   sidecar = p; sidecarReady = false; sidecarBuf = '';
   logf('[tier2] sidecar starting (model load takes ~10s)');
@@ -656,7 +657,7 @@ function checkAccessibility() {
 }
 
 function buildTray() {
-  const icon = path.join(__dirname, 'trayTemplate.png');
+  const icon = path.join(ASSETS_DIR, 'trayTemplate.png');
   tray = new Tray(icon);
   tray.setToolTip('Yomi Overlay');
   refreshTrayMenu();
@@ -708,7 +709,7 @@ function openSettings() {
   settingsWin = new BrowserWindow({
     width: 560, height: 520, title: 'Overlay Settings',
     webPreferences: {
-      preload: path.join(__dirname, 'preload-settings.js'),
+      preload: path.join(PRELOAD_DIR, 'preload-settings.js'),
       contextIsolation: true, nodeIntegration: false,
     },
   });
@@ -717,7 +718,7 @@ function openSettings() {
     console.log('[settings] ' + message));
   settingsWin.webContents.on('preload-error', (_e, _p, err) =>
     console.error('[settings] preload error: ' + err));
-  settingsWin.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWin.loadFile(path.join(SETTINGS_DIR, 'settings.html'));
   settingsWin.on('closed', () => {
     settingsWin = null;
     if (app.dock) app.dock.hide();

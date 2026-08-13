@@ -14,9 +14,9 @@ import json
 import sys
 import urllib.request
 import zipfile
-from pathlib import Path
 
-DEST = Path(__file__).parent / "dicts"
+from paths import DICTS as DEST
+
 UA = {"User-Agent": "kindle-reader-setup"}
 
 # Roughly TheMoeWay's recommended Yomitan stack, restricted to sources that
