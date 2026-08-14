@@ -14,9 +14,14 @@
 #
 #   JavaScript   eslint, config in eslint.config.js — layout AND correctness
 #                (undefined variables, unused bindings, shadowing)
-#   Swift        swift-format, config in .swift-format. Type checking is the
-#                COMPILER's job and belongs to ocr/build.sh, which CI runs on
-#                macOS; this is layout only.
+#   Swift        swift-format, config in .swift-format. Layout only — type
+#                checking is the COMPILER's job, and that is what ocr/build.sh
+#                does in CI. NOT part of the CI gate: swift-format ships with
+#                Xcode, so a runner and a laptop disagree on line breaks by
+#                toolchain version alone, and a check that fails on which Xcode
+#                you have is a check nobody can act on. It runs here, before
+#                the commit, where one developer's version is consistent with
+#                itself.
 #   Python       py_compile — syntax, which is all that can be had without a
 #                type checker the project does not use
 #   Shell        bash -n, plus shellcheck when it is installed
@@ -30,7 +35,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 WHICH=all
 FIX=""
@@ -93,7 +98,9 @@ if run shell; then
     fail "bash -n"
   fi
   if command -v shellcheck >/dev/null 2>&1; then
-    if shellcheck -S warning $(find . -name '*.sh' -not -path '*/node_modules/*'); then
+    # -exec, not $(find), so a path with a space cannot split into two.
+    if find . -name '*.sh' -not -path '*/node_modules/*' \
+         -exec shellcheck -S warning {} +; then
       ok "shellcheck"
     else
       fail "shellcheck"

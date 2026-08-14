@@ -147,7 +147,7 @@ tracked and reviewed like any other file. `--no-verify` skips it; CI does not.
 | What | By | Config |
 |---|---|---|
 | JavaScript layout **and** correctness (undefined vars, unused bindings, shadowing) | eslint | [eslint.config.js](../eslint.config.js) |
-| Swift layout | swift-format | [.swift-format](../.swift-format) |
+| Swift layout | swift-format — **hook only**, see below | [.swift-format](../.swift-format) |
 | Swift types | the compiler — `ocr/build.sh` | — |
 | Python syntax | `py_compile` | — |
 | Shell | `bash -n`, shellcheck | — |
@@ -165,6 +165,13 @@ Two rules about the rules:
 Adopting swift-format meant reformatting all 25 Swift files at once. That was
 verified byte-identical over the golden corpus (66 pages, 5116 glyphs) before
 it landed — which is the only reason it was allowed to be one commit.
+
+**swift-format is not a CI gate, on purpose.** It ships with Xcode, so its
+line-breaking differs by toolchain version: the same file was clean locally and
+two errors on the runner (`LiveTextEngine.swift:153`). A gate that fails on
+which Xcode you happen to have is one nobody can act on. CI compiles the Swift,
+which is the check that matters; formatting is enforced before the commit,
+where one developer's version is at least consistent with itself.
 
 ## Testing
 
