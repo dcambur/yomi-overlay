@@ -116,6 +116,9 @@ function installed() {
       return {
         file,
         name: cat ? cat.name : (info.title || file.replace(/\.zip$/i, '')),
+        // What the archive calls ITSELF, which is how two files are recognised
+        // as the same dictionary regardless of what they were named on disk.
+        title: info.title || '',
         kind: info.kind,
         size: fs.statSync(path.join(DICTS_DIR, file)).size,
       };
@@ -171,7 +174,35 @@ async function download(id, onProgress = () => {}) {
     throw new Error(`${entry.name}: downloaded file is not a Yomitan dictionary`);
   }
   fs.renameSync(part, dest);
-  return { file: entry.file, kind: info.kind, size: got };
+  // The same dictionary may already be here under whatever name it was
+  // imported as; the download is the one that stays.
+  const replaced = dropDuplicates(info.title, entry.file);
+  return { file: entry.file, kind: info.kind, size: got, replaced };
+}
+
+/**
+ * Drop an already-installed copy of the same dictionary under another name.
+ *
+ * A Yomitan archive names itself in index.json, and that is its identity —
+ * importing `jitendex.zip` when `jitendex-yomitan.zip` is already here is the
+ * same dictionary twice, not two dictionaries. Left alone it is indexed twice
+ * under two labels and every sense appears twice in the popup. Importing a
+ * newer build of something you already have is the common case, so replacing
+ * is what someone means.
+ *
+ * Matched on title only, never on filename: the file it is being imported from
+ * is usually named nothing like the one already installed.
+ */
+function dropDuplicates(title, keepFile) {
+  if (!title) return [];
+  const dropped = [];
+  for (const d of installed()) {
+    if (d.file !== keepFile && d.title && d.title === title) {
+      fs.rmSync(path.join(DICTS_DIR, d.file), { force: true });
+      dropped.push(d.file);
+    }
+  }
+  return dropped;
 }
 
 /** Take a dictionary the user already has. Same validation as a download. */
@@ -181,7 +212,8 @@ function importFile(src) {
   fs.mkdirSync(DICTS_DIR, { recursive: true });
   const file = path.basename(src);
   fs.copyFileSync(src, path.join(DICTS_DIR, file));
-  return { file, kind: info.kind, title: info.title };
+  const replaced = dropDuplicates(info.title, file);
+  return { file, kind: info.kind, title: info.title, replaced };
 }
 
 /** Forget a dictionary. The index still holds it until it is pruned. */
@@ -283,20 +315,17 @@ function rebuild(onProgress = () => {}) {
 }
 
 /**
- * Rebuild without blocking anything.
+ * Run a build or a prune off the main process.
  *
- * The synchronous build is fine for a script and wrong for an app: it takes
- * ~80 seconds on a full set, and the main process is what draws the overlay
- * over whatever the user is reading. Forked as the same binary through
- * ELECTRON_RUN_AS_NODE, so there is no second Node to depend on.
+ * The synchronous versions are fine for a script and wrong for an app. A build
+ * is ~80 seconds on a full set and a prune a few, and the main process is what
+ * draws the overlay over whatever the user is reading — so either one freezes
+ * it, and a progress message cannot be painted by a process that is busy
+ * producing it. Forked as the same binary through ELECTRON_RUN_AS_NODE, so
+ * there is no second Node to depend on.
  */
-function rebuildAsync(onProgress = () => {}) {
+function inWorker(message, onProgress) {
   return new Promise((resolve, reject) => {
-    if (!installed().length) {
-      fs.rmSync(INDEX_PATH, { force: true });
-      resolve({ labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] });
-      return;
-    }
     // require.resolve, not a path built from __dirname: one file knows the
     // layout (CONVENTIONS), and the module system already knows where its own
     // sibling lives.
@@ -313,15 +342,29 @@ function rebuildAsync(onProgress = () => {}) {
     });
     child.on('error', (e) => finish(reject, e));
     child.on('exit', (code) => {
-      finish(reject, new Error(`index builder exited with ${code} before finishing`));
+      finish(reject, new Error(`index worker exited with ${code} before finishing`));
     });
-    child.send({ type: 'build', dictsDir: DICTS_DIR, outPath: INDEX_PATH });
+    child.send(message);
   });
+}
+
+function rebuildAsync(onProgress = () => {}) {
+  if (!installed().length) {
+    fs.rmSync(INDEX_PATH, { force: true });
+    return Promise.resolve(
+      { labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] });
+  }
+  return inWorker({ type: 'build', dictsDir: DICTS_DIR, outPath: INDEX_PATH },
+                  onProgress);
+}
+
+function pruneAsync(label, onProgress = () => {}) {
+  return inWorker({ type: 'prune', label }, onProgress);
 }
 
 module.exports = {
   CATALOGUE, catalogue, installed, download, importFile, remove, rebuild,
-  rebuildAsync, prune, labelOf, writeManifest,
+  rebuildAsync, pruneAsync, prune, labelOf, writeManifest, dropDuplicates,
   // Exported so the catalogue can be checked for reachability without
   // downloading gigabytes: every entry must still resolve to a real URL.
   resolveURL,
