@@ -161,8 +161,13 @@ app.whenReady().then(() => {
   // settings" — the same meaning second-instance already has.
   if (app.dock) app.dock.hide();
   app.on('activate', openSettings);
+  // No dictionary is the state every fresh install starts in — the app ships
+  // without one, because the dictionaries worth having are either a large
+  // download or licensed so they cannot be redistributed. Capture, OCR and the
+  // glyph layer all work regardless; only lookups have nothing to answer with.
   if (!openDict()) {
-    console.error('No dictionary index. Run: python3 build-index.py');
+    console.error('no dictionary yet — add one from the menu bar: 読 → Settings → Dictionaries');
+    openSettings();
   }
   // Yomitan's deinflector is ESM — load before the first hover can arrive.
   initTransformer()

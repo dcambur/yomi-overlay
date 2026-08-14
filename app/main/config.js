@@ -77,8 +77,13 @@ function knownDictionaries() {
       ? list.filter(n => typeof n === 'string' && n.trim())
       : [];
     if (names.length) return names.map(name => ({ name, enabled: true }));
-  } catch { /* no manifest yet — an index built before this existed */ }
-  return DEFAULT_DICTIONARIES.map(d => ({ ...d }));
+  } catch { /* no index has been built on this machine yet */ }
+  // Nothing installed means nothing to list. Falling back to the built-in
+  // names here would show a fresh install nine dictionaries it does not have —
+  // and the app now ships with none at all. An install predating the manifest
+  // is unaffected: its own config.json already carries the list, and load()
+  // only ADDS names that are missing from it.
+  return [];
 }
 
 function load() {

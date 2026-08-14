@@ -3,11 +3,10 @@ name: Release
 # Builds the downloadable app: a bundle that runs on a machine with no
 # checkout, no Xcode and no dictionary download.
 #
-# It is built HERE rather than from a developer's machine for a licensing
-# reason, not a convenience one. A runner starts from a clean checkout, so
-# fetch-dicts.py — which only knows how to download freely-licensed sources —
-# is the only thing that puts a dictionary on disk, and the index is therefore
-# free by construction. tools/build-release.sh re-checks that before packaging.
+# No dictionary is built or bundled. The app fetches or imports one from its
+# settings window on first run, which removes the licensing question from the
+# release entirely — there is nothing in the bundle to get wrong — and takes
+# the download from ~465 MB to ~275 MB.
 #
 # Signing: uses a Developer ID when the secrets exist, ad-hoc when they do not.
 # Ad-hoc means macOS quarantines the download and the TCC identity changes with
@@ -77,13 +76,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with: { node-version: '22' }
-
-      - name: Fetch the freely-licensed dictionaries
-        run: python3 tools/fetch-dicts.py
-
-      - name: Build the index
-        # ~100 MB from Jitendex + JMnedict + KANJIDIC + Wiktionary + frequency.
-        run: python3 tools/build-index.py
 
       - name: Import the signing certificate
         if: env.CERT_P12 != ''
@@ -159,15 +151,16 @@ jobs:
 
           ## Dictionaries
 
-          Included, and enough to read with: **Jitendex** (JA→EN), **JMnedict**
-          (names), **KANJIDIC** (kanji), Wiktionary JA→JA, and JPDB + BCCWJ
-          frequency data. All freely licensed — see their own terms.
+          None are included — the app asks for one on first run, and the
+          settings window downloads the recommended free set (Jitendex,
+          JMnedict, KANJIDIC, and JPDB + BCCWJ frequency) with a button each.
 
-          Commercial dictionaries (三省堂, 明鏡, 旺文社, DOJG …) cannot be
-          redistributed. To use your own, build an index with
-          `tools/build-index.py` and drop `index.db` into
-          `~/Library/Application Support/Yomi Overlay/` — it takes precedence
-          over the bundled one, and the app does not have to be touched.
+          Dictionaries you own — 三省堂, 明鏡, DOJG and the rest — cannot be
+          distributed with the app, so import their Yomitan `.zip` from the
+          same window. They are indexed exactly like the free ones.
+
+          Everything except lookups works before you add one: capture, OCR and
+          the glyph layer do not depend on a dictionary.
           EOF
           # --target creates the tag as part of the release, so there is no
           # second push to race with, and no tag left behind if the build fails.
