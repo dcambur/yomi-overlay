@@ -7,6 +7,7 @@
 // so keeping it out of the renderer avoids janking the overlay on every hover.
 
 const { DatabaseSync } = require('node:sqlite');
+const zlib = require('zlib');
 const path = require('path');
 
 const { ASSET_DIR, USER_DIR } = require('../paths.js');
@@ -20,6 +21,7 @@ const DB_PATH = fs.existsSync(USER_DB) ? USER_DB : path.join(ASSET_DIR, 'index.d
 const cfg = require('./config.js');
 
 let db = null;
+let structured = false;
 let qTerm, qKanji, qPitch, qFreq;
 let transformer = null;
 
@@ -42,24 +44,48 @@ function visible(d) {
   return (orderCache || refreshOrder()).index.has(d);
 }
 
-function open() {
+/** Drop the handle so the next open() sees a newly imported index. */
+function close() {
+  if (db) { try { db.close(); } catch { /* already gone */ } }
+  db = null;
+  qTerm = qKanji = qPitch = qFreq = undefined;
+}
+
+/**
+ * `at` overrides which index is opened. Production never passes it; the tests
+ * do, because "reads both schemas" is only a claim until an old index and a new
+ * one are both opened and asked the same question — and a module-level constant
+ * cannot be constructed for a test.
+ */
+function open(at) {
   if (db) return true;
   try {
-    db = new DatabaseSync(DB_PATH, { readOnly: true });
+    db = new DatabaseSync(at || DB_PATH, { readOnly: true });
+    // Two schemas exist in the wild. The current one keeps each glossary's
+    // STRUCTURE, deduplicated and deflated in its own table; the one before it
+    // stored pre-flattened sense strings on the row. An index built by the old
+    // Python builder is still a perfectly good dictionary, and telling someone
+    // their words stopped working because the app updated is the worse
+    // failure — so both are read, and which one this is is asked once.
+    structured = db.prepare(
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'"
+    ).get().n > 0;
     // No LIMIT here. A SQL limit is applied before the visibility filter and
     // before ranking, so it silently starves whole dictionaries: 「こう」has 313
     // rows and the first 40 are all Jitendex, which meant disabling Jitendex
     // returned nothing at all and reordering dictionaries had no effect.
     // The widest key in the index is 313 rows — cheap to filter in JS instead.
-    qTerm = db.prepare(
-      'SELECT reading, gloss, dict, score FROM terms WHERE key = ?');
+    qTerm = db.prepare(structured
+      ? 'SELECT t.reading, g.blob AS gloss, t.dict, t.score FROM terms t'
+        + ' JOIN glosses g ON g.id = t.gloss WHERE t.key = ?'
+      : 'SELECT reading, gloss, dict, score FROM terms WHERE key = ?');
     qKanji = db.prepare('SELECT on_yomi, kun_yomi, meanings FROM kanji WHERE char = ?');
     qPitch = db.prepare('SELECT reading, position FROM pitch WHERE term = ? LIMIT 4');
     qFreq = db.prepare('SELECT source, value FROM freq WHERE term = ?');
     return true;
   } catch (e) {
     console.error('lookup: cannot open index.db —', e.message);
-    console.error('run: python3 build-index.py');
+    console.error('add a dictionary from the settings window (\u8aad -> Settings -> Dictionaries)');
     return false;
   }
 }
@@ -103,11 +129,16 @@ function buildEntries(rows, hint) {
   let score = -Infinity;
   for (const r of rows) {
     if (!visible(r.dict)) continue;      // hidden in settings
-    const key = r.dict + '|' + r.reading + '|' + r.gloss;
+    const key = r.dict + '|' + r.reading + '|'
+      + (structured ? r.gloss.toString('base64') : r.gloss);
     if (seen.has(key)) continue;
     seen.add(key);
     let g;
-    try { g = JSON.parse(r.gloss); } catch { g = [r.gloss]; }
+    try {
+      g = structured
+        ? JSON.parse(zlib.inflateSync(r.gloss).toString('utf8'))
+        : JSON.parse(r.gloss);
+    } catch { g = [String(r.gloss)]; }
     // Drop entries that are just a reading fragment with no real content.
     if (g.length === 1 && g[0].length <= 2 && g[0] === r.reading) continue;
     entries.push({ reading: r.reading, dict: r.dict, glosses: g });
@@ -243,4 +274,4 @@ function lookup(input, maxLen = 12, hint = null) {
   return null;
 }
 
-module.exports = { lookup, open, initTransformer };
+module.exports = { lookup, open, close, initTransformer };
