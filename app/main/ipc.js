@@ -18,6 +18,8 @@ const { logf } = require('./log.js');
 const cfg = require('./config.js');
 const { lookup } = require('./lookup.js');
 const { listWindows } = require('./window-list.js');
+const dictionaries = require('./dictionaries.js');
+const lookupModule = require('./lookup.js');
 const { openSettings, closeSettings } = require('./settings-window.js');
 
 // Lookup scans at most 12 glyphs; the renderer sends the rest of the line.
@@ -77,6 +79,73 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     overlayWindow.reset();
     ocrChild.restart();
     return cfg.load();
+  });
+
+  // --- dictionaries ---------------------------------------------------
+  // Adding or removing one changes the index the overlay reads, so every path
+  // here ends the same way: rebuild, reopen, and tell the window what the
+  // popup will now show.
+  const { sendSettings } = require('./settings-window.js');
+  const { dialog } = require('electron');
+
+  async function rebuildAndReopen(what) {
+    sendSettings('dict:progress', { phase: 'indexing', name: what });
+    const result = await dictionaries.rebuildAsync((p) => {
+      sendSettings('dict:progress', { phase: 'indexing', name: p.name,
+                                      done: p.done, total: p.total });
+    });
+    // The handle held since startup points at the old file; drop it so the
+    // next lookup opens what was just written.
+    lookupModule.close();
+    cfg.refreshDictionaries();
+    sendSettings('dict:progress', { phase: 'done', labels: result.labels });
+    return result;
+  }
+
+  ipcMain.handle('dict:catalogue', () => dictionaries.catalogue());
+  ipcMain.handle('dict:installed', () => dictionaries.installed());
+
+  ipcMain.handle('dict:download', async (_e, id) => {
+    if (!isStr(id, 64)) return reject('dict:download', 'bad id');
+    try {
+      const got = await dictionaries.download(id, (p) => {
+        sendSettings('dict:progress', { phase: 'downloading', ...p });
+      });
+      await rebuildAndReopen(got.file);
+      return { ok: true, file: got.file };
+    } catch (e) {
+      logf('[dict] download failed: ' + e.message);
+      sendSettings('dict:progress', { phase: 'error', message: e.message });
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('dict:import', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: 'Import a Yomitan dictionary',
+      filters: [{ name: 'Yomitan dictionary', extensions: ['zip'] }],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (picked.canceled || !picked.filePaths.length) return { ok: false, cancelled: true };
+    const added = [];
+    for (const file of picked.filePaths) {
+      try { added.push(dictionaries.importFile(file).file); }
+      catch (e) {
+        logf('[dict] import failed: ' + e.message);
+        sendSettings('dict:progress', { phase: 'error', message: e.message });
+        return { ok: false, error: e.message };
+      }
+    }
+    await rebuildAndReopen(added.join(', '));
+    return { ok: true, added };
+  });
+
+  ipcMain.handle('dict:remove', async (_e, file) => {
+    if (!isStr(file, 256)) return reject('dict:remove', 'bad file');
+    try { dictionaries.remove(file); }
+    catch (e) { return { ok: false, error: e.message }; }
+    await rebuildAndReopen(file);
+    return { ok: true };
   });
 
   ipcMain.on('cfg:close', () => closeSettings());

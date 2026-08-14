@@ -82,9 +82,14 @@ const ASSET_DIR = BUNDLED ? path.join(process.resourcesPath, 'data') : DATA_DIR;
  * same directory bootstrap.js already keeps its pointer file in, so a release
  * install owns exactly one location under the user's home.
  */
-const USER_DIR = BUNDLED
+/// YOMI_USER_DIR overrides it, and exists because leaving it derived cost a
+/// dictionary. In a checkout USER_DIR *is* `data/`, so a test that set $HOME
+/// and believed it was writing to a scratch directory was in fact deleting and
+/// rebuilding the real one. Anything that writes here needs a way to be aimed
+/// somewhere else, for the same reason --assume-horizontal exists.
+const USER_DIR = process.env.YOMI_USER_DIR || (BUNDLED
   ? path.join(os.homedir(), 'Library', 'Application Support', 'Yomi Overlay')
-  : DATA_DIR;
+  : DATA_DIR);
 
 /** Build and side scripts, including the tier-2 sidecar. */
 const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');

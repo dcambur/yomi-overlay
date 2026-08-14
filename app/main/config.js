@@ -9,7 +9,13 @@ const { ASSET_DIR, USER_DIR } = require('../paths.js');
 // that produced it. In a checkout both are data/ and this is a distinction
 // without a difference — in a release build the bundle is signed and read-only.
 const CONFIG_PATH = path.join(USER_DIR, 'config.json');
-const MANIFEST_PATH = path.join(ASSET_DIR, 'dictionaries.json');
+// The manifest belongs to whichever index is actually being read, and
+// lookup.js prefers the user's own over the bundled one — so this has to agree
+// with it, or the settings window lists the dictionaries from a bundle that is
+// no longer the one answering lookups.
+const USER_MANIFEST = path.join(USER_DIR, 'dictionaries.json');
+const MANIFEST_PATH = fs.existsSync(USER_MANIFEST)
+  ? USER_MANIFEST : path.join(ASSET_DIR, 'dictionaries.json');
 
 // Every dictionary the index can contain, in a sensible default order.
 // `enabled` and position are both user-editable in the settings window.
@@ -66,13 +72,18 @@ let cached = null;
  */
 function knownDictionaries() {
   try {
-    const list = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    const list = JSON.parse(fs.readFileSync(manifestPath(), 'utf8'));
     const names = Array.isArray(list)
       ? list.filter(n => typeof n === 'string' && n.trim())
       : [];
     if (names.length) return names.map(name => ({ name, enabled: true }));
-  } catch { /* no manifest yet — an index built before this existed */ }
-  return DEFAULT_DICTIONARIES.map(d => ({ ...d }));
+  } catch { /* no index has been built on this machine yet */ }
+  // Nothing installed means nothing to list. Falling back to the built-in
+  // names here would show a fresh install nine dictionaries it does not have —
+  // and the app now ships with none at all. An install predating the manifest
+  // is unaffected: its own config.json already carries the list, and load()
+  // only ADDS names that are missing from it.
+  return [];
 }
 
 function load() {
@@ -178,7 +189,26 @@ function trigger() {
   return { ...DEFAULT_TRIGGER, ...(load().trigger || {}) };
 }
 
+/**
+ * Forget the cached settings so the next load() re-reads the manifest.
+ *
+ * Importing a dictionary rewrites dictionaries.json, and load() merges that
+ * into the user's list — but only once, at startup. Without this the settings
+ * window keeps showing the dictionaries that existed when the app launched,
+ * and a freshly imported one is invisible until a restart.
+ */
+function refreshDictionaries() {
+  cached = null;
+  return load();
+}
+
+/** Where the manifest is being read from right now. Diagnostics and tests. */
+function manifestPath() {
+  return fs.existsSync(USER_MANIFEST) ? USER_MANIFEST : MANIFEST_PATH;
+}
+
 module.exports = {
-  load, save, enabledDictionaries, targetArgs, trigger,
+  load, save, enabledDictionaries, targetArgs, trigger, refreshDictionaries,
+  manifestPath,
   CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, sanitize,
 };

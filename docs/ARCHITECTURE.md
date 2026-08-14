@@ -49,7 +49,8 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |
 | [app/renderer/popup.js](../app/renderer/popup.js) | how a result looks — markup, pitch graphs, placement |
 | [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory (§6) |
-| [tools/build-index.py](../tools/build-index.py) | Yomitan zips → `index.db` + `dictionaries.json` (§8) |
+| [app/main/index-builder.js](../app/main/index-builder.js) | Yomitan zips → `index.db` + `dictionaries.json`, in the app (§8, §13) |
+| [app/main/dictionaries.js](../app/main/dictionaries.js) | downloading and importing dictionaries (§13) |
 
 ## The load-bearing decisions
 
@@ -187,8 +188,8 @@ a real repackage keeps the grants.
 `yomi` and a rebuilt `index.db`.
 
 A **release** bundle ([tools/build-release.sh](../tools/build-release.sh)) also
-carries a copy of the app, `yomi` and a freely-licensed index in
-`Contents/Resources`, so it runs on a machine with no checkout. That copy is the
+carries a copy of the app and `yomi` in `Contents/Resources`, so it runs on a
+machine with no checkout. No dictionary is bundled — see section 9. That copy is the
 **last** candidate `bootstrap.js` tries, after `$YOMI_OVERLAY_DIR` and the
 pointer file — so a developer's bundle still loads their working copy and
 everything above holds unchanged. `paths.js` notices which happened (`BUNDLED`)
@@ -208,17 +209,58 @@ The Accessibility degradation is invisible — the monitor runs, the log is clea
 Shift just does nothing when held still. `systemPreferences.isTrustedAccessibilityClient(false)`
 detects it and the tray says so.
 
-### 8. Structure is extracted at index time, not at render time
+### 8. Structure is kept, and rendered at display time
 
-Yomitan dictionaries ship recursive `structuredContent` trees. `build-index.py`
-parses each dictionary's actual markup (JMdict sense nodes, 三省堂 語義/語釈,
-plain-text line formats) rather than walking every string — a naive walk yields
-「き」「ぞく」「［」 as separate "senses" and truncates the real definition away.
-`rt` (ruby) nodes are skipped or 迷惑 becomes "迷 めい 惑 わく".
+This reverses the decision that stood here before, and the reason is the
+dictionaries nobody has seen.
 
-The popup renders per **dictionary kind** (bilingual / monolingual / grammar /
-names / kanji): bulleted English for bilingual, own ①❶ numbering with hanging
-indent for monolingual, labelled 音/訓 rows for kanji.
+The old builder flattened each glossary into sense strings while indexing, by
+parsing each dictionary's actual markup — JMdict sense nodes, 三省堂 語義/語釈,
+the plain-text line formats. That is genuinely better than walking every string,
+which yields 「き」「ぞく」「［」 as separate senses, and it was right for as long
+as every dictionary in the index was one somebody had taught the builder about.
+
+Dictionaries are now imported by the user, including commercial ones that can
+never ship with the app. A format the builder was never taught falls through to
+exactly that naive walk. So the glossary is stored as its dictionary wrote it
+and turned into DOM when a popup opens, the way Yomitan itself works — an
+unknown dictionary renders because nothing was thrown away.
+
+Two measurements shaped the storage. Verbatim structure cost **1,670 MB**
+against the old flattened index's 322 MB, because every entry is indexed under
+both its surface form and its reading, and that duplicated the glossary:
+1,068 MB across 2,005,802 rows, of which only 463 MB was distinct. Deduplicating
+into a `glosses` table and deflating each blob (structured JSON compresses to
+about 35%) lands at **510 MB** — 188 MB more than flattening, for a format
+nobody has to anticipate.
+
+[app/renderer/structured.js](../app/renderer/structured.js) is written against a
+census of what these dictionaries actually contain — 14 tags, 7 style
+properties, two node types — not against the format in the abstract. Yomitan's
+own generator is ~550 lines because it also carries their media pipeline, Anki
+rendering and language detection. An **unrecognised tag is not dropped**: it
+becomes a neutral inline or block element and its children still render.
+
+The old flattener is the regression test. Whatever text it displayed, the
+renderer must still display; `test/unit/structured.test.js` asserts that over a
+fixed slice of 3,000 keys — 7,918 senses across eight dictionaries, none lost.
+It is a subsequence check rather than a substring one, because the new rendering
+carries *more*: the old builder dropped the bracketed headword 三省堂 prints
+between a sense number and its text.
+
+`lookup.js` reads either shape, decided once at `open()` by whether a `glosses`
+table exists, so an index built by the old builder keeps answering.
+
+**Images are deferred.** 三省堂 and 旺文社 reference SVGs inside their archives
+(10,732 `img` nodes across the set here, only 35% carrying a usable title), and
+the renderer CSP is `default-src 'none'` with no `img-src`. They currently
+render as their alt text. Doing it properly means extracting media at import and
+serving it through a narrow custom protocol.
+
+The popup still renders per **dictionary kind** (bilingual / monolingual /
+grammar / names / kanji): bulleted English for bilingual, own ①❶ numbering with
+hanging indent for monolingual, labelled 音/訓 rows for kanji. Plain-string
+glossaries keep that formatting; structured ones are built as DOM inside it.
 
 ## Data flow, one pass
 
@@ -317,6 +359,30 @@ that emitted *new text* therefore waits 0.1s instead of the full interval,
 bounded at three in a row so an animated page cannot pin the recogniser. Pixels
 that move while the text does not are already a heartbeat, not new text, so
 they never take this path.
+
+### 13. The app ships with no dictionary
+
+A release bundle carries the app and the capture helper and nothing else. The
+dictionaries worth having are either a large download or licensed so they cannot
+be redistributed, and a release that shipped one would be publishing it.
+
+So [app/main/dictionaries.js](../app/main/dictionaries.js) fetches the
+recommended free set on request — the same sources Yomitan recommends, resolved
+at download time rather than pinned, because `jmdict-yomitan` rebuilds daily and
+Kuuuube keeps old versions beside new — and imports a `.zip` the user already
+owns. Both paths validate that the file really is a Yomitan archive before it is
+given a name, so a 404 page cannot install itself as a dictionary.
+
+Indexing runs in a forked worker (`ELECTRON_RUN_AS_NODE`, so it is the same
+binary). `node:sqlite` is synchronous and a full rebuild is ~80 seconds; in the
+main process that would freeze the tray, the settings window and the overlay
+panel, which is drawn over whatever the user is reading.
+
+A rebuild is always total, never incremental: frequency ordering is global, so
+adding one dictionary changes how senses from all the others rank.
+
+Everything except lookups works before a dictionary exists — capture, OCR and
+the glyph layer do not depend on one.
 
 ## Known gaps
 

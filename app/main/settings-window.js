@@ -35,4 +35,11 @@ function closeSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
 }
 
-module.exports = { openSettings, closeSettings };
+/** Push an event to the settings window, if it is open. */
+function sendSettings(channel, payload) {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    settingsWin.webContents.send(channel, payload);
+  }
+}
+
+module.exports = { openSettings, closeSettings, sendSettings };
