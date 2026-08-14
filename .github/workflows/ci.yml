@@ -47,10 +47,15 @@ jobs:
         # Not test/unit/run.sh: its renderer suite needs Electron and a display.
         run: node --test test/unit/*.test.js
 
+      # Installs its own shellcheck, which the runner does not ship — so this
+      # is the one check tools/lint.sh cannot make here (it skips shellcheck
+      # when the binary is absent, and says so).
       - uses: ludeeus/action-shellcheck@master
         with:
           severity: warning
-          ignore_paths: app/node_modules
+          # Both of them: the root one arrived with the lint tooling, and ajv
+          # ships shell scripts of its own that we are not going to fix.
+          ignore_paths: node_modules app/node_modules
 
   # The Swift helper only compiles on macOS, and compiling it IS the type check
   # — there is no separate one to run.
