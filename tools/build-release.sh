@@ -80,10 +80,15 @@ echo "==> Building the Swift capture helper"
 
 echo "==> Packaging the loader shell (Electron $ELECTRON_VERSION)"
 rm -rf "$OUT"
+# The release tag, minus its v, so Finder's Get Info and the About panel say
+# which build this is. Permissions have to be re-granted after an unsigned
+# update, so "which build am I running" is a question users will actually ask.
+APP_VERSION="${APP_VERSION:-0.0.0-dev}"
 npx --yes @electron/packager "$SHELL_DIR" "$APP_NAME" \
   --platform=darwin --arch=arm64 \
   --electron-version="$ELECTRON_VERSION" \
   --app-bundle-id=local.yomioverlay \
+  --app-version="$APP_VERSION" \
   --extend-info="$TOOLS_DIR/extend.plist" \
   --out="$OUT" --overwrite >/dev/null
 

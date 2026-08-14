@@ -14,22 +14,65 @@ name: Release
 # every build, so Screen Recording has to be granted again after each update.
 # Adding the secrets later needs no change here.
 
+# Tagging happens HERE rather than by hand, and in the same run that publishes.
+# A tag pushed with GITHUB_TOKEN does not trigger another workflow — that is a
+# deliberate loop guard in Actions — so a "tag" job feeding an `on: push: tags`
+# job would simply never fire. One run decides the version, builds, and creates
+# the tag as part of the release.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to publish (blank = work it out from the commits)'
+        required: false
 
 permissions:
   contents: write
 
 jobs:
+  # What to call it, and whether there is anything worth releasing at all.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      release: ${{ steps.next.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }   # tags and history, or the range is empty
+      - id: next
+        run: |
+          set -e
+          V="${{ inputs.version }}"
+          [ -n "$V" ] || V="$(tools/next-version.sh)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "$V" = "none" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to release: only docs/chore since the last tag."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Next release: $V"
+          fi
+
   # "If CI succeeds" — the same job PRs run, called rather than copied.
   ci:
     uses: ./.github/workflows/ci.yml
 
   release:
-    needs: ci
+    needs: [version, ci]
+    if: needs.version.outputs.release == 'true'
     runs-on: macos-latest
+    # Job level, not step level: a step's own `env:` is not in scope for that
+    # step's `if:`, so `env.CERT_P12 != ''` there is always false and signing
+    # would be skipped even with the secrets set.
+    env:
+      CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+      NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -43,10 +86,7 @@ jobs:
         run: tools/build-index.py
 
       - name: Import the signing certificate
-        if: ${{ env.CERT_P12 != '' }}
-        env:
-          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        if: env.CERT_P12 != ''
         run: |
           set -e
           echo "$CERT_P12" | base64 --decode > /tmp/cert.p12
@@ -61,16 +101,12 @@ jobs:
       - name: Build the app
         env:
           SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: tools/build-release.sh
+        run: APP_VERSION="${VERSION#v}" tools/build-release.sh
 
       - name: Notarize
         # Only possible with an Apple Developer account. Without it the app
         # still runs; the user clears quarantine once.
-        if: ${{ env.NOTARY_KEY != '' }}
-        env:
-          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
-          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        if: env.NOTARY_KEY != ''
         run: |
           set -e
           echo "$NOTARY_KEY" | base64 --decode > /tmp/key.p8
@@ -88,16 +124,15 @@ jobs:
           # inside a .app, and a zip(1) round-trip breaks the code signature.
           ditto -c -k --keepParent \
             "/tmp/release/Yomi Overlay-darwin-arm64/Yomi Overlay.app" \
-            "dist/Yomi-Overlay-${GITHUB_REF_NAME}-arm64.zip"
+            "dist/Yomi-Overlay-${VERSION}-arm64.zip"
           cd dist && shasum -a 256 -- * > SHA256SUMS && cat SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Yomi-Overlay-${{ github.ref_name }}
+          name: Yomi-Overlay-${{ needs.version.outputs.version }}
           path: dist/
 
-      - name: Publish
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Tag and publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -134,5 +169,7 @@ jobs:
           `~/Library/Application Support/Yomi Overlay/` — it takes precedence
           over the bundled one, and the app does not have to be touched.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "$GITHUB_REF_NAME" --notes-file notes.md
+          # --target creates the tag as part of the release, so there is no
+          # second push to race with, and no tag left behind if the build fails.
+          gh release create "$VERSION" dist/* \
+            --target "$GITHUB_SHA" --title "$VERSION" --notes-file notes.md
