@@ -49,6 +49,11 @@ provable (byte-identical output); a behaviour change needs an argument. Mixed
 together, neither is checkable. If you find a bug while moving, note it in
 [FOUND-BUGS.md](FOUND-BUGS.md) and keep moving.
 
+**Add the smallest thing that works, and prove it runs.** How much code a
+change is allowed to be, where a new thing goes, and how to name it are in
+[GROWTH.md](GROWTH.md) — including the test a new mechanism has to pass before
+it is worth keeping.
+
 ## Structure
 
 - **One file knows the layout.** `app/paths.js`, `tools/paths.py` and
