@@ -237,7 +237,8 @@ function renderWindows() {
     if (selected.bundle === bundle && !selected.windowId) el.classList.add('sel');
     const sub = ws.length === 1
       ? (ws[0].title || '(untitled)')
-      : ws.length + ' windows' + (expanded.has(bundle) ? '' : ' — click to expand');
+      : ws.length + ' windows — click to '
+        + (expanded.has(bundle) ? 'collapse' : 'expand');
     el.innerHTML =
       `<span class="dot ${anyLive ? 'live' : 'away'}" title="${anyLive
         ? 'visible on this Space' : 'running — on another Space or hidden'}"></span>` +
@@ -248,7 +249,12 @@ function renderWindows() {
       `<span class="meta">${biggest.width}×${biggest.height}</span>`;
     el.onclick = () => {
       selected = { bundle, windowId: null, label: ws[0].app };
-      if (ws.length > 1) expanded.add(bundle);
+      // Toggle. Clicking an expanded app used to re-add it to the set, so once
+      // opened it could never be closed.
+      if (ws.length > 1) {
+        if (expanded.has(bundle)) expanded.delete(bundle);
+        else expanded.add(bundle);
+      }
       renderWindows();
       $('status').textContent = 'target: ' + ws[0].app + ' (any window)';
     };
@@ -349,10 +355,17 @@ async function refreshDictionarySources() {
     const el = document.createElement('div');
     el.className = 'dict';
     const mb = (d.size / 1048576).toFixed(1);
-    el.innerHTML = `<span class="grow"><div class="app">${esc(d.name)}</div>`
-      + `<div class="title">${esc(d.kind || 'unreadable')} · ${mb} MB</div></span>`;
     const b = document.createElement('button');
     b.textContent = 'Remove';
+    b.style.marginRight = '10px';
+    // Before the label, not after it: the action belongs at the edge the eye
+    // starts from, and a right-aligned button drifted away from long titles.
+    el.appendChild(b);
+    const text = document.createElement('span');
+    text.className = 'grow';
+    text.innerHTML = `<div class="app">${esc(d.name)}</div>`
+      + `<div class="title">${esc(d.kind || 'unreadable')} · ${mb} MB</div>`;
+    el.appendChild(text);
     b.onclick = async () => {
       if (dictBusy) return;
       setDictBusy(true, 'removing…');
@@ -362,7 +375,6 @@ async function refreshDictionarySources() {
       config = await window.settings.getConfig();
       renderDicts();
     };
-    el.appendChild(b);
     h.appendChild(el);
   }
 }
@@ -383,8 +395,12 @@ window.settings.onDictProgress((p) => {
     const of = p.total ? ' / ' + (p.total / 1048576).toFixed(1) : '';
     $('dictstatus').textContent = `downloading ${p.name} ${mb}${of} MB`;
   } else if (p.phase === 'indexing') {
+    const pct = p.total ? ` — ${Math.round(100 * ((p.done || 0) + 1) / p.total)}%` : '';
     const at = p.total ? ` (${(p.done || 0) + 1}/${p.total})` : '';
-    $('dictstatus').textContent = `indexing ${p.name || ''}${at}`;
+    $('dictstatus').textContent = `indexing ${p.name || ''}${at}${pct}`;
+  } else if (p.phase === 'pruning') {
+    const pct = p.total ? ` — ${Math.round(100 * (p.done || 0) / p.total)}%` : '';
+    $('dictstatus').textContent = `removing: ${p.step}${pct}`;
   } else if (p.phase === 'done') {
     $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
   } else if (p.phase === 'error') {

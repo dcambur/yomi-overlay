@@ -65,9 +65,24 @@ const SCHEMA = `
   CREATE TABLE glosses (id INTEGER PRIMARY KEY, h TEXT UNIQUE, blob BLOB);
   CREATE TABLE terms (key TEXT, reading TEXT, gloss INT, score INT, dict TEXT);
   CREATE TABLE freq  (term TEXT, source TEXT, value INT);
-  CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT, meanings TEXT);
-  CREATE TABLE pitch (term TEXT, reading TEXT, position INT);
+  -- A dict column on every table, so a dictionary can be removed by deleting
+  -- its rows instead of rebuilding the whole index. kanji and pitch had no
+  -- such column, which is why removing anything used to cost a full rebuild.
+  CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT, meanings TEXT, dict TEXT);
+  CREATE TABLE pitch (term TEXT, reading TEXT, position INT, dict TEXT);
 `;
+
+/**
+ * What a dictionary is called in the `dict`/`source` columns.
+ *
+ * Frequency and pitch sources are named by the leading part of their filename
+ * rather than by a display label, because their archives carry versions and
+ * dates in the name. Removal has to derive the same string the build did, so
+ * both go through here.
+ */
+function freqLabel(file) {
+  return file.split('_')[0];
+}
 
 /** Bank files of a kind, in archive order. */
 function banks(z, prefix) {
@@ -168,14 +183,14 @@ function glossaryTable(db) {
 }
 
 /** KANJIDIC banks: [character, onyomi, kunyomi, tags, meanings, stats]. */
-function loadKanji(zipPath, db, insert) {
+function loadKanji(zipPath, db, insert, dict) {
   const z = zip.open(zipPath);
   let n = 0;
   for (const bank of banks(z, 'kanji_bank')) {
     for (const e of z.readJSON(bank)) {
       if (!Array.isArray(e) || e.length < 5 || !e[0]) continue;
       insert.run(String(e[0]), String(e[1] || ''), String(e[2] || ''),
-                 JSON.stringify(e[4] || []));
+                 JSON.stringify(e[4] || []), dict);
       n++;
     }
   }
@@ -183,7 +198,7 @@ function loadKanji(zipPath, db, insert) {
 }
 
 /** NHK banks: [term, "pitch", {reading, pitches:[{position}]}]. */
-function loadPitch(zipPath, db, insert) {
+function loadPitch(zipPath, db, insert, dict) {
   const z = zip.open(zipPath);
   let n = 0;
   for (const bank of banks(z, 'term_meta_bank')) {
@@ -193,7 +208,7 @@ function loadPitch(zipPath, db, insert) {
       if (!data || typeof data !== 'object') continue;
       for (const p of data.pitches || []) {
         if (Number.isInteger(p.position)) {
-          insert.run(String(e[0]), String(data.reading || ''), p.position);
+          insert.run(String(e[0]), String(data.reading || ''), p.position, dict);
           n++;
         }
       }
@@ -244,8 +259,8 @@ function build(dictsDir, outPath, onProgress = () => {}) {
 
   const glossary = glossaryTable(db);
   const insTerm = db.prepare('INSERT INTO terms VALUES (?,?,?,?,?)');
-  const insKanji = db.prepare('INSERT INTO kanji VALUES (?,?,?,?)');
-  const insPitch = db.prepare('INSERT INTO pitch VALUES (?,?,?)');
+  const insKanji = db.prepare('INSERT INTO kanji VALUES (?,?,?,?,?)');
+  const insPitch = db.prepare('INSERT INTO pitch VALUES (?,?,?,?)');
   const insFreq = db.prepare('INSERT INTO freq VALUES (?,?,?)');
 
   const total = sources.term.length + sources.kanji.length
@@ -264,20 +279,22 @@ function build(dictsDir, outPath, onProgress = () => {}) {
   for (const name of sources.kanji) {
     step(name);
     db.exec('BEGIN');
-    counts[name] = loadKanji(path.join(dictsDir, name), db, insKanji);
+    counts[name] = loadKanji(path.join(dictsDir, name), db, insKanji,
+                             sources.labels.get(name));
     db.exec('COMMIT');
     if (counts[name]) labels.push(sources.labels.get(name));
   }
   for (const name of sources.pitch) {
     step(name);
     db.exec('BEGIN');
-    counts[name] = loadPitch(path.join(dictsDir, name), db, insPitch);
+    counts[name] = loadPitch(path.join(dictsDir, name), db, insPitch,
+                             freqLabel(name));
     db.exec('COMMIT');
   }
   for (const name of sources.freq) {
     step(name);
     const freq = loadFreq(path.join(dictsDir, name));
-    const label = name.split('_')[0];
+    const label = freqLabel(name);
     db.exec('BEGIN');
     for (const [term, value] of freq) insFreq.run(String(term), label, value);
     db.exec('COMMIT');
@@ -286,6 +303,10 @@ function build(dictsDir, outPath, onProgress = () => {}) {
 
   onProgress({ name: 'building index', done: total, total });
   db.exec('CREATE INDEX idx_terms_key ON terms(key)');
+  // Removing a dictionary deletes its terms and then any glossary nothing
+  // points at any more. Unindexed that anti-join took 4,192 ms on a 2-million
+  // row index; with this it is 1,665 ms, and the index costs 580 ms to build.
+  db.exec('CREATE INDEX idx_terms_gloss ON terms(gloss)');
   db.exec('CREATE INDEX idx_freq_term ON freq(term)');
   db.exec('CREATE INDEX idx_pitch_term ON pitch(term)');
   const glosses = glossary.size;
@@ -302,4 +323,4 @@ function build(dictsDir, outPath, onProgress = () => {}) {
   return { labels, counts, rows, keys, glosses, skipped: sources.skipped };
 }
 
-module.exports = { build, discover, classify };
+module.exports = { build, discover, classify, freqLabel, KNOWN_LABELS };
