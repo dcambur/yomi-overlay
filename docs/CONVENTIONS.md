@@ -150,6 +150,10 @@ change.
 
 ## Workflow
 
+- **The PR title is the version.** Merges are squashed, so the title becomes the
+  commit subject the release pipeline reads: `feat:` cuts a minor, `docs:` and
+  `chore:` cut nothing, anything else cuts a patch. See
+  [RELEASING.md](RELEASING.md).
 - **Deploying a change = quit and relaunch the app.** No rebuild. See
   [ARCHITECTURE.md](ARCHITECTURE.md) §6.
 - Rebuild `yomi` with `ocr/build.sh`. The first capture after a rebuild is

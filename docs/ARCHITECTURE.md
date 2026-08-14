@@ -186,6 +186,17 @@ a real repackage keeps the grants.
 **Deployment is: quit the app, relaunch.** Nothing else. This includes a rebuilt
 `yomi` and a rebuilt `index.db`.
 
+A **release** bundle ([tools/build-release.sh](../tools/build-release.sh)) also
+carries a copy of the app, `yomi` and a freely-licensed index in
+`Contents/Resources`, so it runs on a machine with no checkout. That copy is the
+**last** candidate `bootstrap.js` tries, after `$YOMI_OVERLAY_DIR` and the
+pointer file — so a developer's bundle still loads their working copy and
+everything above holds unchanged. `paths.js` notices which happened (`BUNDLED`)
+and splits what was one `data/` into two ideas: read-only material inside the
+signed bundle, and the user's own config and index under Application Support.
+In a checkout both resolve to `data/`, which is why nothing about development
+moved.
+
 ### 7. Two permissions, different failure modes
 
 | Permission | Needed for | Without it |

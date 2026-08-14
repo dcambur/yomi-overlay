@@ -26,12 +26,27 @@
 // directory layout move without touching any consumer.
 
 const path = require('path');
+const os = require('os');
 
 /** The JS the bundle loads. The directory bootstrap.js found `main.js` in. */
 const APP_DIR = process.env.YOMI_OVERLAY_DIR || __dirname;
 
 /** The checkout. Everything else is derived from this or from APP_DIR. */
 const PROJECT_ROOT = path.resolve(APP_DIR, '..');
+
+/**
+ * True when this code was loaded from INSIDE the .app bundle — a release
+ * build, where the app carries its own copy of everything instead of finding
+ * a checkout.
+ *
+ * `process.resourcesPath` exists in both cases (unpackaged, it points at
+ * Electron's own Resources), so the test is not "is it set" but "did the code
+ * come from there". A developer's app resolves APP_DIR through the pointer
+ * file to a checkout and answers false, which is what keeps
+ * "restart, don't rebuild" working (ARCHITECTURE §6).
+ */
+const BUNDLED = !!process.resourcesPath &&
+  APP_DIR.startsWith(process.resourcesPath + path.sep);
 
 /** Overlay window: index.html and its scripts. */
 const RENDERER_DIR = path.join(APP_DIR, 'renderer');
@@ -48,6 +63,29 @@ const ASSETS_DIR = path.join(APP_DIR, 'assets');
 /** Generated + user data: index.db, dictionaries.json, config.json, dicts/. */
 const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 
+/**
+ * Read-only material the app ships with: the dictionary index, its manifest,
+ * and the capture helper.
+ *
+ * In a checkout this is just `data/` and `bin/` — the same files, in the same
+ * place, so nothing about development changes. In a release build it is inside
+ * the bundle, which is code-signed: writing there would break the signature,
+ * which is exactly why this is a separate idea from the one below.
+ */
+const ASSET_DIR = BUNDLED ? path.join(process.resourcesPath, 'data') : DATA_DIR;
+
+/**
+ * Everything the app writes: the user's config, and an index of their own if
+ * they build one.
+ *
+ * A bundle in /Applications is not writable, and should not be. This is the
+ * same directory bootstrap.js already keeps its pointer file in, so a release
+ * install owns exactly one location under the user's home.
+ */
+const USER_DIR = BUNDLED
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'Yomi Overlay')
+  : DATA_DIR;
+
 /** Build and side scripts, including the tier-2 sidecar. */
 const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');
 
@@ -56,12 +94,15 @@ const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');
 const VENV_DIR = path.join(DATA_DIR, '.venv');
 
 /** Compiled helpers. */
-const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
+const BIN_DIR = BUNDLED
+  ? path.join(process.resourcesPath, 'bin')
+  : path.join(PROJECT_ROOT, 'bin');
 
 /** The capture helper. Spawn failures here are reported by name in main.js. */
 const OCR_BIN = path.join(BIN_DIR, 'yomi');
 
 module.exports = {
   PROJECT_ROOT, APP_DIR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
-  ASSETS_DIR, DATA_DIR, TOOLS_DIR, VENV_DIR, BIN_DIR, OCR_BIN,
+  ASSETS_DIR, DATA_DIR, ASSET_DIR, USER_DIR, TOOLS_DIR, VENV_DIR,
+  BIN_DIR, OCR_BIN, BUNDLED,
 };

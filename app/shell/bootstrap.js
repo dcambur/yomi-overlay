@@ -12,12 +12,17 @@
 // certificate fixes the identity; keeping the bundle byte-identical across code
 // changes means we rarely have to repackage at all.
 //
-// So the bundle holds only this file, and the real main process is loaded from
-// the project directory — the same place index.db, dicts/ and yomi are
-// already read from (see paths.js). Editing main.js, index.html or lookup.js
-// then needs nothing but a restart of the app.
+// So a development bundle holds only this file, and the real main process is
+// loaded from the project directory — the same place index.db, dicts/ and yomi
+// are already read from (see paths.js). Editing main.js, index.html or
+// lookup.js then needs nothing but a restart of the app.
 //
 // Repackage only when this file, extend.plist, or the Electron version changes.
+//
+// A RELEASE bundle additionally carries a copy of the app, the helper and a
+// freely-licensed index in Contents/Resources, so it runs on a machine with no
+// checkout (tools/build-release.sh). That copy is the LAST place looked, so a
+// developer's pointer file still wins and nothing above changes for them.
 
 const fs = require('fs');
 const path = require('path');
@@ -37,6 +42,13 @@ function resolveProjectDir() {
     if (p) candidates.push(p);
   } catch { /* no pointer file — normal */ }
   candidates.push(FALLBACK);
+  // A release build carries its own copy. LAST on purpose: a developer's
+  // pointer file must still win, so the same bundle keeps loading a checkout
+  // and "restart, don't rebuild" survives. Only an install that has no
+  // checkout to find falls through to here.
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'app'));
+  }
 
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, 'main.js'))) return dir;
@@ -55,7 +67,8 @@ if (!dir) {
     'Looked for main.js in:\n' +
     `  $YOMI_OVERLAY_DIR  (${process.env.YOMI_OVERLAY_DIR || 'unset'})\n` +
     `  ${POINTER}\n` +
-    `  ${FALLBACK}\n\n` +
+    `  ${FALLBACK}\n` +
+    `  ${process.resourcesPath ? path.join(process.resourcesPath, 'app') : '(no bundle)'}\n\n` +
     'The app bundle intentionally contains only a loader; the code lives with ' +
     'index.db and dicts/. Point it at the project by writing the path into the ' +
     'file above, or set YOMI_OVERLAY_DIR.';
