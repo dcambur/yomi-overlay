@@ -212,7 +212,8 @@ indent for monolingual, labelled 音/訓 rows for kanji.
 ## Data flow, one pass
 
 1. `yomi --json --watch` picks the frontmost active-Space window of the
-   target, captures, hashes the frame, and skips OCR when nothing moved
+   target (reusing the previous pass's window enumeration unless the window
+   set changed — §10), captures, hashes the frame, and skips OCR when nothing moved
    (emitting an `unchanged` heartbeat so "static page" ≠ "window gone").
    When no window qualifies it emits an `idle` marker instead of going silent
    — main.js hides on it at once, and can tell "target off screen" from
@@ -253,6 +254,58 @@ Two traps encoded in the implementation, both paid for:
   and pitch-slicing cut glyphs in half.
 - Strip-position mapping, not string-index — Vision drops/merges characters,
   and index mapping shifted every glyph after the first discrepancy.
+
+### 10. One window enumeration per pass, invalidated by measurement
+
+`SCShareableContent` costs ~150ms (measured: an enumerate-and-exit run takes
+0.16s against a 0.01s process floor), and a pass used to pay it **twice** —
+once to choose the window, once inside `captureOnce` to build the filter. That
+was 0.3s of the ~0.9s between a page turn and the recognition that reads it,
+spent deriving the same answer twice.
+
+The result is now cached and invalidated by the **set of windows the server is
+compositing**, which CGWindowList reports in 0.5ms. Not by a timer alone: a
+window that appeared between two timed refreshes would be missing from the
+exclusion list and composited straight into the capture, breaking §1's scoping
+guarantee. (A 10s age limit rides along for what that list cannot express.)
+
+Caching the enumeration makes `SCWindow.frame` stale, so **geometry now comes
+from CGWindowList every pass** — the same list `stillVisible` already reads.
+`TargetWindow` pairs the handle with this instant's frame. The one path that
+resolves geometry through the handle itself, the `including:` fallback for
+fullscreen Spaces that refuse the display filter (-3811), re-enumerates first.
+
+### 11. The second engine runs only when the first left something unread
+
+`verticalRemainder` — one Live Text pass over every committed-horizontal frame
+— exists because Vision reads no vertical Japanese at all, so manga dialogue
+and vertical banners simply vanish. It also **more than doubled** the cost of
+every changed pass: 1.35s against the 0.85s Vision read it supplements
+(37-line page), whether or not there was anything to merge.
+
+It is now gated on whether Vision left any mark unaccounted for: paint every
+recognised line box out of the page, and if what survives is smaller than about
+two characters' worth of ink (24 mask cells) there is by construction nothing
+for a second engine to find. Measured on 38 committed-horizontal ground-truth
+pages: **identical text on all 38**, the vertical read skipped on 34, 0.69s →
+0.35s per page. On a full clean page, 1.8s → 0.83s.
+
+The mask is NOT `inkMask`, which asks "where is the dark ink" for column
+segmentation and is calibrated dark-on-light. Reusing it marked an entire
+dark-mode block as ink — 671 of 3,133 cells survived as "unexplained" when
+every one was background — and the reader's own dark mode would have defeated
+the gate on every page. `standoutMask` takes a background per tile instead, so
+both polarities and a mix of them work.
+
+### 12. After real new text, look again immediately
+
+The frame a pass recognises was captured before the recognition ran, so the
+payload describes pixels up to a whole pass old (p50 2.2s on a real Kindle
+page). Someone who just turned a page is often about to turn another. A pass
+that emitted *new text* therefore waits 0.1s instead of the full interval,
+bounded at three in a row so an animated page cannot pin the recogniser. Pixels
+that move while the text does not are already a heartbeat, not new text, so
+they never take this path.
 
 ## Known gaps
 

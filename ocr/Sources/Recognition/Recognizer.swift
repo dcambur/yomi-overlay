@@ -95,15 +95,12 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // --engine vision keeps meaning Vision alone.
     let mergedFrom = lines.count
     if raw == nil, reflow == nil, !vertical, session.orientation == .horizontal,
-       session.engineMode == .auto {
+       session.engineMode == .auto,
+       worthAVerticalRead(subject, explainedBy: lines, session: session) {
         let extra = await verticalRemainder(subject, horizontal: lines)
         if !extra.isEmpty {
-            let note = "mixed: merged \(extra.count) vertical line(s) into a "
-                + "horizontal page\n"
-            if note != session.lastMixedNote {
-                session.lastMixedNote = note
-                FileHandle.standardError.write(note.data(using: .utf8)!)
-            }
+            session.noteOnce("mixed", "mixed: merged \(extra.count) vertical "
+                + "line(s) into a horizontal page\n")
             lines.append(contentsOf: extra)
         }
     }
