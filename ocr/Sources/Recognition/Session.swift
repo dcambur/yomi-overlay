@@ -30,9 +30,12 @@ final class RecognitionSession {
     /// payload flag.
     var flatReadNativeVertical = false
 
-    /// Mixed-content merge note, one stderr line per distinct message — every
-    /// committed-horizontal pass on a manga page would otherwise repeat it.
-    var lastMixedNote = ""
+    /// The last text written under each diagnostic key, so a per-pass note
+    /// only appears when it actually says something new — every
+    /// committed-horizontal pass on a manga page would otherwise repeat the
+    /// same line forever. Three diagnostics needed this and each had grown its
+    /// own field; `noteOnce` is the one mechanism.
+    private var lastNote: [String: String] = [:]
 
     /// Which engine last announced itself. Also the payload's `engine` field,
     /// which is why it is readable but not writable from outside.
@@ -53,11 +56,17 @@ final class RecognitionSession {
                   debugDumpPath: opts.dumpPath)
     }
 
+    /// Write a diagnostic the first time, and again only when it changes.
+    func noteOnce(_ key: String, _ text: String) {
+        guard lastNote[key] != text else { return }
+        lastNote[key] = text
+        FileHandle.standardError.write(text.data(using: .utf8)!)
+    }
+
     /// Which engine actually ran, once per switch. "auto" resolving to vision
     /// silently would make a broken Live Text invisible; say so.
     func logEngineOnce(_ name: String) {
-        guard name != lastLoggedEngine else { return }
         lastLoggedEngine = name
-        FileHandle.standardError.write("engine: \(name)\n".data(using: .utf8)!)
+        noteOnce("engine", "engine: \(name)\n")
     }
 }

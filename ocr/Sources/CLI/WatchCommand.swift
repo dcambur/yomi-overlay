@@ -23,6 +23,23 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
     } while left > 0
 }
 
+/// How long to wait after a pass that produced NEW text, instead of the full
+/// interval.
+///
+/// The frame a pass recognises is captured before the recognition runs, so by
+/// the time the payload lands it describes pixels up to a whole pass old —
+/// measured p50 2.2s of recognition on a real Kindle page. Someone who just
+/// turned a page is often about to turn another, and re-capturing straight
+/// away is what catches the second turn without waiting out an interval that
+/// exists for idle pages.
+///
+/// Bounded, because a page that changes every pass would otherwise pin the
+/// recogniser: after `maxSettlePasses` consecutive shortened waits the
+/// ordinary interval comes back. Pixels that move while the TEXT does not
+/// already fall outside this — that path emits a heartbeat, not new text.
+let settleInterval = 0.1
+let maxSettlePasses = 3
+
 /// The watch loop. Re-resolves the target every pass so it survives a
 /// resize, a reopen, or a move to another Space.
 func runWatchLoop(_ opts: Options) async throws {
@@ -37,6 +54,7 @@ func runWatchLoop(_ opts: Options) async throws {
     var lastWindowID: CGWindowID? = nil
     var lastHash: UInt64 = 0
     var lastFrame = CGRect.zero
+    var settlePasses = 0
     // Temporal-voting state for the current stable page (Phase 2).
     var voteBuf: [[Line]] = []
     var lastVertical = false
@@ -44,6 +62,9 @@ func runWatchLoop(_ opts: Options) async throws {
     // Tier-2 crop requests arrive on stdin (Phase 3).
     if opts.json && opts.watch { cropChannel.startReader() }
     repeat {
+        // Set below when this pass emitted text that differed, so the wait at
+        // the end can tell a settling page from an idle one.
+        var producedNewText = false
         do {
             // Re-resolve the window each pass so it survives resize/reopen,
             // and so we never capture a stale or replaced window handle.
@@ -72,7 +93,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 exit(1)
             }
             lastWindowID = current.windowID
-            let shot = try await capture(window: current)
+            let shot = try await capture(current)
             if let dp = opts.dumpPath {
                 dumpImage(shot.image, to: dp)
                 let px = "\(shot.image.width)x\(shot.image.height)px"
@@ -148,6 +169,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 }
                 continue
             }
+
             lastHash = hash
             lastFrame = current.frame
 
@@ -186,6 +208,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 if payload != lastText {
                     emit(payload, to: opts.outPath)
                     lastText = payload
+                    producedNewText = true
                     if opts.outPath == nil { fflush(stdout) }
                     FileHandle.standardError.write(
                         "emitted \(parts.count) lines\n".data(using: .utf8)!)
@@ -200,7 +223,9 @@ func runWatchLoop(_ opts: Options) async throws {
                     fflush(stdout)
                 }
                 if opts.watch {
-                    await waitNextPass(opts.interval,
+                    settlePasses = producedNewText && settlePasses < maxSettlePasses
+                        ? settlePasses + 1 : 0
+                    await waitNextPass(settlePasses > 0 ? settleInterval : opts.interval,
                                        watching: lastWindowID, json: opts.json)
                 }
                 continue

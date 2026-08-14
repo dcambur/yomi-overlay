@@ -93,10 +93,9 @@ func contentExtent(_ image: CGImage, scale: CGFloat) -> CGSize? {
 /// Races the capture against a deadline. SCScreenshotManager can stall
 /// indefinitely on a fullscreen window belonging to another Space, which would
 /// otherwise wedge the whole watch loop.
-func capture(window: SCWindow, timeout: Double = 12) async throws -> Capture {
-    nonisolated(unsafe) let w = window
+func capture(_ target: TargetWindow, timeout: Double = 12) async throws -> Capture {
     return try await withThrowingTaskGroup(of: Capture.self) { group in
-        group.addTask { try await captureOnce(window: w) }
+        group.addTask { try await captureOnce(target: target) }
         group.addTask {
             try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             throw CaptureError.timedOut(timeout)
@@ -125,19 +124,20 @@ private func shoot(_ filter: SCContentFilter) async throws -> CGImage {
 
 /// The window's true on-screen origin.
 ///
-/// `SCWindow.frame.origin` is right for an ordinary window and wrong for a
+/// The reported origin is right for an ordinary window and wrong for a
 /// fullscreen one — macOS keeps reporting the pre-fullscreen rect. When the
 /// measured content covers a whole display, the window is that display's
 /// fullscreen occupant and its origin is the display's.
-func trueOrigin(window: SCWindow, measured: CGSize?, display: SCDisplay) -> CGPoint {
-    guard let m = measured else { return window.frame.origin }
+func trueOrigin(frame: CGRect, measured: CGSize?, display: SCDisplay) -> CGPoint {
+    guard let m = measured else { return frame.origin }
     if abs(m.width - display.frame.width) <= 4, abs(m.height - display.frame.height) <= 4 {
         return display.frame.origin
     }
-    return window.frame.origin
+    return frame.origin
 }
 
-func captureOnce(window: SCWindow) async throws -> Capture {
+func captureOnce(target: TargetWindow) async throws -> Capture {
+    let window = target.window
     // Display-scoped, with every other window excluded — still only the
     // target's pixels, by construction.
     //
@@ -155,32 +155,46 @@ func captureOnce(window: SCWindow) async throws -> Capture {
     //
     // Since (1) is undistorted, only the window's true ORIGIN is still needed,
     // and that is recovered by measuring the captured content — see trueOrigin.
-    let content = try await SCShareableContent.excludingDesktopWindows(
-        false, onScreenWindowsOnly: false)
-    guard let display = content.displays.first(where: { $0.frame.intersects(window.frame) })
+    // The enumeration the caller already paid for, not a second one. It used
+    // to be re-fetched here, so every pass cost two ~150 ms discoveries to
+    // learn the same thing twice.
+    let content = target.content
+    let frame = target.frame
+    guard let display = content.displays.first(where: { $0.frame.intersects(frame) })
             ?? content.displays.first else {
         throw CaptureError.noDisplay
     }
 
-    func finish(_ image: CGImage, scale: CGFloat) -> Capture {
+    func finish(_ image: CGImage, scale: CGFloat, display: SCDisplay) -> Capture {
         let measured = contentExtent(image, scale: scale)
         return Capture(
             image: image,
             region: display.frame,
-            origin: trueOrigin(window: window, measured: measured, display: display),
-            size: measured ?? window.frame.size)
+            origin: trueOrigin(frame: frame, measured: measured, display: display),
+            size: measured ?? frame.size)
     }
 
     do {
         let others = content.windows.filter { $0.windowID != window.windowID }
         let filter = SCContentFilter(display: display, excludingWindows: others)
-        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale))
+        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
+                      display: display)
     } catch {
         // Some fullscreen Spaces refuse the display filter (-3811). Including
         // just this window behaves the same way for coordinates: content at the
         // image origin, scaled against the display.
-        let filter = SCContentFilter(display: display, including: [window])
-        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale))
+        //
+        // Re-enumerate first. This filter resolves geometry through the
+        // SCWindow handle itself, and the handle may have come from the cache
+        // — a stale rect here is exactly the section-1 failure (content scaled
+        // into a frame the window no longer has).
+        let fresh = try await refreshedContent()
+        let w = fresh.windows.first { $0.windowID == window.windowID } ?? window
+        let d = fresh.displays.first(where: { $0.frame.intersects(frame) })
+            ?? fresh.displays.first ?? display
+        let filter = SCContentFilter(display: d, including: [w])
+        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
+                      display: d)
     }
 }
 

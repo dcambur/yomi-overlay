@@ -87,6 +87,35 @@ func verticalRemainder(_ subject: CGImage,
     return out
 }
 
+/// Smallest patch of unexplained ink worth a second engine, in ink-mask cells.
+///
+/// A cell is `step` (8) pixels square. A vertical banner narrow enough to be
+/// worth recovering — 30x200 px, two or three glyphs — covers ~100 cells of
+/// which roughly a third carry ink, so 24 clears it with margin while a stray
+/// caret, a scrollbar or an anti-aliased border does not.
+let verticalReadInkFloor = 24
+
+/// Is there anything on this page a horizontal read did NOT account for?
+///
+/// The mixed-content merge is unconditional by design in the sense that it
+/// must not be gated on how much of the page the horizontal read explains —
+/// one vertical banner on an otherwise horizontal page has to stay readable.
+/// It is gated here on whether there is any unexplained ink AT ALL, which is
+/// a different question and a measured one: on a page where Vision accounted
+/// for every mark, there is by construction nothing for Live Text to add, and
+/// the pass costs 1.35 s.
+///
+/// Degrades toward doing the work: an unreadable mask (no pixel data, an
+/// image too small to sample) answers yes, exactly as before this gate.
+func worthAVerticalRead(_ subject: CGImage, explainedBy lines: [RecognizedLine],
+                        session: RecognitionSession) -> Bool {
+    guard let cells = unexplainedInkCells(subject, explainedBy: lines) else { return true }
+    let verdict = cells >= verticalReadInkFloor
+    session.noteOnce("ink", "mixed: \(cells) unexplained ink cells — "
+        + (verdict ? "reading vertical\n" : "skipping the vertical read\n"))
+    return verdict
+}
+
 /// Recognise, deciding orientation by trying it.
 ///
 /// Detection is empirical because the failure is total: Vision returns *nothing*

@@ -4,8 +4,25 @@
 import Foundation
 import CoreGraphics
 
+/// True when a string can go into JSON exactly as it is.
+///
+/// Nearly every string here is one CJK glyph or one line of Japanese, and none
+/// of those need escaping — so the common case should not allocate. It used to
+/// build a fresh String scalar by scalar for every one of the ~2,200 glyphs on
+/// a page, which is most of the payload-building cost the recogniser pays
+/// after it has already done the reading (measured: 1.05s to recognise a
+/// 1,050-glyph page and emit it, 0.83s to recognise it and not).
+private func jsonClean(_ s: String) -> Bool {
+    for u in s.unicodeScalars {
+        if u == "\"" || u == "\\" || u.value < 0x20 { return false }
+    }
+    return true
+}
+
 func jsonEscape(_ s: String) -> String {
+    if jsonClean(s) { return s }
     var out = ""
+    out.reserveCapacity(s.unicodeScalars.count + 8)
     for u in s.unicodeScalars {
         switch u {
         case "\"": out += "\\\""
@@ -64,22 +81,6 @@ func heartbeatJSON(frame f: CGRect) -> String {
 /// char is the voting confidence, present only after a vote.
 func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
                   vertical: Bool, vote: Int, engine: String) -> String {
-    var parts: [String] = []
-    for l in lines where !l.chars.isEmpty {
-        let cs = l.chars.map { c -> String in
-            let geo = "\"x\":\(Int(c.x)),\"y\":\(Int(c.y)),"
-                + "\"w\":\(Int(c.w.rounded(.up))),\"h\":\(Int(c.h.rounded(.up)))"
-            var s = "{\"c\":\"\(jsonEscape(c.ch))\"," + geo
-            if let conf = c.conf { s += ",\"f\":\(String(format: "%.2f", conf))" }
-            return s + "}"
-        }.joined(separator: ",")
-        var lineJson = "{\"text\":\"\(jsonEscape(l.text))\""
-        if l.ruby { lineJson += ",\"ruby\":true" }
-        if l.vertical { lineJson += ",\"vertical\":true" }
-        if let hint = l.hint { lineJson += ",\"hint\":\"\(jsonEscape(hint))\"" }
-        lineJson += ",\"chars\":[\(cs)]}"
-        parts.append(lineJson)
-    }
     // Long interpolations split into locals: the type-checker has timed out
     // on big concatenations twice before.
     let frameJson = "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
@@ -89,7 +90,39 @@ func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
     let head = "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
         + "\"window\":\(windowJson),"
     let meta = "\"vertical\":\(vertical),\"engine\":\"\(engine)\",\"vote\":\(vote),"
-    return head + meta + "\"lines\":[\(parts.joined(separator: ","))]}"
+
+    // One string, grown once, instead of a String per character joined into a
+    // String per line joined into the payload. A full page is ~2,200 glyphs
+    // and ~90 KB, and the old shape allocated several times that in
+    // intermediates on a path the reader waits behind.
+    var out = head + meta + "\"lines\":["
+    out.reserveCapacity(64 * lines.reduce(0) { $0 + $1.chars.count } + 256)
+    var firstLine = true
+    for l in lines where !l.chars.isEmpty {
+        if firstLine { firstLine = false } else { out += "," }
+        out += "{\"text\":\"\(jsonEscape(l.text))\""
+        if l.ruby { out += ",\"ruby\":true" }
+        if l.vertical { out += ",\"vertical\":true" }
+        if let hint = l.hint { out += ",\"hint\":\"\(jsonEscape(hint))\"" }
+        out += ",\"chars\":["
+        var firstChar = true
+        for c in l.chars {
+            if firstChar { firstChar = false } else { out += "," }
+            out += "{\"c\":\"\(jsonEscape(c.ch))\",\"x\":\(Int(c.x)),\"y\":\(Int(c.y)),"
+            out += "\"w\":\(Int(c.w.rounded(.up))),\"h\":\(Int(c.h.rounded(.up)))"
+            if let conf = c.conf { out += ",\"f\":\(twoDecimals(conf))" }
+            out += "}"
+        }
+        out += "]}"
+    }
+    return out + "]}"
+}
+
+/// `String(format: "%.2f", x)` for x in [0, 1], without NSString formatting —
+/// which is per-character cost on a voted payload.
+func twoDecimals(_ x: Double) -> String {
+    let n = max(0, min(100, Int((x * 100).rounded())))
+    return "\(n / 100).\(n % 100 < 10 ? "0" : "")\(n % 100)"
 }
 
 func emit(_ text: String, to path: String?) {

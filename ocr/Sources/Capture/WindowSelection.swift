@@ -52,12 +52,87 @@ func shareableContent(timeout: Double = 12) async throws -> SCShareableContent {
     }
 }
 
-func targetWindows() async throws -> [SCWindow] {
-    // onScreenWindowsOnly must be false: a window living on another macOS Space
-    // is not "on screen", so the target disappears from enumeration the moment you
-    // switch desktops. Enumerate everything, then prefer visible windows.
-    let content = try await shareableContent()
-    return content.windows.filter { w in
+/// SCShareableContent, cached across passes and invalidated by measurement.
+///
+/// The call costs ~150 ms (measured: a `--bundle X` run that only enumerates
+/// and exits takes 0.16 s against a 0.01 s process floor), and the watch loop
+/// paid it TWICE per pass — once to choose the window, once inside
+/// `captureOnce` to build the filter. That was 0.3 s of the ~0.9 s separating
+/// a page turn from the recognition that reads it, spent re-deriving something
+/// that had not changed.
+///
+/// Only two things are actually taken from the result: the target's `SCWindow`
+/// handle, and the list of OTHER windows to exclude from the capture. Both are
+/// functions of the set of windows the server is compositing, and CGWindowList
+/// reports that set in 0.5 ms.
+///
+/// So the cache is invalidated by that set changing — NOT by a timer alone. A
+/// window that appeared between two timed refreshes would be missing from the
+/// exclusion list and would be composited straight into the capture, breaking
+/// the scoping guarantee at the top of Capture.swift. The age limit below is a
+/// second belt for what the on-screen list cannot express (a display arriving,
+/// a window changing identity in place).
+private var cachedContent: SCShareableContent? = nil
+private var cachedContentSig: UInt64 = 0
+private var cachedContentAt = Date.distantPast
+private let contentMaxAge: TimeInterval = 10
+
+/// FNV-1a over the window ids the server is compositing, front to back.
+/// Order is part of the signature: the same windows restacked change which one
+/// is frontmost, and frontmost is how the target is chosen.
+func onScreenSignature(_ infos: [[String: Any]]) -> UInt64 {
+    var h: UInt64 = 0xcbf2_9ce4_8422_2325
+    for info in infos {
+        let id = UInt64(UInt32(truncatingIfNeeded: (info[kCGWindowNumber as String] as? Int) ?? 0))
+        for shift in stride(from: 0, to: 32, by: 8) {
+            h = (h ^ ((id >> UInt64(shift)) & 0xff)) &* 0x100_0000_01b3
+        }
+    }
+    return h
+}
+
+/// The shareable content for this pass: the cached one when the window set is
+/// unchanged, a fresh enumeration otherwise.
+func sharedContent(matching sig: UInt64) async throws -> SCShareableContent {
+    if let c = cachedContent, sig == cachedContentSig,
+       Date().timeIntervalSince(cachedContentAt) < contentMaxAge {
+        lastContentWasCached = true
+        return c
+    }
+    lastContentWasCached = false
+    return try await refreshedContent(sig: sig)
+}
+
+/// Force a fresh enumeration and adopt it as the cache. Used when a capture
+/// falls back to the window-scoped filter, which resolves geometry through the
+/// SCWindow itself — a stale handle there would reintroduce the section-1 bug.
+@discardableResult
+func refreshedContent(sig: UInt64? = nil) async throws -> SCShareableContent {
+    let c = try await shareableContent()
+    cachedContent = c
+    if let sig { cachedContentSig = sig } else { cachedContentSig = 0 }
+    cachedContentAt = Date()
+    return c
+}
+
+/// The chosen window, paired with the frame the window server reports for it
+/// on THIS pass, and the content its handle came from.
+///
+/// `SCWindow.frame` is a snapshot from whenever the enumeration ran, and that
+/// enumeration is now cached across passes — so it can be a page-turn stale.
+/// CGWindowList is re-read every pass anyway (`stillVisible`, 0.5 ms) and is
+/// already the authority for which window is visible; take the geometry from
+/// the same place. `window` is kept purely as a capture handle.
+struct TargetWindow {
+    let window: SCWindow
+    let frame: CGRect
+    let content: SCShareableContent
+    var windowID: CGWindowID { window.windowID }
+    var title: String? { window.title }
+}
+
+func targetWindows(in content: SCShareableContent) -> [SCWindow] {
+    content.windows.filter { w in
         guard target.matches(w) else { return false }
         // Skip tiny helper/utility windows; the reader window is the big one.
         return w.frame.width > 200 && w.frame.height > 200
@@ -70,6 +145,13 @@ func targetWindows() async throws -> [SCWindow] {
     }
 }
 
+func targetWindows() async throws -> [SCWindow] {
+    // onScreenWindowsOnly must be false: a window living on another macOS Space
+    // is not "on screen", so the target disappears from enumeration the moment you
+    // switch desktops. Enumerate everything, then prefer visible windows.
+    targetWindows(in: try await shareableContent())
+}
+
 /// The window to capture this pass, or nil when none is on screen.
 ///
 /// `--bundle` follows an app, and an app commonly has several windows — three
@@ -80,10 +162,7 @@ func targetWindows() async throws -> [SCWindow] {
 /// windows; sticky picking latches onto a window that is still on screen but
 /// occluded behind the one actually being read. Both were observed doing
 /// exactly that.
-func chooseWindow() async throws -> SCWindow? {
-    let windows = try await targetWindows()
-    guard !windows.isEmpty else { lastOccluders = []; return nil }
-
+func chooseWindow() async throws -> TargetWindow? {
     // The window server's on-screen list: windows it is compositing on the
     // ACTIVE Space right now, front to back. This is the authority, and
     // SCWindow.isOnScreen is not a substitute for it — a window sitting on
@@ -101,9 +180,19 @@ func chooseWindow() async throws -> SCWindow? {
         [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
         as? [[String: Any]] ?? []
     var rank: [CGWindowID: Int] = [:]
+    // Frames from the same list, not from SCWindow: the enumeration behind
+    // SCWindow is cached across passes now, so its frames lag a move or a
+    // resize by up to one cache lifetime. These are this instant's.
+    var frames: [CGWindowID: CGRect] = [:]
     for (i, info) in infos.enumerated() {
-        if let id = info[kCGWindowNumber as String] as? Int { rank[CGWindowID(id)] = i }
+        guard let id = info[kCGWindowNumber as String] as? Int else { continue }
+        rank[CGWindowID(id)] = i
+        if let r = windowRect(info) { frames[CGWindowID(id)] = r }
     }
+
+    let content = try await sharedContent(matching: onScreenSignature(infos))
+    let windows = content.windows.filter(target.matches)
+    guard !windows.isEmpty else { lastOccluders = []; return nil }
 
     // Second guard, for the parked-window case: the window server moves a
     // window belonging to another Space outside the desktop (x of -1459 and
@@ -119,9 +208,13 @@ func chooseWindow() async throws -> SCWindow? {
     // popups on top of whatever the user switched to (measured: a popup for
     // ほど still sitting over a Telegram window that fully covered the reader).
     // Ask the window server what it is actually drawing in front instead.
-    let live = windows.filter {
-        rank[$0.windowID] != nil
-            && visibleFraction(of: $0.windowID, frame: $0.frame, in: infos, rank: rank) >= 0.5
+    let live: [TargetWindow] = windows.compactMap { w in
+        // Skip tiny helper/utility windows; the reader window is the big one.
+        guard rank[w.windowID] != nil, let f = frames[w.windowID],
+              f.width > 200, f.height > 200,
+              visibleFraction(of: w.windowID, frame: f, in: infos, rank: rank) >= 0.5
+        else { return nil }
+        return TargetWindow(window: w, frame: f, content: content)
     }
     guard let chosen = live.min(by: { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max })
     else { lastOccluders = []; return nil }
@@ -132,6 +225,11 @@ func chooseWindow() async throws -> SCWindow? {
                               in: infos, rank: rank)
     return chosen
 }
+
+/// Whether the last `chooseWindow()` reused a cached enumeration. Diagnostics
+/// only — the watch loop reports it once so a cache that never hits is visible
+/// rather than silently costing 150 ms a pass.
+var lastContentWasCached = false
 
 /// How much of a window the user can actually see: inside a display, and not
 /// painted over by a window in front of it.
