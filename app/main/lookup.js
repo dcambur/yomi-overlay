@@ -142,12 +142,19 @@ function buildEntries(rows, hint) {
     } catch { g = [String(r.gloss)]; }
     // Drop entries that are just a reading fragment with no real content.
     if (g.length === 1 && g[0].length <= 2 && g[0] === r.reading) continue;
-    entries.push({ reading: r.reading, dict: r.dict, glosses: g });
+    entries.push({ reading: r.reading, dict: r.dict, glosses: g,
+                   score: typeof r.score === 'number' ? r.score : 0 });
     if (typeof r.score === 'number') score = Math.max(score, r.score);
   }
   if (!entries.length) return null;
 
-  entries.sort((a, b) => rank(a.dict) - rank(b.dict));
+  // Dictionary order first, then the dictionary's own score. The score is the
+  // popularity marker a Yomitan term bank carries — JMdict's news/ichi/spec
+  // tags become a positive number — and ignoring it is why 神 led with しん
+  // (score 0) instead of かみ (score 200): the tie fell through to rowid
+  // order. Yomitan sorts on it too (translator.js, dictionaryOrder then
+  // score desc).
+  entries.sort((a, b) => rank(a.dict) - rank(b.dict) || b.score - a.score);
 
   // Furigana hint (Phase 4): the page itself printed this word's reading
   // beside it. Prefer entries whose reading it contains — the ruby beside
@@ -220,8 +227,14 @@ function lookup(input, maxLen = 12, hint = null) {
       seenTerm.add(cand);
 
       const pitch = qPitch.all(cand).map(p => ({ reading: p.reading, position: p.position }));
-      const freq = qFreq.all(cand).map(f => ({ source: f.source, value: f.value }));
-      freq.sort((a, b) => a.value - b.value);
+      const freq = qFreq.all(cand)
+        .map(f => ({ source: f.source, value: f.value }))
+        .filter(f => visible(f.source));
+      // Settings order first, then the rank itself. A frequency list is a
+      // dictionary like any other in the priority list, and if its position
+      // there changed nothing the arrows beside it would be a lie — the popup
+      // shows two chips, so which two is exactly what the order decides.
+      freq.sort((a, b) => rank(a.source) - rank(b.source) || a.value - b.value);
 
       groups.push({
         surface,

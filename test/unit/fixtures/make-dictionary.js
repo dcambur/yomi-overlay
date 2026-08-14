@@ -148,10 +148,12 @@ const SHAPES = {
  * differently and the old flattener read each one differently, so a suite that
  * means to cover the format covers all four.
  *
- * `words` gives real headwords as [expression, reading] pairs, for the tests
- * that need a particular word rather than a particular quantity — deinflection
- * has to be checked on something that actually conjugates. Without it the
- * entries are numbered filler, which is all a bulk test needs.
+ * `words` gives real headwords as [expression, reading] pairs — or
+ * [expression, reading, score] — for the tests that need a particular word
+ * rather than a particular quantity: deinflection has to be checked on
+ * something that actually conjugates, and ranking on something whose bank
+ * order and score order disagree. Without it the entries are numbered filler,
+ * which is all a bulk test needs.
  */
 function termDictionary(dest, {
   title = 'Test Dictionary', entries = 20, shape = 'sc', banks = 1,
@@ -167,9 +169,10 @@ function termDictionary(dest, {
   for (let b = 1; b <= banks; b++) {
     const bank = [];
     for (let i = 0; made < heads.length && i < perBank; i++, made++) {
-      const [expr, reading] = heads[made];
+      const [expr, reading, score] = heads[made];
       // [expression, reading, defTags, rules, score, glossary, sequence, termTags]
-      bank.push([expr, reading, '', '', 100 - made, glossFor(made), made, '']);
+      bank.push([expr, reading, '', '',
+                 score === undefined ? 100 - made : score, glossFor(made), made, '']);
     }
     files[`term_bank_${b}.json`] = JSON.stringify(bank);
   }

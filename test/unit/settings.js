@@ -21,6 +21,9 @@ const ROOT = path.resolve(__dirname, '..', '..');
 
 let win;
 const consoleMessages = [];
+// What the page saved, per channel, so a test can assert that a change applied
+// itself rather than waiting for the footer button.
+const saved = { trigger: 0, dictionaries: 0, config: 0 };
 
 const results = [];
 async function test(name, fn) {
@@ -108,6 +111,31 @@ async function run() {
     assert.ok(await js("!document.getElementById('p-window').classList.contains('on')"));
   });
 
+  await test('the apply button is shown only where it applies to something', async () => {
+    const hidden = () =>
+      js("document.getElementById('save').classList.contains('hidden')");
+    const click = (t) => js(`document.querySelector('[data-tab="${t}"]').click()`);
+    await click('window'); await settle();
+    assert.strictEqual(await hidden(), false, 'shown for the target window');
+    for (const tab of ['dicts', 'trigger']) {
+      await click(tab); await settle();
+      assert.strictEqual(await hidden(), true,
+                         `hidden on ${tab}, which saves as it changes`);
+    }
+  });
+
+  await test('changing the trigger saves it without a button', async () => {
+    await js("document.querySelector('[data-tab=\"trigger\"]').click()");
+    await settle();
+    await js("(() => { const m = document.getElementById('mode');"
+             + " m.value = 'hover'; m.onchange(); })()");
+    await settle();
+    assert.strictEqual(saved.trigger, 1, 'the main process was told, once');
+    // And the row that no longer applies is hidden rather than left dangling.
+    assert.ok(await js(
+      "document.getElementById('row-mod').classList.contains('hidden')"));
+  });
+
   const failed = results.filter(([ok]) => !ok);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -120,7 +148,9 @@ app.on('window-all-closed', () => {});
 app.whenReady().then(async () => {
   ipcMain.handle('cfg:get', () => CONFIG);
   ipcMain.handle('cfg:windows', () => WINDOWS);
-  ipcMain.handle('cfg:save', () => ({ ok: true }));
+  ipcMain.handle('cfg:save', () => { saved.config++; return CONFIG; });
+  ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
+  ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);
   ipcMain.on('cfg:close', () => {});

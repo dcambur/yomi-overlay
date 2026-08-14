@@ -36,8 +36,13 @@ const glyphs = (s) => Array.from(s);
 // 見つける conjugates, 日本 is a prefix of 日本語, and 人 has a codepoint twin.
 // lookup.js gates the single-kanji fallback on the label "KANJIDIC", so the
 // kanji fixture must carry that title.
+// 神 carries two readings whose bank order and score order DISAGREE: the
+// common one is written second. A Yomitan term bank's score is its popularity
+// marker, and ignoring it is what put しん above かみ in the popup.
+const COMMON_SCORE = 200;
 const WORDS = [['見つける', 'みつける'], ['言葉', 'ことば'],
-               ['人', 'ひと'], ['日本', 'にほん'], ['日本語', 'にほんご']];
+               ['人', 'ひと'], ['日本', 'にほん'], ['日本語', 'にほんご'],
+               ['神', 'しん', 0], ['神', 'かみ', COMMON_SCORE]];
 const KANJI = ['憑', '人'];
 
 before(async () => {
@@ -120,6 +125,15 @@ test('a word beats the kanji fallback', () => {
   const r = lookup(glyphs('人'));
   assert.ok(r);
   assert.strictEqual(r.groups[0].entries[0].dict, 'Words');
+});
+
+test('the commonest reading leads, whatever order the bank is in', () => {
+  const r = lookup(glyphs('神'));
+  assert.ok(r);
+  const readings = r.groups[0].entries.map((e) => e.reading);
+  assert.strictEqual(readings[0], 'かみ',
+                     `score decides, not bank order (${readings.join(', ')})`);
+  assert.ok(readings.includes('しん'), 'the rarer reading is still offered');
 });
 
 test('NFKC-normalises the query, so OCR codepoint twins still hit', () => {

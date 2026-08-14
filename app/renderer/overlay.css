@@ -54,7 +54,7 @@
     /* 13px gothic. Mincho's thin strokes are genuinely hard to read at 11px,
        and gloss text is the thing you actually read — Mincho is reserved for
        the headword, where the size carries it. */
-    font-size: 13px; line-height: 1.5;
+    font-size: 14px; line-height: 1.55;
     box-shadow: 0 10px 34px rgba(0,0,0,0.5);
     z-index: 10;
   }
@@ -73,7 +73,7 @@
   #popup .card + .card { margin-top: 6px; }
 
   #popup .term {
-    font-size: 17px; font-family: "Hiragino Mincho ProN", serif;
+    font-size: 18px; font-family: "Hiragino Mincho ProN", serif;
     font-weight: 600;
     margin-bottom: 0; line-height: 1.3;
   }
@@ -82,7 +82,13 @@
   /* Pitch accent, Yomitan-style: one span per mora, high morae carry an
      overline, and the mora before the downstep also carries a falling right
      edge. Heiban gets a rising left edge on mora 2 and no fall. */
-  .pitch { font-size: 13px; color: #d3b072; letter-spacing: .02em; }
+  /* The form actually on the page, under the dictionary form that heads the
+     card. Dimmer and smaller: it is context, not the word. */
+  #popup .infl {
+    font-size: 12px; color: #8d8778; margin-top: -1px;
+  }
+  #popup .infl::before { content: "on the page: "; font-family: -apple-system, sans-serif; }
+  .pitch { font-size: 14px; color: #d3b072; letter-spacing: .02em; }
   .pitch .m { padding: 1px 0; border-top: 1px solid transparent; }
   .pitch .m.hi { border-top-color: #d3b072; }
   .pitch .m.fall { border-right: 1px solid #d3b072; padding-right: 1px; }
@@ -94,7 +100,6 @@
     color: #9d9484; border: 1px solid rgba(255,255,255,0.14);
     padding: 0 4px; border-radius: 3px; line-height: 1.6;
   }
-  .chip.base { color: #a8c6a0; border-color: rgba(140,190,130,0.35); }
   .chip.freq { color: #8d95a8; border-color: rgba(140,150,190,0.3); }
 
   #popup .ent { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.07); }
@@ -111,13 +116,17 @@
   .src.gram  { color: #c2a3d0; border-color: rgba(180,140,210,0.4); }
   .src.name  { color: #9d9484; border-color: rgba(255,255,255,0.14); }
   .src.kanji { color: #d8a889; border-color: rgba(220,150,110,0.4); }
-  #popup .ent .rd { color: #d3b072; font-size: 12px; }
+  #popup .ent .rd { color: #d3b072; font-size: 12.5px; }
 
   /* Bilingual senses: bulleted English list, markers dimmed so the text
      carries the row. */
   #popup .gl { margin: 3px 0 0 0; padding-left: 15px; }
   #popup .gl li { margin: 2px 0; }
   #popup .gl li::marker { color: #6f6857; }
+  /* A gloss that is structured content brings its OWN senses and numbering, so
+     the outer bullet is a second marker for the same thing — the stray dot
+     that appeared beside the part-of-speech tags. */
+  #popup .gl.sc { list-style: none; padding-left: 0; }
   /* Monolingual / grammar senses carry their own ①❶ numbering — no bullets,
      hanging indent so wrapped lines align under the text, not the number. */
   #popup .gl.plain { list-style: none; padding-left: 2px; }
@@ -132,3 +141,84 @@
     padding: 0 3px; margin-right: 4px;
   }
   #popup .ja { font-family: "Hiragino Mincho ProN", serif; white-space: pre-wrap; }
+
+  /* --- structured content, as the dictionary itself wrote it -------------
+     The index keeps each glossary's STRUCTURE (ARCHITECTURE §8) and it is built
+     into DOM here, so a dictionary's own ul/ol/li/table land in the popup.
+     Unstyled they took browser defaults: three levels of disc/circle/square
+     bullets, 40px of indent each, and a sense number jammed against its text.
+
+     These follow Yomitan's compact glossary layout (its display.css and
+     structured-content.css) rather than being invented. The data-sc-* hooks
+     are the dictionary's own `data` object, which is the only thing that says
+     which ul is a list of senses and which is a list of translations.
+
+     Scoped to #popup, NOT to a wrapper class: popup.js builds these nodes
+     straight into the entry, so a rule under `.sc-block` matched nothing —
+     which is why the first attempt at this fixed only half of it. */
+  #popup ul[data-sc-content],
+  #popup ol[data-sc-content],
+  #popup [data-sc-content] ul,
+  #popup [data-sc-content] ol { margin: 0; padding-left: 1.5em; }
+  #popup [data-sc-content] li::marker { color: #6f6857; }
+  /* A sense number is set by the dictionary as list-style-type ("①"), and a
+     marker sits flush against its text. The gap is the padding above plus
+     this. */
+  #popup [data-sc-content="sense"] { padding-left: .25em; margin: 1px 0; }
+
+  /* Wrappers that carry no numbering of their own. */
+  #popup [data-sc-content="sense-groups"],
+  #popup [data-sc-content="sense-group"] { list-style: none; padding-left: 0; }
+
+  /* One sense's translations read as one line — "spirit; psyche" — not as a
+     column of squares. Yomitan does the same with a ' | ' separator; a
+     semicolon matches how the dictionaries themselves punctuate a sense. */
+  #popup ul[data-sc-content="glossary"] { display: inline; padding-left: 0; }
+  #popup [data-sc-content="glossary"] > li { display: inline; }
+  #popup [data-sc-content="glossary"] > li:not(:first-child)::before {
+    content: "; "; color: #8d8778;
+  }
+
+  /* An example sentence and its translation, in their own tray. Jitendex ships
+     these with ruby on the Japanese, which is exactly what a reader wants to
+     check — so it gets a surface of its own rather than running on from the
+     definition. */
+  #popup [data-sc-content="example-sentence"] {
+    margin: 4px 0 3px; padding: 4px 7px;
+    background: rgba(255,255,255,0.045);
+    border-left: 2px solid rgba(200,167,106,0.35); border-radius: 3px;
+  }
+  #popup [data-sc-content="example-sentence-a"] {
+    font-family: "Hiragino Mincho ProN", serif; font-size: 13px;
+    line-height: 1.9;       /* room for the ruby above the line */
+    color: #d8d3c8;
+  }
+  #popup [data-sc-content="example-sentence-b"] {
+    font-size: 12px; color: #9d9484; margin-top: 1px;
+  }
+  /* The word being looked up, inside its own example. */
+  #popup [data-sc-content="example-keyword"] { color: #e2c98d; }
+  #popup ruby rt { font-size: 0.5em; color: #b9b2a1; }
+
+  /* Part of speech, field of use, usage note: the dictionary marks these as
+     tags. Small and muted, so a sense is read as text and the tag as a label
+     on it. `title` carries the expansion ("noun (common) (futsuumeishi)"). */
+  #popup [data-sc-class="tag"] {
+    display: inline-block; font-size: 10px; line-height: 1.5;
+    color: #9d9484; border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 3px; padding: 0 4px; margin: 1px 4px 1px 0;
+  }
+  /* Cross-references are the dictionary pointing elsewhere: kept, dimmed. */
+  #popup [data-sc-content="references"] { color: #8d8778; font-size: 11.5px; }
+  /* Spelling variants and the licence footer are about the ENTRY, not about
+     the word. The old index dropped both (build-index.py's JM_SKIP) and a
+     popup this size is the wrong place to reintroduce them: the variants
+     table renders as a grid of empty cells, since its priority marks are
+     images we do not extract. */
+  #popup [data-sc-content="forms"],
+  #popup [data-sc-content="attribution"] { display: none; }
+
+  /* An inline sense marker that is an IMAGE in the source (三省堂 ships its ⓐ
+     ⓑ and its part-of-speech marks as SVG). Media is not extracted yet, so
+     structured.js renders the label instead of an image with no source. */
+  #popup .sc-label { color: #9d9484; font-size: 11px; margin-right: 2px; }

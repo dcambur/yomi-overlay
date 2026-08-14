@@ -81,6 +81,39 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     return cfg.load();
   });
 
+  // How a lookup fires. Like the dictionaries below, this is saved as it
+  // changes rather than behind a button — mode and hover delay are renderer
+  // state and apply the moment they are pushed. The modifier is the one
+  // exception: it is baked into the event monitor's argv, so THAT child (not
+  // the capture child, and not the overlay) is restarted when it changes.
+  ipcMain.handle('cfg:trigger', (_e, next) => {
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      reject('cfg:trigger', 'not an object');
+      return cfg.load();
+    }
+    const before = cfg.trigger();
+    cfg.save({ trigger: next });
+    tray.refresh();
+    overlayWindow.sendTrigger();
+    if (cfg.trigger().modifier !== before.modifier) eventsChild.restart();
+    return cfg.load();
+  });
+
+  // Which dictionaries are on, and in what order. Deliberately NOT cfg:save:
+  // that one restarts the capture and event children, because the target
+  // window and the modifier are baked into their argv. Neither is affected by
+  // a dictionary, and lookup.js re-reads the order on every lookup
+  // (refreshOrder), so writing the file IS the apply — which is what lets the
+  // settings window make these changes live instead of behind a button.
+  ipcMain.handle('cfg:dictionaries', (_e, list) => {
+    if (!Array.isArray(list)) {
+      reject('cfg:dictionaries', 'not an array');
+      return cfg.load();
+    }
+    cfg.save({ dictionaries: list });
+    return cfg.load();
+  });
+
   // --- dictionaries ---------------------------------------------------
   // Adding or removing one changes the index the overlay reads, so every path
   // here ends the same way: rebuild, reopen, and tell the window what the

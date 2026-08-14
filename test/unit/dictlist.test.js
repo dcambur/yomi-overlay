@@ -3,9 +3,10 @@
 // It used to be three lists — priority, downloadable, installed — and a
 // dictionary could appear in two of them at once. Removing one left it behind
 // in the priority list, still reorderable, answering nothing. It is now one row
-// per dictionary under one of two headings — what we can fetch, and what the
-// user brought themselves — and these check the properties that made the old
-// arrangement wrong, plus the ones the grouping must not quietly reintroduce.
+// per dictionary under one of two headings, split by STATE: installed (in
+// priority order) and available to download. These check the properties that
+// made the old arrangement wrong, and the one that a provenance split broke —
+// that the order you see is the order that is saved.
 //
 // settings.js is a classic script that expects a browser, so it is evaluated
 // against the smallest fake document that lets it build rows.
@@ -20,8 +21,13 @@ const SRC = fs.readFileSync(
 
 function fakeElement(tag) {
   const el = {
-    tag, children: [], className: '', textContent: '', innerHTML: '',
+    tag, children: [], className: '', textContent: '', _html: '',
     style: {}, dataset: {}, disabled: false, type: '', checked: false,
+    // A real element drops its children when innerHTML is assigned. Without
+    // that, a re-render appended to the previous one and every "did the rows
+    // move" assertion saw both renders at once.
+    get innerHTML() { return this._html; },
+    set innerHTML(v) { this._html = v; if (!v) this.children = []; },
     // Backed by className, like the real one: the script reads both.
     classList: {
       contains(n) { return this.owner.className.split(' ').includes(n); },
@@ -83,8 +89,12 @@ function load(config) {
   // The script calls init() at load, which awaits the bridge. Give it shapes
   // it can use rather than undefined, or the failure surfaces long after the
   // test that caused it.
+  const saved = [];
   const settings = {
     getConfig: async () => config,
+    // Priority and on/off apply immediately; the harness records the calls so
+    // a test can assert that they DID.
+    saveDictionaries: (list) => { saved.push(list.map((d) => d.name)); },
     listWindows: async () => [],
     dictCatalogue: async () => [],
     dictInstalled: async () => [],
@@ -92,7 +102,7 @@ function load(config) {
     close: () => {},
   };
   const api = make(document, { settings }, config);
-  return { api, host };
+  return { api, host, saved };
 }
 
 /** The rows, without the group headings between them. */
@@ -132,14 +142,13 @@ test('the two groups are what they say they are', () => {
     .filter((c) => c.className.split(' ').includes('group-head'));
   assert.strictEqual(heads.length, 2, 'one heading per group');
   const [first, second] = heads.map((h) => host.children.indexOf(h));
-  const between = host.children.slice(first + 1, second);
-  const after = host.children.slice(second + 1);
   const named = (list) => list.filter((c) => c.className.startsWith('dict'))
     .map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]);
-  assert.deepStrictEqual(named(between).sort(), ['JMnedict', 'Jitendex'],
-                         'the catalogue is the first group');
-  assert.deepStrictEqual(named(after), ['明鏡'],
-                         'what the user imported is the second');
+  assert.deepStrictEqual(named(host.children.slice(first + 1, second)).sort(),
+                         ['Jitendex', '明鏡'].sort(),
+                         'everything in the index is in the first group');
+  assert.deepStrictEqual(named(host.children.slice(second + 1)), ['JMnedict'],
+                         'and what is not installed is in the second');
 });
 
 test('an installed dictionary offers Remove, an uninstalled one Download', () => {
@@ -196,15 +205,52 @@ test('anything installed can be reordered, catalogue or not', () => {
                      'nothing to reorder before it is installed');
 });
 
-test('reordering moves the dictionary and redraws', () => {
+test('reordering moves the dictionary and saves at once', () => {
   const config = fresh();
-  const { api, host } = load(config);
+  const { api, host, saved } = load(config);
   api.render(CATALOGUE, INSTALLED);
   const down = rowFor(host, 'Jitendex').buttons()
     .find((b) => b.textContent === '▼');
   down.onclick();
   assert.deepStrictEqual(config.dictionaries.map((d) => d.name), ['明鏡', 'Jitendex'],
                          'the config list is what actually moved');
+  assert.deepStrictEqual(saved, [['明鏡', 'Jitendex']],
+                         'and it was written without waiting for a button');
+});
+
+test('the arrows swap with the row you can SEE, not the saved neighbour', () => {
+  // A dictionary the catalogue lists but nobody installed has no place in the
+  // priority list, so it must not sit between two rows that swap.
+  const config = fresh();
+  const { api, host } = load(config);
+  api.render(CATALOGUE, INSTALLED);
+  const before = rowsOf(host).map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]);
+  rowFor(host, 'Jitendex').buttons().find((b) => b.textContent === '▼').onclick();
+  const after = rowsOf(host).map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]);
+  assert.notDeepStrictEqual(after, before, 'the rows actually moved');
+  assert.strictEqual(after.indexOf('明鏡') < after.indexOf('Jitendex'), true,
+                     `明鏡 is now above Jitendex (${after.join(', ')})`);
+});
+
+test('installed dictionaries are listed in priority order', () => {
+  const config = { dictionaries: [{ name: '明鏡', enabled: true },
+                                  { name: 'Jitendex', enabled: true }] };
+  const { api, host } = load(config);
+  api.render(CATALOGUE, INSTALLED);
+  const names = rowsOf(host).map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]);
+  assert.ok(names.indexOf('明鏡') < names.indexOf('Jitendex'),
+            `saved order is the shown order (${names.join(', ')})`);
+});
+
+test('turning a dictionary off saves without a button press', () => {
+  const config = fresh();
+  const { api, host, saved } = load(config);
+  api.render(CATALOGUE, INSTALLED);
+  const box = rowFor(host, 'Jitendex').children[0];
+  box.checked = false;
+  box.onchange();
+  assert.strictEqual(config.dictionaries[0].enabled, false);
+  assert.strictEqual(saved.length, 1, 'written immediately');
 });
 
 test('progress is drawn on the busy row, and only there', () => {

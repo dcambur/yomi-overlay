@@ -92,7 +92,16 @@
   /** Headword block: term, reading/pitch row, base + frequency chips. */
   function headerHtml(g) {
     const parts = [];
-    parts.push(`<div class="term ja">${esc(g.surface)}</div>`);
+    // The DICTIONARY form leads. A reader looking at 始まります wants 始まる —
+    // that is the word to learn, to look up again, and to put on a card; the
+    // form on the page is a fact about this sentence. It is still shown, small,
+    // because knowing which inflection produced the match is how you check the
+    // deinflector got it right.
+    const head = g.base || g.surface;
+    parts.push(`<div class="term ja">${esc(head)}</div>`);
+    if (g.base && g.base !== g.surface) {
+      parts.push(`<div class="infl ja">${esc(g.surface)}</div>`);
+    }
 
     const rd = g.entries[0]?.reading;
     const p = g.pitch?.length ? g.pitch[0] : null;
@@ -109,7 +118,6 @@
     }
 
     const chips = [];
-    if (g.base) chips.push(`<span class="chip base ja">← ${esc(g.base)}</span>`);
     for (const f of (g.freq || []).slice(0, 2)) {
       chips.push(`<span class="chip freq">${esc(f.source)} ${esc(String(f.value))}</span>`);
     }
@@ -134,7 +142,11 @@
       const items = en.glosses.map((g) => glossItem(g, en.dict)).join('、 ');
       parts.push(`<div class="ja">${items}</div>`);
     } else if (kind === 'bi') {
-      parts.push('<ul class="gl">');
+      // A structured gloss carries its own senses and its own numbering, so
+      // the list around it must not add a second marker — that was the stray
+      // bullet sitting beside the part-of-speech tags.
+      const structured = en.glosses.some((g) => typeof g !== 'string');
+      parts.push(`<ul class="gl${structured ? ' sc' : ''}">`);
       for (const g of en.glosses) parts.push(`<li>${glossItem(g, en.dict)}</li>`);
       parts.push('</ul>');
     } else {   // mono, gram — lines carry their own numbering

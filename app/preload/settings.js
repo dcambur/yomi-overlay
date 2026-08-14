@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('settings', {
   getConfig: () => ipcRenderer.invoke('cfg:get'),
   saveConfig: (next) => ipcRenderer.invoke('cfg:save', next),
+  // Both applied immediately, without restarting the overlay — see ipc.js.
+  saveTrigger: (next) => ipcRenderer.invoke('cfg:trigger', next),
+  saveDictionaries: (list) => ipcRenderer.invoke('cfg:dictionaries', list),
   listWindows: () => ipcRenderer.invoke('cfg:windows'),
   close: () => ipcRenderer.send('cfg:close'),
 

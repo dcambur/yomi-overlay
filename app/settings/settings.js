@@ -65,15 +65,29 @@ function progressOf(p) {
 
 const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger' };
 
+/**
+ * Show the tab, and the footer button only where it means something.
+ *
+ * The target window and the trigger are baked into the capture child's
+ * arguments, so changing them restarts it — that is what the button is for.
+ * Dictionaries save themselves the moment they change (saveDictionaryOrder),
+ * so on that tab the button had nothing to apply and no way to say so.
+ */
+function showTab(name) {
+  for (const t of document.querySelectorAll('.tab')) {
+    t.classList.toggle('on', t.dataset.tab === name);
+  }
+  for (const [tab, id] of Object.entries(PANELS)) {
+    $(id).classList.toggle('on', tab === name);
+  }
+  // Only the target window needs applying: it is baked into the capture
+  // child's arguments, so changing it restarts capture and drops the glyph
+  // layer. The trigger and the dictionaries save themselves as they change.
+  $('save').classList.toggle('hidden', name !== 'window');
+}
+
 for (const tab of document.querySelectorAll('.tab')) {
-  tab.onclick = () => {
-    for (const t of document.querySelectorAll('.tab')) {
-      t.classList.toggle('on', t === tab);
-    }
-    for (const [name, id] of Object.entries(PANELS)) {
-      $(id).classList.toggle('on', tab.dataset.tab === name);
-    }
-  };
+  tab.onclick = () => showTab(tab.dataset.tab);
 }
 
 // --- target window ----------------------------------------------------------
@@ -184,6 +198,12 @@ function renderTrigger() {
   syncTriggerRows();
 }
 
+/** Save the trigger as it changes; nothing here needs the overlay restarting. */
+function saveTrigger() {
+  window.settings.saveTrigger(currentTrigger());
+  $('status').textContent = 'saved';
+}
+
 /** Only show the setting that applies to the chosen mode. */
 function syncTriggerRows() {
   const hover = $('mode').value === 'hover';
@@ -203,14 +223,35 @@ function currentTrigger() {
 
 // --- dictionaries -----------------------------------------------------------
 //
-// Two groups, because there are two kinds of dictionary and they differ in what
-// you can do with them: the recommended ones can be fetched here, the ones you
-// own can only be imported. Mixing them made a list where identical rows
-// carried different buttons for no visible reason.
+// Two groups, split by STATE: what the index holds, and what can still be
+// fetched. Every row in the first has a checkbox, arrows and Remove; every row
+// in the second has Download and nothing else. One kind of row per group,
+// which is what the single mixed list got wrong.
+//
+// Splitting them the other way — the ones we offer vs the ones you brought —
+// looks tidier and breaks the arrows: priority is ONE list across every
+// dictionary, so a swap that crosses a group boundary cannot move a row. The
+// order you see has to be the order that is saved, and that only holds if
+// everything installed is in one group. Where a dictionary came from is on its
+// row anyway.
 //
 // Rows are keyed on the LABEL the index uses, never on the archive's own title.
 // Keying on the title showed 明鏡 twice — once from the manifest and once from
 // the file — with a different button on each.
+
+/**
+ * Write the priority list and the on/off flags, now.
+ *
+ * These are live: the main process saves them without restarting anything, and
+ * lookup.js re-reads the order per lookup. The footer button is for the target
+ * window and the trigger, which DO need the capture child restarting — having
+ * one button mean "apply" for some tabs and nothing for others was the
+ * ambiguity, not the button.
+ */
+function saveDictionaryOrder() {
+  window.settings.saveDictionaries(config.dictionaries);
+  $('dictstatus').textContent = 'saved';
+}
 
 async function refreshDictionaries() {
   [lastCatalogue, lastInstalled] = await Promise.all([
@@ -266,24 +307,43 @@ function enableBox(cfg) {
   cb.type = 'checkbox';
   cb.checked = !!cfg.enabled;
   cb.disabled = !!dictBusy;
-  cb.onchange = () => { cfg.enabled = cb.checked; renderDictionaries(); };
+  cb.onchange = () => {
+    cfg.enabled = cb.checked;
+    saveDictionaryOrder();
+    renderDictionaries();
+  };
   return cb;
 }
 
-/** Up/down, for a dictionary that is in the index. Priority is sense order. */
-function priorityButtons(idx) {
+/**
+ * Up/down, for a dictionary that is in the index. Priority is sense order:
+ * which dictionary's definition the popup shows first.
+ *
+ * `shown` is every installed dictionary in the order the window is drawing
+ * them, and a press swaps with the neighbour IN THAT ORDER — not with the
+ * neighbour in the saved list. The two differ whenever a downloadable-but-
+ * absent dictionary sits between two installed ones, and swapping in the saved
+ * list then moved nothing the eye could follow. Which is the whole bug: the
+ * arrows worked, and looked broken.
+ */
+function priorityButtons(label, shown) {
   const move = document.createElement('span');
   move.className = 'move';
+  const at = shown.indexOf(label);
   // Every installed dictionary can be reordered — which one provides a sense
   // first is a property of all of them, not of a chosen few.
   for (const [glyph, delta] of [['▲', -1], ['▼', 1]]) {
     const b = document.createElement('button');
     b.textContent = glyph;
-    const to = idx + delta;
-    b.disabled = !!dictBusy || to < 0 || to >= config.dictionaries.length;
+    const neighbour = shown[at + delta];
+    b.disabled = !!dictBusy || neighbour === undefined;
     b.onclick = () => {
       const list = config.dictionaries;
-      [list[idx], list[to]] = [list[to], list[idx]];
+      const i = list.findIndex((d) => d.name === label);
+      const j = list.findIndex((d) => d.name === neighbour);
+      if (i < 0 || j < 0) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      saveDictionaryOrder();
       renderDictionaries();
     };
     move.appendChild(b);
@@ -300,7 +360,7 @@ function dictionaryDetail(entry) {
 }
 
 /** One dictionary. `entry` carries whichever of catalogue/installed applies. */
-function dictionaryRow(entry) {
+function dictionaryRow(entry, shown) {
   const { label, name, info, catalogueId } = entry;
   const idx = config.dictionaries.findIndex((d) => d.name === label);
   const cfg = idx >= 0 ? config.dictionaries[idx] : null;
@@ -317,7 +377,8 @@ function dictionaryRow(entry) {
   // for the ones that are.
   const cb = indexed ? enableBox(cfg) : document.createElement('span');
   el.appendChild(cb);
-  el.appendChild(indexed ? priorityButtons(idx) : document.createElement('span'));
+  el.appendChild(indexed ? priorityButtons(label, shown)
+                         : document.createElement('span'));
 
   // The name is still a label for the checkbox, so clicking the text toggles
   // it — the checkbox is no longer inside the label, so it needs saying.
@@ -348,52 +409,69 @@ function dictionaryRow(entry) {
   return el;
 }
 
-function group(host, title, rows) {
+function group(host, title, rows, shown) {
   if (!rows.length) return;
   const h = document.createElement('p');
   h.className = 'hint group-head';
   h.textContent = title;
   host.appendChild(h);
-  for (const r of rows) host.appendChild(dictionaryRow(r));
+  for (const r of rows) host.appendChild(dictionaryRow(r, shown));
 }
 
 function renderDictionaries() {
   const host = $('dictlist');
   host.innerHTML = '';
-  const byLabel = new Map(lastInstalled.map((d) => [d.label, d]));
 
-  const recommended = lastCatalogue.map((c) => ({
-    label: c.label, name: c.name, detail: c.detail,
-    info: byLabel.get(c.label), catalogueId: c.id,
-  }));
-  const known = new Set(lastCatalogue.map((c) => c.label));
-  const imported = lastInstalled
-    .filter((d) => !known.has(d.label))
-    .map((d) => ({ label: d.label, name: d.name, info: d }));
+  const byCatalogue = new Map(lastCatalogue.map((c) => [c.label, c]));
+  // Priority is the position in the saved list; anything the index does not
+  // hold has none.
+  const priority = (label) => {
+    const i = config.dictionaries.findIndex((d) => d.name === label);
+    return i >= 0 ? i : Number.MAX_SAFE_INTEGER;
+  };
 
-  group(host, 'Recommended — freely licensed, downloaded here', recommended);
-  group(host, 'Imported — dictionaries you already own', imported);
-  if (!imported.length) {
+  const installed = lastInstalled
+    .map((d) => ({
+      label: d.label,
+      // What we call it in the catalogue, if we know it — "JPDB frequency"
+      // reads better than the bare label the index uses.
+      name: (byCatalogue.get(d.label) || {}).name || d.name,
+      info: d,
+    }))
+    .sort((a, b) => priority(a.label) - priority(b.label));
+
+  const have = new Set(lastInstalled.map((d) => d.label));
+  const available = lastCatalogue
+    .filter((c) => !have.has(c.label))
+    .map((c) => ({ label: c.label, name: c.name, detail: c.detail, catalogueId: c.id }));
+
+  // The installed rows, top to bottom as this window draws them — which is the
+  // priority order, so an arrow moves a row to where it looks like it should go.
+  const shown = installed.filter((r) => priority(r.label) < Number.MAX_SAFE_INTEGER)
+    .map((r) => r.label);
+
+  group(host, 'Installed — asked in this order', installed, shown);
+  group(host, 'Available — freely licensed, downloaded here', available, shown);
+  if (!installed.length) {
     const p = document.createElement('p');
     p.className = 'hint';
-    p.textContent = 'Nothing imported yet.';
+    p.textContent = 'No dictionary yet — download one above, or import a .zip you own.';
     host.appendChild(p);
   }
 }
 
 // --- wiring -----------------------------------------------------------------
 
-$('mode').onchange = syncTriggerRows;
+for (const id of ['mode', 'modifier', 'delay']) {
+  $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
+}
 $('import').onclick = () => dictAction('import', () => window.settings.dictImport());
 $('close').onclick = () => window.settings.close();
 $('save').onclick = async () => {
   $('status').textContent = 'applying…';
-  await window.settings.saveConfig({
-    target: selected,
-    dictionaries: config.dictionaries,
-    trigger: currentTrigger(),
-  });
-  $('status').textContent = 'saved — overlay restarted';
+  // Only the target: the other two tabs have already saved themselves.
+  await window.settings.saveConfig({ target: selected });
+  $('status').textContent = 'now watching ' + (selected.label || 'the chosen window');
 };
 
 // Progress belongs to the row that started the work; when nothing is working —
@@ -427,6 +505,7 @@ async function init() {
   config = await window.settings.getConfig();
   selected = { ...(config.target || {}) };
   renderTrigger();
+  showTab('window');
   await refreshDictionaries();
   await refreshWindows();
 }

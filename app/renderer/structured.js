@@ -40,6 +40,27 @@
       + String(imgPath).split('/').map(encodeURIComponent).join('/');
   }
 
+  /**
+   * Carry the node's `data` object through as data-sc-* attributes.
+   *
+   * This is how the stylesheet can tell a glossary list from a sense list —
+   * a dictionary's structure is all `ul` and `li`, and what each one MEANS is
+   * only in `data`. Dropping it is why the popup rendered Jitendex as three
+   * levels of browser-default bullets. Yomitan does the same thing.
+   *
+   * Values are set through `dataset`, never interpolated into markup, and the
+   * key is reduced to letters and digits: this is dictionary-supplied text.
+   */
+  function applyData(el, data) {
+    if (!data || typeof data !== 'object') return;
+    for (const [k, v] of Object.entries(data)) {
+      if (typeof v !== 'string' && typeof v !== 'number') continue;
+      const key = String(k).replace(/[^a-zA-Z0-9]/g, '');
+      if (!key) continue;
+      el.dataset['sc' + key[0].toUpperCase() + key.slice(1)] = String(v);
+    }
+  }
+
   function applyStyle(el, style) {
     if (!style || typeof style !== 'object') return;
     for (const [k, v] of Object.entries(style)) {
@@ -50,6 +71,18 @@
   }
 
   function image(doc, node, dict) {
+    const label = node.title || node.alt;
+    // Media is not extracted from archives yet (issue #11), so an image whose
+    // file we do not have would render as a broken-image box. 三省堂 ships its
+    // sense markers (ⓐ ⓑ) and part-of-speech marks as SVG, so that box is not
+    // rare — it is on every sense. The label the image carries IS the marker,
+    // so show it; textOf() already treats it as text for the same reason.
+    if (!node.path && label) {
+      const span = doc.createElement('span');
+      span.className = 'sc-label';
+      span.textContent = String(label);
+      return span;
+    }
     const el = doc.createElement('img');
     el.className = 'sc-img';
     if (node.path) el.src = mediaURL(dict, node.path);
@@ -59,7 +92,6 @@
     if (typeof node.width === 'number') el.style.width = node.width + unit;
     // monochrome images are line art meant to take the text colour.
     if (node.appearance === 'monochrome') el.classList.add('sc-mono');
-    const label = node.title || node.alt;
     if (label) el.alt = String(label);
     return el;
   }
@@ -95,7 +127,11 @@
     if (!KNOWN.has(name)) name = BLOCK.has(name) ? 'div' : 'span';
     const el = doc.createElement(name || 'span');
     if (tag && !KNOWN.has(tag)) el.dataset.tag = tag;
+    applyData(el, node.data);
     applyStyle(el, node.style);
+    // A tag's own text ("noun (common) (futsuumeishi)") is worth keeping as a
+    // tooltip; it is the only place the abbreviation is spelled out.
+    if (typeof node.title === 'string' && node.title) el.title = node.title;
     if (node.content !== undefined) el.appendChild(render(doc, node.content, dict));
     return el;
   }
