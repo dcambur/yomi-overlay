@@ -15,7 +15,8 @@ const fs = require('fs');
 const path = require('path');
 const { fork } = require('child_process');
 const { USER_DIR } = require('../paths.js');
-const { build, classify } = require('./index-builder.js');
+const { DatabaseSync } = require('node:sqlite');
+const { build, classify, freqLabel, KNOWN_LABELS } = require('./index-builder.js');
 
 const DICTS_DIR = path.join(USER_DIR, 'dicts');
 const INDEX_PATH = path.join(USER_DIR, 'index.db');
@@ -183,12 +184,88 @@ function importFile(src) {
   return { file, kind: info.kind, title: info.title };
 }
 
-/** Forget a dictionary. The index still holds it until the next rebuild. */
+/** Forget a dictionary. The index still holds it until it is pruned. */
 function remove(file) {
   // basename, so a crafted name cannot reach outside the dictionaries folder.
   const target = path.join(DICTS_DIR, path.basename(file));
   if (!fs.existsSync(target)) throw new Error(`no such dictionary: ${file}`);
   fs.rmSync(target);
+}
+
+/** What the index calls a dictionary, derived the same way the build did. */
+function labelOf(file, kind, title) {
+  if (kind === 'freq' || kind === 'pitch') return freqLabel(file);
+  return KNOWN_LABELS[file] || title || file.replace(/\.zip$/i, '');
+}
+
+/** Can this index have one dictionary deleted out of it, or must it be rebuilt? */
+function prunable(db) {
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  return cols('kanji').includes('dict') && cols('pitch').includes('dict')
+    && cols('terms').includes('dict');
+}
+
+/**
+ * Delete one dictionary's rows instead of rebuilding the index around it.
+ *
+ * Removing used to cost a full rebuild — ~80 seconds on twelve dictionaries —
+ * justified by frequency ordering being global. That was wrong: frequency rows
+ * carry the source they came from, so deleting one dictionary cannot disturb
+ * another's ranking. Nothing is recomputed across dictionaries, so nothing has
+ * to be rebuilt. Measured on a 2-million-row index: 930 ms to delete the terms
+ * and 1,665 ms to drop the glossaries left with nothing pointing at them,
+ * against ~80,000 ms.
+ *
+ * An index built before the dict columns existed cannot be pruned, and says so
+ * rather than deleting the wrong rows; the caller rebuilds instead.
+ */
+function prune(label, onProgress = () => {}) {
+  if (!fs.existsSync(INDEX_PATH)) return { pruned: false, reason: 'no index' };
+  const db = new DatabaseSync(INDEX_PATH);
+  try {
+    if (!prunable(db)) return { pruned: false, reason: 'index predates per-dictionary rows' };
+    onProgress({ phase: 'pruning', step: 'entries', done: 0, total: 3 });
+    db.exec('BEGIN');
+    db.prepare('DELETE FROM terms WHERE dict = ?').run(label);
+    db.prepare('DELETE FROM kanji WHERE dict = ?').run(label);
+    db.prepare('DELETE FROM pitch WHERE dict = ?').run(label);
+    db.prepare('DELETE FROM freq  WHERE source = ?').run(label);
+    db.exec('COMMIT');
+
+    onProgress({ phase: 'pruning', step: 'glossaries', done: 1, total: 3 });
+    db.exec('BEGIN');
+    db.exec('DELETE FROM glosses WHERE NOT EXISTS'
+            + ' (SELECT 1 FROM terms WHERE terms.gloss = glosses.id)');
+    db.exec('COMMIT');
+
+    onProgress({ phase: 'pruning', step: 'finishing', done: 2, total: 3 });
+    const left = db.prepare('SELECT COUNT(*) AS n FROM terms').get().n;
+    return { pruned: true, rows: left };
+  } finally {
+    db.close();
+  }
+}
+
+/** The manifest, rewritten from what is still installed and still indexed. */
+function writeManifest() {
+  const labels = [];
+  if (fs.existsSync(INDEX_PATH)) {
+    const db = new DatabaseSync(INDEX_PATH, { readOnly: true });
+    try {
+      // Build order is the popup's sense priority, and rowid preserves it.
+      for (const r of db.prepare(
+        'SELECT dict, MIN(rowid) AS first FROM terms GROUP BY dict ORDER BY first').all()) {
+        if (r.dict) labels.push(r.dict);
+      }
+      for (const r of db.prepare('SELECT DISTINCT dict FROM kanji').all()) {
+        if (r.dict && !labels.includes(r.dict)) labels.push(r.dict);
+      }
+    } finally { db.close(); }
+  }
+  fs.mkdirSync(path.dirname(INDEX_PATH), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(INDEX_PATH), 'dictionaries.json'),
+                   JSON.stringify(labels, null, 2) + '\n');
+  return labels;
 }
 
 /**
@@ -244,7 +321,7 @@ function rebuildAsync(onProgress = () => {}) {
 
 module.exports = {
   CATALOGUE, catalogue, installed, download, importFile, remove, rebuild,
-  rebuildAsync,
+  rebuildAsync, prune, labelOf, writeManifest,
   // Exported so the catalogue can be checked for reachability without
   // downloading gigabytes: every entry must still resolve to a real URL.
   resolveURL,

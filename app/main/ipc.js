@@ -142,9 +142,32 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
 
   ipcMain.handle('dict:remove', async (_e, file) => {
     if (!isStr(file, 256)) return reject('dict:remove', 'bad file');
+    // Work out what the index calls it BEFORE deleting the archive — the label
+    // comes from the archive's own title when it is not one we know.
+    const entry = dictionaries.installed().find((d) => d.file === file);
+    if (!entry) return { ok: false, error: `no such dictionary: ${file}` };
+    const label = dictionaries.labelOf(file, entry.kind, entry.name);
     try { dictionaries.remove(file); }
     catch (e) { return { ok: false, error: e.message }; }
-    await rebuildAndReopen(file);
+
+    // Delete its rows rather than rebuilding the index around it: ~2.6s
+    // against ~80s. An index built before the dict columns existed cannot be
+    // pruned and falls back to the rebuild.
+    let result;
+    try {
+      result = dictionaries.prune(label, (p) => sendSettings('dict:progress', p));
+    } catch (e) {
+      logf('[dict] prune failed, rebuilding: ' + e.message);
+      result = { pruned: false };
+    }
+    if (!result.pruned) {
+      await rebuildAndReopen(file);
+      return { ok: true, rebuilt: true };
+    }
+    const labels = dictionaries.writeManifest();
+    lookupModule.close();
+    cfg.refreshDictionaries();
+    sendSettings('dict:progress', { phase: 'done', labels });
     return { ok: true };
   });
 

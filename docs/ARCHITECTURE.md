@@ -378,8 +378,20 @@ binary). `node:sqlite` is synchronous and a full rebuild is ~80 seconds; in the
 main process that would freeze the tray, the settings window and the overlay
 panel, which is drawn over whatever the user is reading.
 
-A rebuild is always total, never incremental: frequency ordering is global, so
-adding one dictionary changes how senses from all the others rank.
+Adding a dictionary rebuilds the index. **Removing one does not** — it deletes
+that dictionary's rows. The earlier claim here, that a rebuild must be total
+because frequency ordering is global, was wrong: frequency rows carry the
+`source` they came from, so removing one dictionary cannot disturb another's
+ranking, and nothing is recomputed across dictionaries. Measured on a
+two-million-row index: 930 ms to delete the terms and 1,665 ms to drop the
+glossaries nothing points at any more, against ~80,000 ms to rebuild.
+
+That is why every table carries a `dict` column and why `idx_terms_gloss`
+exists — without it the orphan sweep is 4,192 ms rather than 1,665 ms. An index
+built before those columns existed cannot be pruned, says so, and is rebuilt
+instead. `test/unit/prune.test.js` asserts the equivalence that justifies all of
+it: an index with a dictionary pruned out holds exactly what an index built
+without that dictionary holds, table by table.
 
 Everything except lookups works before a dictionary exists — capture, OCR and
 the glyph layer do not depend on one.
