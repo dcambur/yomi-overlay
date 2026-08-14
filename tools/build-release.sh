@@ -60,6 +60,25 @@ echo "==> Copying the helper"
 mkdir -p "$RES/bin"
 cp "$OCR_BIN" "$RES/bin/yomi"
 
+# Electron ships Chromium's UI strings for 60-odd languages. This app renders
+# its own interface and never shows one of them, so they are 46 MB of a 276 MB
+# bundle nobody reads — measured 276 -> 230 MB on disk, 114 -> 102 MB zipped.
+#
+# Two things make this easy to get wrong. The path must be the REAL one inside
+# Versions/A: a framework's top-level Resources is a symlink, and `find` does
+# not follow symlinks, so the obvious version deletes nothing and reports a
+# saving of zero. And it must happen BEFORE signing, or the signature covers
+# files that are no longer there.
+echo "==> Removing unused Chromium locales"
+FW_RES="$BUILT/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources"
+if [ -d "$FW_RES" ]; then
+  before=$(du -sm "$BUILT" | cut -f1)
+  find "$FW_RES" -maxdepth 1 -name '*.lproj' ! -name 'en.lproj' -exec rm -rf {} +
+  echo "    $(du -sm "$BUILT" | cut -f1) MB, was $before MB"
+else
+  echo "    WARNING: framework resources not where expected — skipped"
+fi
+
 IDENTITY="${SIGN_IDENTITY:-}"
 if [ -n "$IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null \
      | grep -qF "$IDENTITY"; then
