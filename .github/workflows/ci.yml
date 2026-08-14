@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # So release.yml can require these exact checks rather than copy them.
+  workflow_call:
 
 # A second push to a PR makes the first run pointless.
 concurrency:

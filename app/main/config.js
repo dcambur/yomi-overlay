@@ -4,9 +4,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const { DATA_DIR } = require('../paths.js');
-const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
-const MANIFEST_PATH = path.join(DATA_DIR, 'dictionaries.json');
+const { ASSET_DIR, USER_DIR } = require('../paths.js');
+// Settings are the user's and get written; the manifest ships with the index
+// that produced it. In a checkout both are data/ and this is a distinction
+// without a difference — in a release build the bundle is signed and read-only.
+const CONFIG_PATH = path.join(USER_DIR, 'config.json');
+const MANIFEST_PATH = path.join(ASSET_DIR, 'dictionaries.json');
 
 // Every dictionary the index can contain, in a sensible default order.
 // `enabled` and position are both user-editable in the settings window.
@@ -147,6 +150,8 @@ function sanitize(next, current) {
 function save(next) {
   const current = load();
   cached = { ...current, ...sanitize(next, current) };
+  // A release install writes to Application Support, which may not exist yet.
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   // Write-then-rename: a crash partway through a direct write leaves unparseable
   // JSON, and load() silently falls back to defaults — losing the user's target.
   const tmp = CONFIG_PATH + '.tmp';

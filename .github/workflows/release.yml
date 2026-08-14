@@ -1,0 +1,138 @@
+name: Release
+
+# Builds the downloadable app: a bundle that runs on a machine with no
+# checkout, no Xcode and no dictionary download.
+#
+# It is built HERE rather than from a developer's machine for a licensing
+# reason, not a convenience one. A runner starts from a clean checkout, so
+# fetch-dicts.py — which only knows how to download freely-licensed sources —
+# is the only thing that puts a dictionary on disk, and the index is therefore
+# free by construction. tools/build-release.sh re-checks that before packaging.
+#
+# Signing: uses a Developer ID when the secrets exist, ad-hoc when they do not.
+# Ad-hoc means macOS quarantines the download and the TCC identity changes with
+# every build, so Screen Recording has to be granted again after each update.
+# Adding the secrets later needs no change here.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # "If CI succeeds" — the same job PRs run, called rather than copied.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: '22' }
+
+      - name: Fetch the freely-licensed dictionaries
+        run: tools/fetch-dicts.py
+
+      - name: Build the index
+        # ~100 MB from Jitendex + JMnedict + KANJIDIC + Wiktionary + frequency.
+        run: tools/build-index.py
+
+      - name: Import the signing certificate
+        if: ${{ env.CERT_P12 != '' }}
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -e
+          echo "$CERT_P12" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm /tmp/cert.p12
+
+      - name: Build the app
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: tools/build-release.sh
+
+      - name: Notarize
+        # Only possible with an Apple Developer account. Without it the app
+        # still runs; the user clears quarantine once.
+        if: ${{ env.NOTARY_KEY != '' }}
+        env:
+          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: |
+          set -e
+          echo "$NOTARY_KEY" | base64 --decode > /tmp/key.p8
+          ditto -c -k --keepParent "/tmp/release/Yomi Overlay-darwin-arm64/Yomi Overlay.app" /tmp/notarize.zip
+          xcrun notarytool submit /tmp/notarize.zip --wait \
+            --key /tmp/key.p8 --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
+          xcrun stapler staple "/tmp/release/Yomi Overlay-darwin-arm64/Yomi Overlay.app"
+          rm /tmp/key.p8
+
+      - name: Package
+        run: |
+          set -e
+          mkdir -p dist
+          # ditto, not zip: it preserves the symlinks and extended attributes
+          # inside a .app, and a zip(1) round-trip breaks the code signature.
+          ditto -c -k --keepParent \
+            "/tmp/release/Yomi Overlay-darwin-arm64/Yomi Overlay.app" \
+            "dist/Yomi-Overlay-${GITHUB_REF_NAME}-arm64.zip"
+          cd dist && shasum -a 256 -- * > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yomi-Overlay-${{ github.ref_name }}
+          path: dist/
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cat > notes.md <<'EOF'
+          Apple silicon only. Unzip into `/Applications` and launch it.
+
+          ## First run
+
+          macOS will refuse to open it the first time, because the build is not
+          notarized: **System Settings → Privacy & Security → Open Anyway**, or
+
+          ```bash
+          xattr -dr com.apple.quarantine "/Applications/Yomi Overlay.app"
+          ```
+
+          Then grant **Screen Recording** (required — nothing works without it)
+          and **Accessibility** (optional; without it the trigger key needs a
+          mouse movement to fire). The app lives in the menu bar as 読, with no
+          Dock icon. Pick a target window from its Settings.
+
+          Because the build is unsigned, macOS sees each release as a new app,
+          so both permissions have to be granted again after an update.
+
+          ## Dictionaries
+
+          Included, and enough to read with: **Jitendex** (JA→EN), **JMnedict**
+          (names), **KANJIDIC** (kanji), Wiktionary JA→JA, and JPDB + BCCWJ
+          frequency data. All freely licensed — see their own terms.
+
+          Commercial dictionaries (三省堂, 明鏡, 旺文社, DOJG …) cannot be
+          redistributed. To use your own, build an index with
+          `tools/build-index.py` and drop `index.db` into
+          `~/Library/Application Support/Yomi Overlay/` — it takes precedence
+          over the bundled one, and the app does not have to be touched.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md

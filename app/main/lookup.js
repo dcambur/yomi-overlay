@@ -9,8 +9,14 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const { DATA_DIR } = require('../paths.js');
-const DB_PATH = path.join(DATA_DIR, 'index.db');
+const { ASSET_DIR, USER_DIR } = require('../paths.js');
+// The user's own index wins over the one that shipped. A release build carries
+// only freely-licensed dictionaries; anyone who runs build-index.py over their
+// own collection drops the result next to their config and it takes over, with
+// no need to touch a signed bundle.
+const fs = require('fs');
+const USER_DB = path.join(USER_DIR, 'index.db');
+const DB_PATH = fs.existsSync(USER_DB) ? USER_DB : path.join(ASSET_DIR, 'index.db');
 const cfg = require('./config.js');
 
 let db = null;
