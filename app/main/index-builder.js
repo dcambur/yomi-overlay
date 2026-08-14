@@ -104,12 +104,15 @@ function classify(zipPath) {
   if (banks(z, 'term_bank').length) return { kind: 'term', title, zip: z };
   const metas = banks(z, 'term_meta_bank');
   if (metas.length) {
-    const kinds = new Set();
-    for (const e of z.readJSON(metas[0]).slice(0, 500)) {
-      if (Array.isArray(e) && e.length >= 2) kinds.add(e[1]);
-    }
-    if (kinds.has('pitch')) return { kind: 'pitch', title, zip: z };
-    if (kinds.has('freq')) return { kind: 'freq', title, zip: z };
+    // The kind is the second field of each record, and the first few are
+    // enough — reading the whole bank to find out cost 900 ms on a frequency
+    // list with a million records in it. A prefix is not valid JSON, so this
+    // looks for the tag rather than parsing.
+    const head = z.readPrefix(metas[0], 64 * 1024).toString('utf8');
+    const pitch = head.indexOf('"pitch"');
+    const freq = head.indexOf('"freq"');
+    if (pitch >= 0 && (freq < 0 || pitch < freq)) return { kind: 'pitch', title, zip: z };
+    if (freq >= 0) return { kind: 'freq', title, zip: z };
   }
   return { kind: null, title, zip: z };
 }

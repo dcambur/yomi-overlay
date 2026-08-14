@@ -60,6 +60,14 @@
   .dict.off { opacity: .45; }
   .dict .name { flex: 1 1 auto; }
   .dict .ord { color: #6f6857; font-size: 11px; width: 18px; text-align: right; }
+  /* Reorder on the left, what it is in the middle, the one action on the
+     right — so the eye lands on the name and the buttons stay in a column
+     however long the titles get. */
+  .dict .move { display: flex; flex-direction: column; gap: 1px; }
+  .dict .move button { padding: 0 5px; line-height: 13px; font-size: 10px; min-width: 20px; }
+  .dict .grow { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
+  .dict .grow .app { font-size: 12px; }
+  .dict .grow .title { color: #6f6857; font-size: 11px; }
   button {
     font: inherit; font-size: 11px; color: #d9d3c8; background: #2d2a34;
     border: 1px solid #3d3a45; border-radius: 5px; padding: 2px 7px; cursor: pointer;
@@ -143,18 +151,12 @@
 
     <div class="panel" id="p-dicts">
       <p class="hint">
-        Uncheck to hide a dictionary. Order here is the order senses appear in
-        the popup.
+        Order is the order senses appear in the popup; uncheck to hide one.
+        The recommended dictionaries are freely licensed and download here —
+        anything you own already (三省堂, 明鏡, DOJG) is a Yomitan
+        <code>.zip</code> you import.
       </p>
       <div id="dictlist"></div>
-
-      <p class="hint" style="margin-top:14px">
-        Add a dictionary. The recommended ones are freely licensed and download
-        here; anything you own already — 三省堂, 明鏡, DOJG — import as a
-        Yomitan <code>.zip</code>.
-      </p>
-      <div id="catalogue"></div>
-      <div id="installed"></div>
       <div class="row" style="margin-top:8px">
         <button id="import">Import a .zip you own…</button>
         <span id="dictstatus" class="unit"></span>
@@ -191,8 +193,7 @@ async function init() {
   config = await window.settings.getConfig();
   selected = { ...(config.target || {}) };
   renderTrigger();
-  renderDicts();
-  await refreshDictionarySources();
+  await refreshDictionaries();
   await refreshWindows();
 }
 
@@ -305,89 +306,123 @@ function currentTrigger() {
   };
 }
 
-// --- adding and removing dictionaries --------------------------------------
-// Every action here ends in a rebuild of the index, which the main process runs
-// in a forked worker; progress arrives on dict:progress. The buttons stay
-// disabled for the duration because a second rebuild while one is running would
-// race for the same file.
+// --- dictionaries ----------------------------------------------------------
+// One list, not three. It used to be a priority list, a catalogue of things to
+// download and a list of what was installed, which meant a dictionary appeared
+// in two of them at once and removing one left it behind in the third. Every
+// dictionary is one row: reorder on the left, what it is in the middle, and the
+// single action that applies to it on the right.
 let dictBusy = false;
 
 function setDictBusy(on, text) {
   dictBusy = on;
   $('dictstatus').textContent = text || '';
-  for (const b of document.querySelectorAll('#catalogue button, #installed button, #import')) {
-    b.disabled = on;
-  }
+  for (const b of document.querySelectorAll('#dictlist button')) b.disabled = on;
+  $('import').disabled = on;
 }
 
-async function refreshDictionarySources() {
+/** Reload everything the list is drawn from, then draw it. */
+async function refreshDictionaries() {
   const [cat, have] = await Promise.all([
     window.settings.dictCatalogue(), window.settings.dictInstalled(),
   ]);
+  config = await window.settings.getConfig();
+  renderDictionaries(cat, have);
+}
 
-  const c = $('catalogue');
-  c.innerHTML = '';
-  for (const d of cat) {
-    const el = document.createElement('div');
-    el.className = 'dict';
-    el.innerHTML = `<span class="grow"><div class="app">${esc(d.name)}</div>`
-      + `<div class="title">${esc(d.detail)}</div></span>`;
-    const b = document.createElement('button');
-    b.textContent = d.installed ? 'Installed' : 'Download';
-    b.disabled = d.installed;
-    b.onclick = async () => {
-      if (dictBusy) return;
-      setDictBusy(true, 'starting…');
-      const r = await window.settings.dictDownload(d.id);
-      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
-      await refreshDictionarySources();
-      config = await window.settings.getConfig();
-      renderDicts();
-    };
-    el.appendChild(b);
-    c.appendChild(el);
+async function dictAction(text, fn) {
+  if (dictBusy) return;
+  setDictBusy(true, text);
+  const r = await fn();
+  setDictBusy(false, r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '');
+  await refreshDictionaries();
+}
+
+function renderDictionaries(cat, have) {
+  const host = $('dictlist');
+  host.innerHTML = '';
+  const installedBy = new Map(have.map((d) => [d.name, d]));
+
+  // Installed dictionaries first, in the popup's own priority order, then
+  // whatever else can be downloaded.
+  const rows = config.dictionaries.map((d, i) => ({
+    name: d.name, enabled: d.enabled, index: i, info: installedBy.get(d.name),
+  }));
+  const listed = new Set(rows.map((r) => r.name));
+  for (const c of cat) {
+    if (!c.installed && !listed.has(c.name)) rows.push({ name: c.name, catalogue: c });
+  }
+  // An installed dictionary the config has not caught up with yet.
+  for (const d of have) {
+    if (!listed.has(d.name)) rows.push({ name: d.name, enabled: true, info: d });
   }
 
-  const h = $('installed');
-  h.innerHTML = have.length
-    ? '<p class="hint" style="margin-top:10px">Installed</p>' : '';
-  for (const d of have) {
+  for (const row of rows) {
     const el = document.createElement('div');
-    el.className = 'dict';
-    const mb = (d.size / 1048576).toFixed(1);
-    const b = document.createElement('button');
-    b.textContent = 'Remove';
-    b.style.marginRight = '10px';
-    // Before the label, not after it: the action belongs at the edge the eye
-    // starts from, and a right-aligned button drifted away from long titles.
-    el.appendChild(b);
-    const text = document.createElement('span');
+    el.className = 'dict' + (row.index !== undefined && !row.enabled ? ' off' : '');
+
+    // Left: order. Only meaningful for something that is actually in the index.
+    const move = document.createElement('span');
+    move.className = 'move';
+    if (row.index !== undefined) {
+      for (const [label, delta] of [['\u25b2', -1], ['\u25bc', 1]]) {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.disabled = row.index + delta < 0 || row.index + delta >= config.dictionaries.length;
+        b.onclick = () => {
+          const list = config.dictionaries;
+          const to = row.index + delta;
+          [list[row.index], list[to]] = [list[to], list[row.index]];
+          renderDictionaries(cat, have);
+        };
+        move.appendChild(b);
+      }
+    }
+    el.appendChild(move);
+
+    // Middle: what it is.
+    const text = document.createElement('label');
     text.className = 'grow';
-    text.innerHTML = `<div class="app">${esc(d.name)}</div>`
-      + `<div class="title">${esc(d.kind || 'unreadable')} · ${mb} MB</div>`;
+    const sub = row.info
+      ? `${row.info.kind || 'unreadable'} \u00b7 ${(row.info.size / 1048576).toFixed(1)} MB`
+      : (row.catalogue ? row.catalogue.detail : 'in the index');
+    if (row.index !== undefined) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!row.enabled;
+      cb.onchange = () => {
+        config.dictionaries[row.index].enabled = cb.checked;
+        renderDictionaries(cat, have);
+      };
+      text.appendChild(cb);
+    }
+    const label = document.createElement('span');
+    label.innerHTML = `<div class="app">${esc(row.name)}</div>`
+      + `<div class="title">${esc(sub)}</div>`;
+    text.appendChild(label);
     el.appendChild(text);
-    b.onclick = async () => {
-      if (dictBusy) return;
-      setDictBusy(true, 'removing…');
-      const r = await window.settings.dictRemove(d.file);
-      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
-      await refreshDictionarySources();
-      config = await window.settings.getConfig();
-      renderDicts();
-    };
-    h.appendChild(el);
+
+    // Right: the one thing you can do to it.
+    const act = document.createElement('button');
+    if (row.info) {
+      act.textContent = 'Remove';
+      act.onclick = () => dictAction('removing\u2026',
+        () => window.settings.dictRemove(row.info.file));
+    } else if (row.catalogue) {
+      act.textContent = 'Download';
+      act.onclick = () => dictAction('starting\u2026',
+        () => window.settings.dictDownload(row.catalogue.id));
+    } else {
+      // In the index but its archive is gone — nothing to remove or fetch.
+      act.textContent = 'Rebuild';
+      act.disabled = true;
+    }
+    el.appendChild(act);
+    host.appendChild(el);
   }
 }
 
-$('import').onclick = async () => {
-  if (dictBusy) return;
-  setDictBusy(true, 'reading…');
-  const r = await window.settings.dictImport();
-  setDictBusy(false, r.ok ? '' : (r.cancelled ? '' : 'failed: ' + r.error));
-  await refreshDictionarySources();
-  config = await window.settings.getConfig();
-  renderDicts();
-};
+$('import').onclick = () => dictAction('reading…', () => window.settings.dictImport());
 
 window.settings.onDictProgress((p) => {
   if (p.phase === 'downloading') {
@@ -407,36 +442,6 @@ window.settings.onDictProgress((p) => {
     $('dictstatus').textContent = 'failed: ' + p.message;
   }
 });
-
-function renderDicts() {
-  const host = $('dictlist');
-  host.innerHTML = '';
-  config.dictionaries.forEach((d, i) => {
-    const el = document.createElement('div');
-    el.className = 'dict' + (d.enabled ? '' : ' off');
-    el.innerHTML =
-      `<span class="ord">${i + 1}</span>` +
-      `<input type="checkbox" ${d.enabled ? 'checked' : ''}>` +
-      `<span class="name">${esc(d.name)}</span>` +
-      `<button class="up" ${i === 0 ? 'disabled' : ''}>↑</button>` +
-      `<button class="dn" ${i === config.dictionaries.length - 1 ? 'disabled' : ''}>↓</button>`;
-    el.querySelector('input').onchange = (e) => {
-      d.enabled = e.target.checked;
-      renderDicts();
-    };
-    el.querySelector('.up').onclick = () => {
-      [config.dictionaries[i - 1], config.dictionaries[i]] =
-        [config.dictionaries[i], config.dictionaries[i - 1]];
-      renderDicts();
-    };
-    el.querySelector('.dn').onclick = () => {
-      [config.dictionaries[i + 1], config.dictionaries[i]] =
-        [config.dictionaries[i], config.dictionaries[i + 1]];
-      renderDicts();
-    };
-    host.appendChild(el);
-  });
-}
 
 $('mode').onchange = syncTriggerRows;
 // The list tracks reality on its own — no manual refresh. 2s is far below

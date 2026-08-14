@@ -155,7 +155,8 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     // pruned and falls back to the rebuild.
     let result;
     try {
-      result = dictionaries.prune(label, (p) => sendSettings('dict:progress', p));
+      result = await dictionaries.pruneAsync(
+        label, (p) => sendSettings('dict:progress', p));
     } catch (e) {
       logf('[dict] prune failed, rebuilding: ' + e.message);
       result = { pruned: false };
