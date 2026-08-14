@@ -8,6 +8,7 @@ anything.
 | **[ARCHITECTURE](ARCHITECTURE.md)** | How the pieces fit, and the nine **load-bearing decisions** — each paid for with a real bug | Before changing anything. Especially before "simplifying" something that looks wrong |
 | **[CONVENTIONS](CONVENTIONS.md)** | House style and the principles behind it: measure don't infer, no per-app special cases, degrade honestly, move-or-change-never-both | Before writing code, and before deleting a comment |
 | **[GROWTH](GROWTH.md)** | How much code to add, where it goes, what to name it — and the "does it fire?" test a new mechanism has to pass | Before adding a mechanism, and before opening a PR |
+| **[RELEASING](RELEASING.md)** | How a PR title becomes a version, and how to move each digit | Before opening a PR, and when you want a release to happen (or not) |
 | [PLAN](PLAN.md) | The staged roadmap and what is already done | Before proposing work — several obvious-looking items are finished |
 | [FOUND-BUGS](FOUND-BUGS.md) | Bugs found while refactoring and deliberately left, with the measurement | Before "fixing" one of them, or when one bites you |
 | [INTEGRATION](INTEGRATION.md) | The design record for the OCR accuracy phases: Live Text, voting, tier-2, furigana. Why each is shaped the way it is | When touching recognition. It explains decisions, not current line numbers |
