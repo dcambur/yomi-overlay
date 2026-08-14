@@ -56,7 +56,7 @@ function snapshot(file) {
 test('pruning a dictionary equals never having built it', async (t) => {
   const tmp = process.env.YOMI_USER_DIR;
   t.after(() => { fs.rmSync(tmp, { recursive: true, force: true });
-                  fs.rmSync(SRC, { recursive: true, force: true }); });
+    fs.rmSync(SRC, { recursive: true, force: true }); });
 
   // The index we expect to end up with: built from everything except DROP.
   const refDir = path.join(tmp, 'ref');

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Run the same checks CI runs, before the commit exists.
+#
+# Tracked in the repo rather than written into .git/hooks by a script, so it is
+# reviewable and versioned like anything else; setup.sh points git at this
+# directory with core.hooksPath. Install by hand with:
+#
+#   git config core.hooksPath tools/hooks
+#
+# It lints the WHOLE tree, not the staged files. That is deliberate: the checks
+# take about two seconds, and a per-file hook passes on a change that breaks a
+# file it was not given — which is how a green commit becomes a red CI run.
+#
+# --no-verify skips it. That is a legitimate escape hatch for a work-in-progress
+# commit on a branch; CI is the gate that cannot be skipped.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+exec "$ROOT/tools/lint.sh"

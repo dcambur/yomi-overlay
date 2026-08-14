@@ -1,7 +1,7 @@
 // The stdin crop channel serving regions of the last captured frame.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Crop command channel (INTEGRATION.md Phase 3)
 //
@@ -18,7 +18,11 @@ import CoreGraphics
 // from another thread can interleave with a multi-KB payload line and
 // corrupt the NDJSON stream.
 final class CropChannel {
-    struct Req { let id: Int; let rect: CGRect; let path: String }
+    struct Req {
+        let id: Int
+        let rect: CGRect
+        let path: String
+    }
     private let lock = NSLock()
     private var pending: [Req] = []
     private var lastImage: CGImage?
@@ -29,12 +33,15 @@ final class CropChannel {
             while let line = readLine(strippingNewline: true) {
                 let p = line.split(separator: " ")
                 guard p.count == 7, p[0] == "crop",
-                      let id = Int(p[1]), let x = Double(p[2]), let y = Double(p[3]),
-                      let w = Double(p[4]), let h = Double(p[5]) else { continue }
+                    let id = Int(p[1]), let x = Double(p[2]), let y = Double(p[3]),
+                    let w = Double(p[4]), let h = Double(p[5])
+                else { continue }
                 self.lock.lock()
-                self.pending.append(Req(id: id,
-                                        rect: CGRect(x: x, y: y, width: w, height: h),
-                                        path: String(p[6])))
+                self.pending.append(
+                    Req(
+                        id: id,
+                        rect: CGRect(x: x, y: y, width: w, height: h),
+                        path: String(p[6])))
                 self.lock.unlock()
             }
         }
@@ -43,14 +50,19 @@ final class CropChannel {
     }
 
     func store(_ image: CGImage, region: CGRect) {
-        lock.lock(); lastImage = image; lastRegion = region; lock.unlock()
+        lock.lock()
+        lastImage = image
+        lastRegion = region
+        lock.unlock()
     }
 
     /// Serve queued requests. Called once per watch pass on the main loop.
     func drain() {
         lock.lock()
-        let reqs = pending; pending = []
-        let img = lastImage; let region = lastRegion
+        let reqs = pending
+        pending = []
+        let img = lastImage
+        let region = lastRegion
         lock.unlock()
         guard !reqs.isEmpty else { return }
         for r in reqs {
@@ -59,11 +71,14 @@ final class CropChannel {
                 // Frame points -> capture pixels (Retina: image is 2x region).
                 let sx = Double(img.width) / region.width
                 let sy = Double(img.height) / region.height
-                let px = CGRect(x: r.rect.minX * sx, y: r.rect.minY * sy,
-                                width: r.rect.width * sx, height: r.rect.height * sy)
-                    .intersection(CGRect(x: 0, y: 0, width: img.width, height: img.height))
+                let px = CGRect(
+                    x: r.rect.minX * sx, y: r.rect.minY * sy,
+                    width: r.rect.width * sx, height: r.rect.height * sy
+                )
+                .intersection(CGRect(x: 0, y: 0, width: img.width, height: img.height))
                 if !px.isEmpty, let crop = img.cropping(to: px),
-                   let up = upscale2x(crop) {
+                    let up = upscale2x(crop)
+                {
                     dumpImage(up, to: r.path)
                     ok = true
                 }

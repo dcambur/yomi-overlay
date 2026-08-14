@@ -21,6 +21,7 @@ switch (mode) {
     const n = Number(arg || 3);
     for (let i = 0; i < n; i++) w(JSON.stringify({ seq: i, pid: process.pid }) + '\n');
     process.exit(0);
+    break;   // unreachable; process.exit does not return, but say so out loud
   }
   case 'chunked': {
     const s = JSON.stringify({ seq: 0, note: 'split across writes' }) + '\n';

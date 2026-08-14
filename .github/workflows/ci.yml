@@ -19,21 +19,24 @@ permissions:
 jobs:
   # Everything that needs neither macOS nor the ~600 MB of generated data.
   checks:
-    name: syntax, unit tests, conventions
+    name: lint, unit tests, conventions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: '22' }
+        with: { node-version: '22', cache: npm }
 
-      - name: Syntax
-        run: |
-          set -e
-          find app tools test -name '*.js' -not -path '*/node_modules/*' \
-            -exec node --check {} \;
-          find . -name '*.sh' -not -path '*/node_modules/*' \
-            -exec bash -n {} \;
-          python3 -m py_compile $(find tools test -name '*.py')
+      # Dev tooling only — eslint. The app itself still ships zero runtime
+      # dependencies; see package.json.
+      - name: Install tooling
+        run: npm ci
+
+      - name: Lint
+        # The SAME script the pre-commit hook runs, so "it passed locally" and
+        # "it passes on the runner" cannot mean different things. Swift is
+        # skipped here and checked in the macOS job below, which is where a
+        # swift-format exists.
+        run: tools/lint.sh
 
       - name: Unit tests
         # Every node suite, not a chosen two. They used to need dictionaries
@@ -44,15 +47,13 @@ jobs:
         # Not test/unit/run.sh: its renderer suite needs Electron and a display.
         run: node --test test/unit/*.test.js
 
-      - name: Conventions
-        run: tools/check-conventions.sh
-
       - uses: ludeeus/action-shellcheck@master
         with:
           severity: warning
           ignore_paths: app/node_modules
 
-  # The Swift helper only compiles on macOS, and compiling it is the check.
+  # The Swift helper only compiles on macOS, and compiling it IS the type check
+  # — there is no separate one to run.
   swift:
     name: build yomi
     runs-on: macos-latest
@@ -60,6 +61,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build
         run: ocr/build.sh
+      - name: Format
+        # Layout only; .swift-format holds the style. Reformatting the whole
+        # helper was verified byte-identical against test/golden.sh, so a
+        # difference here is a new file that was never run through it.
+        run: tools/lint.sh swift
       - name: The commands the golden harness cannot see
         # golden.sh needs test/gt/ (~200 MB, gitignored) AND is machine-local:
         # Vision's model version differs between macOS releases, so a byte-exact

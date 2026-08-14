@@ -1,12 +1,14 @@
 // Recognition orchestration: reflow, furigana strip, engine dispatch, and
 // the mapping of recognised boxes back onto the page.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
-func recognize(_ image: CGImage, geometry: Geometry? = nil,
-               vertical: Bool = false,
-               session: RecognitionSession) async throws -> [Line] {
+func recognize(
+    _ image: CGImage, geometry: Geometry? = nil,
+    vertical: Bool = false,
+    session: RecognitionSession
+) async throws -> [Line] {
     // Vision cannot read tategaki at all — measured on a real vertical page:
     // 189 characters present, 0 recognised, 0 lines.
     // Vertical pages are re-flowed, not rotated — see the tategaki section.
@@ -51,7 +53,8 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     //     detection below can fire; the post-probe re-read lands on Vision.
     var raw: [RecognizedLine]? = nil
     if session.engineMode != .vision, LiveText.usable, reflow == nil,
-       session.engineMode == .livetext || session.orientation != .horizontal {
+        session.engineMode == .livetext || session.orientation != .horizontal
+    {
         raw = await LiveText.analyze(subject)
     }
     // Which engine actually ran, once per switch. "auto" resolving to vision
@@ -73,7 +76,8 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
         // as lines — tall, narrow, multi-character, in reading order, with
         // true page-position quads. Keep that read and tell recognizeAuto it
         // was a native vertical one.
-        let W = Double(subject.width), H = Double(subject.height)
+        let W = Double(subject.width)
+        let H = Double(subject.height)
         let cjk = lt.filter { l in
             l.text.count >= 2 && l.text.unicodeScalars.contains(where: isCJK)
         }
@@ -82,9 +86,11 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
             session.flatReadNativeVertical = true
         }
     }
-    var lines: [RecognizedLine] = try raw
-        ?? visionLines(subject, unrotate: vertical && reflow == nil,
-                       wantChars: geometry != nil || reflow != nil)
+    var lines: [RecognizedLine] =
+        try raw
+        ?? visionLines(
+            subject, unrotate: vertical && reflow == nil,
+            wantChars: geometry != nil || reflow != nil)
 
     // Mixed-content completeness: a committed-horizontal page can still
     // CONTAIN vertical text (manga dialogue, kakuyomu ad banners), which
@@ -95,25 +101,30 @@ func recognize(_ image: CGImage, geometry: Geometry? = nil,
     // --engine vision keeps meaning Vision alone.
     let mergedFrom = lines.count
     if raw == nil, reflow == nil, !vertical, session.orientation == .horizontal,
-       session.engineMode == .auto,
-       worthAVerticalRead(subject, explainedBy: lines, session: session) {
+        session.engineMode == .auto,
+        worthAVerticalRead(subject, explainedBy: lines, session: session)
+    {
         let extra = await verticalRemainder(subject, horizontal: lines)
         if !extra.isEmpty {
-            session.noteOnce("mixed", "mixed: merged \(extra.count) vertical "
-                + "line(s) into a horizontal page\n")
+            session.noteOnce(
+                "mixed",
+                "mixed: merged \(extra.count) vertical "
+                    + "line(s) into a horizontal page\n")
             lines.append(contentsOf: extra)
         }
     }
 
     // Re-flowed page: a recognised line corresponds to one source column.
     if let rf = reflow, let g = geometry {
-        return mapReflowedStrip(lines, reflow: rf, image: image,
-                                subject: subject, geometry: g)
+        return mapReflowedStrip(
+            lines, reflow: rf, image: image,
+            subject: subject, geometry: g)
     }
 
-    var result = mapFlatLines(lines, subject: subject, geometry: geometry,
-                              vertical: vertical, mergedFrom: mergedFrom,
-                              fromLiveText: raw != nil, session: session)
+    var result = mapFlatLines(
+        lines, subject: subject, geometry: geometry,
+        vertical: vertical, mergedFrom: mergedFrom,
+        fromLiveText: raw != nil, session: session)
     attachHints(&result, hints: hintBands, subject: subject, geometry: geometry)
     return result
 }
@@ -123,14 +134,16 @@ func order(_ lines: [Line], vertical: Bool) -> [String] {
     if vertical {
         // Tategaki: columns run right-to-left, characters top-to-bottom.
         sorted = lines.sorted { a, b in
-            let ax = a.box.midX, bx = b.box.midX
+            let ax = a.box.midX
+            let bx = b.box.midX
             if abs(ax - bx) > 0.04 { return ax > bx }
             return a.box.midY > b.box.midY
         }
     } else {
         // Yokogaki: lines top-to-bottom, then left-to-right.
         sorted = lines.sorted { a, b in
-            let ay = a.box.midY, by = b.box.midY
+            let ay = a.box.midY
+            let by = b.box.midY
             if abs(ay - by) > 0.015 { return ay > by }
             return a.box.midX < b.box.midX
         }

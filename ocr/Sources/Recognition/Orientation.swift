@@ -1,8 +1,8 @@
 // Which way the page reads, decided by trying it, and the engine policy
 // that follows from the answer.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Which recognizer reads the pixels. `auto` prefers Live Text and degrades to
 /// Vision when the private classes are missing or misbehave; `vision` is the
@@ -29,7 +29,8 @@ enum Orientation { case unknown, horizontal, vertical, verticalNative }
 /// pitch minus a glyph, well over half an em. Letter-spaced ruby text
 /// (別天神) measures under ~0.5 em, so 0.6 keeps a margin to both.
 func looksPicketFence(_ lines: [Line]) -> Bool {
-    var considered = 0, picket = 0
+    var considered = 0
+    var picket = 0
     for line in lines where line.chars.count >= 3 {
         considered += 1
         var gaps: [Double] = []
@@ -62,11 +63,14 @@ func looksPicketFence(_ lines: [Line]) -> Bool {
 /// and must not overlap a recognised horizontal line (Vision's per-char
 /// boxes are the better horizontal geometry; measured, the reason committed
 /// horizontal uses Vision at all).
-func verticalRemainder(_ subject: CGImage,
-                       horizontal: [RecognizedLine]) async -> [RecognizedLine] {
+func verticalRemainder(
+    _ subject: CGImage,
+    horizontal: [RecognizedLine]
+) async -> [RecognizedLine] {
     guard LiveText.usable else { return [] }
     guard let lt = await LiveText.analyze(subject), !lt.isEmpty else { return [] }
-    let W = Double(subject.width), H = Double(subject.height)
+    let W = Double(subject.width)
+    let H = Double(subject.height)
     var out: [RecognizedLine] = []
     for l in lt {
         guard l.chars.count >= 2 else { continue }
@@ -107,12 +111,16 @@ let verticalReadInkFloor = 24
 ///
 /// Degrades toward doing the work: an unreadable mask (no pixel data, an
 /// image too small to sample) answers yes, exactly as before this gate.
-func worthAVerticalRead(_ subject: CGImage, explainedBy lines: [RecognizedLine],
-                        session: RecognitionSession) -> Bool {
+func worthAVerticalRead(
+    _ subject: CGImage, explainedBy lines: [RecognizedLine],
+    session: RecognitionSession
+) -> Bool {
     guard let cells = unexplainedInkCells(subject, explainedBy: lines) else { return true }
     let verdict = cells >= verticalReadInkFloor
-    session.noteOnce("ink", "mixed: \(cells) unexplained ink cells — "
-        + (verdict ? "reading vertical\n" : "skipping the vertical read\n"))
+    session.noteOnce(
+        "ink",
+        "mixed: \(cells) unexplained ink cells — "
+            + (verdict ? "reading vertical\n" : "skipping the vertical read\n"))
     return verdict
 }
 
@@ -124,9 +132,12 @@ func worthAVerticalRead(_ subject: CGImage, explainedBy lines: [RecognizedLine],
 /// only re-probed when the chosen orientation stops producing text — a page
 /// turn from a vertical novel into a horizontal afterword should switch over
 /// without the reader touching anything.
-func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool,
-                   session: RecognitionSession)
-        async throws -> (lines: [Line], vertical: Bool) {
+func recognizeAuto(
+    _ image: CGImage, geometry: Geometry?, forced: Bool,
+    session: RecognitionSession
+)
+    async throws -> (lines: [Line], vertical: Bool)
+{
     func run(_ v: Bool) async throws -> [Line] {
         try await recognize(image, geometry: geometry, vertical: v, session: session)
     }
@@ -140,7 +151,7 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool,
     case .horizontal:
         let h = try await run(false)
         if session.flatReadNativeVertical && weight(h) >= 5 {
-            session.orientation = .verticalNative   // page turned into a vertical one
+            session.orientation = .verticalNative  // page turned into a vertical one
             return (h, true)
         }
         // Merged-vertical dominance: when the mixed-content merge's vertical
@@ -157,13 +168,15 @@ func recognizeAuto(_ image: CGImage, geometry: Geometry?, forced: Bool,
             return (h, false)
         }
         if weight(h) >= 5 {
-            let why = vW > 2 * hW ? "vertical-dominant (v=\(vW) h=\(hW))"
-                                  : "a picket fence"
+            let why =
+                vW > 2 * hW
+                ? "vertical-dominant (v=\(vW) h=\(hW))"
+                : "a picket fence"
             FileHandle.standardError.write(
                 "orientation: horizontal read is \(why) — re-probing\n"
                     .data(using: .utf8)!)
         }
-        session.orientation = .unknown          // stopped working — re-probe below
+        session.orientation = .unknown  // stopped working — re-probe below
     case .verticalNative:
         let h = try await run(false)
         if session.flatReadNativeVertical && weight(h) >= 5 { return (h, true) }

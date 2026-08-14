@@ -117,7 +117,10 @@ class SupervisedChild {
     p.once('exit', finish);
     try { p.kill(); } catch { finish(); return; }
     // Don't let a wedged child block a retarget forever.
-    const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} finish(); }, 1500);
+    const t = setTimeout(() => {
+      try { p.kill('SIGKILL'); } catch { /* already gone */ }
+      finish();
+    }, 1500);
     if (t.unref) t.unref();
   }
 

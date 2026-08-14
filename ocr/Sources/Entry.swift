@@ -1,9 +1,9 @@
 // Argument parsing to command dispatch, and nothing else. Every subcommand
 // lives in CLI/.
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 import ScreenCaptureKit
 
 @main

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "indentation": {
+    "spaces": 4
+  },
+  "lineLength": 100,
+  "respectsExistingLineBreaks": true,
+  "lineBreakBeforeEachArgument": false,
+  "prioritizeKeepingFunctionOutputTogether": true,
+  "rules": {
+    "AlwaysUseLowerCamelCase": false,
+    "AmbiguousTrailingClosureOverload": true,
+    "DoNotUseSemicolons": true,
+    "NoEmptyTrailingClosureParentheses": true,
+    "NoLabelsInCasePatterns": true,
+    "NoParensAroundConditions": true,
+    "OneVariableDeclarationPerLine": true,
+    "ReturnVoidInsteadOfEmptyTuple": true,
+    "UseEarlyExits": false,
+    "UseLetInEveryBoundCaseVariable": true,
+    "UseShorthandTypeNames": true,
+    "UseSingleLinePropertyGetter": true,
+    "UseSynthesizedInitializer": true,
+    "UseTripleSlashForDocumentationComments": false,
+    "ValidateDocumentationComments": false,
+    "OrderedImports": true,
+    "AlwaysUseLiteralForEmptyCollectionInit": false,
+    "NeverForceUnwrap": false,
+    "NeverUseForceTry": true,
+    "NeverUseImplicitlyUnwrappedOptionals": false,
+    "OmitExplicitReturns": false
+  }
+}

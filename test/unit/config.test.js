@@ -21,12 +21,14 @@ test('a non-string bundle becomes null rather than reaching --bundle', () => {
 });
 
 test('a valid target survives untouched', () => {
-  const out = sanitize({ target: { bundle: 'com.amazon.Lassen', windowId: 42, label: 'Kindle' } }, cur);
-  assert.deepStrictEqual(out.target, { bundle: 'com.amazon.Lassen', windowId: 42, label: 'Kindle' });
+  const target = { bundle: 'com.amazon.Lassen', windowId: 42, label: 'Kindle' };
+  const out = sanitize({ target }, cur);
+  assert.deepStrictEqual(out.target, target);
 });
 
 test('an unknown modifier or mode falls back instead of reaching --modifier', () => {
-  const out = sanitize({ trigger: { modifier: 'evil', mode: 'nonsense', hoverDelayMs: 99999 } }, cur);
+  const trigger = { modifier: 'evil', mode: 'nonsense', hoverDelayMs: 99999 };
+  const out = sanitize({ trigger }, cur);
   assert.strictEqual(out.trigger.modifier, cur.trigger.modifier);
   assert.strictEqual(out.trigger.mode, cur.trigger.mode);
   assert.strictEqual(out.trigger.hoverDelayMs, cur.trigger.hoverDelayMs);

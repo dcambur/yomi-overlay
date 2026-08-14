@@ -37,7 +37,7 @@ const LABEL = 'Sample';
 function schemaOf(file) {
   const db = new DatabaseSync(file, { readOnly: true });
   const n = db.prepare(
-    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'"
+    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'",
   ).get().n;
   db.close();
   return n > 0 ? 'structured' : 'flat';

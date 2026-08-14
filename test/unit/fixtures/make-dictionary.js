@@ -196,7 +196,9 @@ function freqDictionary(dest, { title = 'Test Freq', entries = 30 } = {}) {
 }
 
 /** A pitch-accent dictionary: [term, "pitch", {reading, pitches}]. */
-function pitchDictionary(dest, { title = 'Test Pitch', entries = 10, corruptCrc = false } = {}) {
+function pitchDictionary(dest, {
+  title = 'Test Pitch', entries = 10, corruptCrc = false,
+} = {}) {
   const bank = [];
   for (let i = 0; i < entries; i++) {
     bank.push([`語${i}`, 'pitch', { reading: `ご${i}`, pitches: [{ position: i % 4 }] }]);

@@ -1,8 +1,8 @@
 // Pixel-level primitives: ink masks, run detection, and the image
 // transforms built on them. Shared by Tategaki and Furigana.
 
-import Foundation
 import CoreGraphics
+import Foundation
 import ImageIO
 
 /// Writes a captured frame to disk. Diagnostic only: what ScreenCaptureKit
@@ -24,12 +24,14 @@ func dumpImage(_ image: CGImage, to path: String) {
 /// first — and characters within each line already left-to-right. Rotating the
 /// other way would reverse both.
 func rotated90CCW(_ image: CGImage) -> CGImage? {
-    let w = image.width, h = image.height
+    let w = image.width
+    let h = image.height
     guard let space = image.colorSpace,
-          let ctx = CGContext(data: nil, width: h, height: w,
-                              bitsPerComponent: image.bitsPerComponent,
-                              bytesPerRow: 0, space: space,
-                              bitmapInfo: image.bitmapInfo.rawValue)
+        let ctx = CGContext(
+            data: nil, width: h, height: w,
+            bitsPerComponent: image.bitsPerComponent,
+            bytesPerRow: 0, space: space,
+            bitmapInfo: image.bitmapInfo.rawValue)
     else { return nil }
     // CGContext is bottom-left; rotating by +90° and shifting puts the source
     // rect back inside the (h x w) canvas.
@@ -45,7 +47,8 @@ func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
     let bpr = image.bytesPerRow
     let bpp = max(1, image.bitsPerPixel / 8)
     guard bpp >= 3 else { return nil }
-    let w = image.width / step, h = image.height / step
+    let w = image.width / step
+    let h = image.height / step
     guard w > 4, h > 4 else { return nil }
     var ink = [Bool](repeating: false, count: w * h)
     for gy in 0..<h {
@@ -53,7 +56,10 @@ func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
         for gx in 0..<w {
             let i = row + (gx * step) * bpp
             guard i + 3 < data.count else { continue }
-            let b0 = data[i], b1 = data[i + 1], b2 = data[i + 2], b3 = data[i + 3]
+            let b0 = data[i]
+            let b1 = data[i + 1]
+            let b2 = data[i + 2]
+            let b3 = data[i + 3]
             // Transparent pixels are all-zero when premultiplied, which reads
             // as pure black to a naive luminance test — and the area of the
             // capture not covered by the window is entirely transparent, so
@@ -97,7 +103,8 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
     let bpr = image.bytesPerRow
     let bpp = max(1, image.bitsPerPixel / 8)
     guard bpp >= 3 else { return nil }
-    let w = image.width / step, h = image.height / step
+    let w = image.width / step
+    let h = image.height / step
     guard w > 4, h > 4 else { return nil }
 
     // Luminance per cell; -1 for the fully transparent pixels outside the
@@ -110,7 +117,9 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
             for gx in 0..<w {
                 let i = row + (gx * step) * bpp
                 guard i + bpp - 1 < n else { continue }
-                let r = Int(raw[i]), g = Int(raw[i + 1]), b = Int(raw[i + 2])
+                let r = Int(raw[i])
+                let g = Int(raw[i + 1])
+                let b = Int(raw[i + 2])
                 if bpp >= 4, r == 0, g == 0, b == 0, Int(raw[i + 3]) == 0 { continue }
                 lum[gy * w + gx] = (r * 299 + g * 587 + b * 114) / 1000
             }
@@ -144,8 +153,10 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
     return (w, h, mark)
 }
 
-func unexplainedInkCells(_ image: CGImage, explainedBy lines: [RecognizedLine],
-                         step: Int = 8) -> Int? {
+func unexplainedInkCells(
+    _ image: CGImage, explainedBy lines: [RecognizedLine],
+    step: Int = 8
+) -> Int? {
     guard let mask = standoutMask(image, step: step) else { return nil }
     var ink = mask.mark
     for l in lines {
@@ -176,7 +187,11 @@ func runs(_ counts: [Int], minInk: Int, minGap: Int) -> [(Int, Int)] {
             gap = 0
         } else if let s = start {
             gap += 1
-            if gap >= minGap { out.append((s, i - gap)); start = nil; gap = 0 }
+            if gap >= minGap {
+                out.append((s, i - gap))
+                start = nil
+                gap = 0
+            }
         }
     }
     if let s = start { out.append((s, counts.count - 1)) }
@@ -185,12 +200,14 @@ func runs(_ counts: [Int], minInk: Int, minGap: Int) -> [(Int, Int)] {
 
 /// Plain 2x bilinear upscale via CGContext.
 func upscale2x(_ image: CGImage) -> CGImage? {
-    let w = image.width * 2, h = image.height * 2
+    let w = image.width * 2
+    let h = image.height * 2
     guard let space = image.colorSpace,
-          let ctx = CGContext(data: nil, width: w, height: h,
-                              bitsPerComponent: image.bitsPerComponent,
-                              bytesPerRow: 0, space: space,
-                              bitmapInfo: image.bitmapInfo.rawValue)
+        let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: image.bitsPerComponent,
+            bytesPerRow: 0, space: space,
+            bitmapInfo: image.bitmapInfo.rawValue)
     else { return nil }
     ctx.interpolationQuality = .high
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))

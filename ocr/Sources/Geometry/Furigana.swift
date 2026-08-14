@@ -1,8 +1,8 @@
 // Ruby: finding it, erasing it before recognition, and marking what
 // survives as a reading hint rather than text.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Furigana (INTEGRATION.md Phase 4)
 
@@ -37,7 +37,8 @@ func detectRubyBands(_ image: CGImage) -> [CGRect] {
     guard sliceW > 16 else { return [] }
     var ruby: [CGRect] = []
     for s in 0..<slices {
-        let xs0 = s * sliceW, xs1 = min((s + 1) * sliceW, m.w) - 1
+        let xs0 = s * sliceW
+        let xs1 = min((s + 1) * sliceW, m.w) - 1
         var rowInk = [Int](repeating: 0, count: m.h)
         for y in 0..<m.h {
             var n = 0
@@ -56,9 +57,11 @@ func detectRubyBands(_ image: CGImage) -> [CGRect] {
                 // (measured). Down to 2px short of the base band; 4px up.
                 let top = Double(bands[i].0) - 4
                 let bottom = Double(bands[i + 1].0) - 2
-                ruby.append(CGRect(x: Double(xs0), y: top,
-                                   width: Double(xs1 - xs0 + 1),
-                                   height: bottom - top))
+                ruby.append(
+                    CGRect(
+                        x: Double(xs0), y: top,
+                        width: Double(xs1 - xs0 + 1),
+                        height: bottom - top))
             }
         }
     }
@@ -73,17 +76,21 @@ func eraseBands(_ image: CGImage, _ bands: [CGRect]) -> CGImage? {
     // 24-bit RGB, which CGBitmapContext refuses — the erase silently never
     // happened while the band detection worked (measured: bands printed,
     // recognition unchanged).
-    guard let ctx = CGContext(data: nil, width: image.width, height: image.height,
-                              bitsPerComponent: 8, bytesPerRow: 0,
-                              space: CGColorSpaceCreateDeviceRGB(),
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    guard
+        let ctx = CGContext(
+            data: nil, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     else { return nil }
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
     ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
     for b in bands {
         // CGContext origin is bottom-left; band rects are top-left.
-        ctx.fill(CGRect(x: b.minX, y: Double(image.height) - b.maxY,
-                        width: b.width, height: b.height))
+        ctx.fill(
+            CGRect(
+                x: b.minX, y: Double(image.height) - b.maxY,
+                width: b.width, height: b.height))
     }
     return ctx.makeImage()
 }
@@ -95,9 +102,9 @@ func eraseBands(_ image: CGImage, _ bands: [CGRect]) -> CGImage? {
 /// kanji, which must not un-ruby a genuine reading.
 func kanaFraction(_ s: String) -> Double {
     func isKana(_ u: Unicode.Scalar) -> Bool {
-        (0x3041...0x309F).contains(u.value)      // hiragana
-            || (0x30A1...0x30FA).contains(u.value)   // katakana letters
-            || u.value == 0x30FC                     // ー
+        (0x3041...0x309F).contains(u.value)  // hiragana
+            || (0x30A1...0x30FA).contains(u.value)  // katakana letters
+            || u.value == 0x30FC  // ー
     }
     func isKanji(_ u: Unicode.Scalar) -> Bool {
         (0x4E00...0x9FFF).contains(u.value)
@@ -149,13 +156,17 @@ func markRuby(_ lines: inout [Line], vertical: Bool) {
     let boxes = lines.map(bounds)
     let hs = lines.map(h)
     for i in lines.indices {
-        let small = boxes[i], smallH = hs[i]
+        let small = boxes[i]
+        let smallH = hs[i]
         guard smallH > 0, !small.isNull,
-              kanaFraction(lines[i].text) >= 0.8 else { continue }
+            kanaFraction(lines[i].text) >= 0.8
+        else { continue }
         for j in lines.indices where j != i {
-            let base = boxes[j], baseH = hs[j]
+            let base = boxes[j]
+            let baseH = hs[j]
             guard baseH > 0, !base.isNull,
-                  smallH >= baseH * 0.35, smallH <= baseH * 0.65 else { continue }
+                smallH >= baseH * 0.35, smallH <= baseH * 0.65
+            else { continue }
             let overlap: Double
             let gapOK: Bool
             if vertical {
@@ -188,8 +199,11 @@ func markRuby(_ lines: inout [Line], vertical: Bool) {
 /// stripping one mutilates its columns and cost 5x CER on the vertical suites
 /// (measured). recognizeAuto re-reads once right after committing horizontal,
 /// so ruby'd pages still get the strip on their first real read.
-func stripFurigana(_ subject: CGImage)
-        -> (image: CGImage, hints: [(rect: CGRect, text: String)]) {
+func stripFurigana(
+    _ subject: CGImage
+)
+    -> (image: CGImage, hints: [(rect: CGRect, text: String)])
+{
     var out = subject
     var hints: [(rect: CGRect, text: String)] = []
     let candidates = detectRubyBands(subject)
@@ -229,30 +243,35 @@ func stripFurigana(_ subject: CGImage)
         // Vision merges adjacent bands into one line.
         let gap = 24
         let compW = Int(candidates.map(\.width).max() ?? 0)
-        let compH = candidates.reduce(0) { $0 + Int($1.height) } +
-            gap * candidates.count
+        let compH = candidates.reduce(0) { $0 + Int($1.height) } + gap * candidates.count
         if compW > 0,
-           let ctx = CGContext(data: nil, width: compW, height: compH,
-                               bitsPerComponent: 8, bytesPerRow: 0,
-                               space: CGColorSpaceCreateDeviceRGB(),
-                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            let ctx = CGContext(
+                data: nil, width: compW, height: compH,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        {
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: compW, height: compH))
-            var segments: [(y0: Int, y1: Int)] = []   // top-left rows
+            var segments: [(y0: Int, y1: Int)] = []  // top-left rows
             var yTop = 0
             for b in candidates {
                 let h = Int(b.height)
                 if let crop = subject.cropping(to: b) {
                     // CGContext origin is bottom-left; segments are kept
                     // top-left to match visionLines' boxes.
-                    ctx.draw(crop, in: CGRect(x: 0, y: compH - yTop - h,
-                                              width: Int(b.width), height: h))
+                    ctx.draw(
+                        crop,
+                        in: CGRect(
+                            x: 0, y: compH - yTop - h,
+                            width: Int(b.width), height: h))
                 }
                 segments.append((yTop, yTop + h))
                 yTop += h + gap
             }
             if let comp = ctx.makeImage(),
-               let ls = try? visionLines(comp, unrotate: false, wantChars: false) {
+                let ls = try? visionLines(comp, unrotate: false, wantChars: false)
+            {
                 for l in ls {
                     let midY = l.box.midY * Double(compH)
                     if let si = segments.firstIndex(where: {

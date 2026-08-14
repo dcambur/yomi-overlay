@@ -1,7 +1,7 @@
 // The Vision binding, normalized to the shared line/char shape.
 
-import Foundation
 import CoreGraphics
+import Foundation
 import Vision
 
 /// CJK symbols, kana, ideographs and full-width forms — what a tategaki
@@ -9,7 +9,7 @@ import Vision
 func isCJK(_ u: Unicode.Scalar) -> Bool {
     switch u.value {
     case 0x3000...0x303F, 0x3040...0x309F, 0x30A0...0x30FF,
-         0x4E00...0x9FFF, 0xFF00...0xFFEF:
+        0x4E00...0x9FFF, 0xFF00...0xFFEF:
         return true
     default: return false
     }
@@ -17,8 +17,11 @@ func isCJK(_ u: Unicode.Scalar) -> Bool {
 
 /// The Vision path, normalized to the shared intermediate shape (top-left
 /// normalized boxes, one entry per character).
-func visionLines(_ subject: CGImage, unrotate: Bool, wantChars: Bool)
-        throws -> [RecognizedLine] {
+func visionLines(
+    _ subject: CGImage, unrotate: Bool, wantChars: Bool
+)
+    throws -> [RecognizedLine]
+{
     let request = VNRecognizeTextRequest()
     request.recognitionLanguages = ["ja-JP", "en-US"]
     request.recognitionLevel = .accurate
@@ -44,16 +47,18 @@ func visionLines(_ subject: CGImage, unrotate: Bool, wantChars: Bool)
                 // boundingBox(for:) returns a quad; use its axis-aligned bounds.
                 var n = NBox(vision: q.boundingBox)
                 if unrotate { n = n.unrotatedCCW }
-                chars.append(RecognizedChar(
-                    ch: chStr,
-                    box: CGRect(x: n.x, y: n.y, width: n.w, height: n.h)))
+                chars.append(
+                    RecognizedChar(
+                        ch: chStr,
+                        box: CGRect(x: n.x, y: n.y, width: n.w, height: n.h)))
             }
         }
         let lb = NBox(vision: obs.boundingBox)
-        out.append(RecognizedLine(
-            text: s,
-            box: CGRect(x: lb.x, y: lb.y, width: lb.w, height: lb.h),
-            chars: chars))
+        out.append(
+            RecognizedLine(
+                text: s,
+                box: CGRect(x: lb.x, y: lb.y, width: lb.w, height: lb.h),
+                chars: chars))
     }
     return out
 }

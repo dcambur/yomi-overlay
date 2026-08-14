@@ -129,6 +129,43 @@ it is worth keeping.
 - Dictionary parsing is per-format and explicit. When adding a dictionary,
   add its shape to `flatten_glossary` — don't loosen the generic walker.
 
+## Enforcement
+
+Style is not a matter of taste here, and it is not enforced by review either.
+One script runs everything, from the pre-commit hook and from CI, so the two
+cannot disagree:
+
+```
+tools/lint.sh              everything this machine can check
+tools/lint.sh js --fix     eslint, fixing what it can
+tools/lint.sh swift --fix  swift-format, in place
+```
+
+`setup.sh` points git at `tools/hooks/` (`core.hooksPath`), so the hook is
+tracked and reviewed like any other file. `--no-verify` skips it; CI does not.
+
+| What | By | Config |
+|---|---|---|
+| JavaScript layout **and** correctness (undefined vars, unused bindings, shadowing) | eslint | [eslint.config.js](../eslint.config.js) |
+| Swift layout | swift-format | [.swift-format](../.swift-format) |
+| Swift types | the compiler — `ocr/build.sh` | — |
+| Python syntax | `py_compile` | — |
+| Shell | `bash -n`, shellcheck | — |
+| This project's own rules | [tools/check-conventions.sh](../tools/check-conventions.sh) | — |
+
+Two rules about the rules:
+
+- **A tool that is missing is reported, never skipped silently.** The test
+  suite already learned that lesson the expensive way.
+- **Silencing a rule needs a reason in the file.** `AlwaysUseLowerCamelCase` is
+  off because geometry code calls an image's dimensions `W` and `H`;
+  `require-await` is off because an async test double legitimately awaits
+  nothing. Both say so where they are turned off.
+
+Adopting swift-format meant reformatting all 25 Swift files at once. That was
+verified byte-identical over the golden corpus (66 pages, 5116 glyphs) before
+it landed — which is the only reason it was allowed to be one commit.
+
 ## Testing
 
 Three tiers, by what they need. Reach for the cheapest one that can see your

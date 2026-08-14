@@ -124,7 +124,8 @@ test('index builder', async (t) => {
   await t.test('the query paths lookup.js depends on are indexed', () => {
     const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index'")
       .all().map((r) => r.name);
-    for (const want of ['idx_terms_key', 'idx_terms_gloss', 'idx_freq_term', 'idx_pitch_term']) {
+    const wanted = ['idx_terms_key', 'idx_terms_gloss', 'idx_freq_term', 'idx_pitch_term'];
+    for (const want of wanted) {
       assert.ok(idx.includes(want), `${want} exists`);
     }
   });

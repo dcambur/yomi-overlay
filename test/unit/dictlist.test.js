@@ -7,21 +7,31 @@
 // user brought themselves — and these check the properties that made the old
 // arrangement wrong, plus the ones the grouping must not quietly reintroduce.
 //
-// The script is inline in settings.html and expects a browser, so it is
-// evaluated against the smallest fake document that lets it build rows.
+// settings.js is a classic script that expects a browser, so it is evaluated
+// against the smallest fake document that lets it build rows.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const HTML = fs.readFileSync(
-  path.resolve(__dirname, '../../app/settings/settings.html'), 'utf8');
+const SRC = fs.readFileSync(
+  path.resolve(__dirname, '../../app/settings/settings.js'), 'utf8');
 
 function fakeElement(tag) {
-  return {
+  const el = {
     tag, children: [], className: '', textContent: '', innerHTML: '',
     style: {}, dataset: {}, disabled: false, type: '', checked: false,
+    // Backed by className, like the real one: the script reads both.
+    classList: {
+      contains(n) { return this.owner.className.split(' ').includes(n); },
+      add(n) { if (!this.contains(n)) this.owner.className += ' ' + n; },
+      remove(n) {
+        this.owner.className = this.owner.className.split(' ')
+          .filter((c) => c !== n).join(' ');
+      },
+      toggle(n, on) { if (on) this.add(n); else this.remove(n); },
+    },
     appendChild(c) { this.children.push(c); return c; },
     querySelectorAll() { return []; },
     get text() {
@@ -40,6 +50,8 @@ function fakeElement(tag) {
       return out;
     },
   };
+  el.classList.owner = el;
+  return el;
 }
 
 /**
@@ -57,14 +69,13 @@ function load(config) {
     getElementById: () => host,
     querySelectorAll: () => [],
   };
-  const src = HTML.match(/<script>([\s\S]*)<\/script>/)[1];
   // `config` is a top-level binding in the script, so it cannot also be a
   // parameter; assign it after the declarations have run.
   // setInterval is stubbed out too: the script starts a 2s window-list poll at
   // load, and a live timer keeps the test runner alive for ever.
   const make = new Function('document', 'window', '__config',
-    'const setInterval = () => 0, setTimeout = () => 0;\n'
-    + src + '\n;config = __config;\n'
+                            'const setInterval = () => 0, setTimeout = () => 0;\n'
+    + SRC + '\n;config = __config;\n'
     + ';return { render(cat, inst, busy = null, prog = null) {\n'
     + '   lastCatalogue = cat; lastInstalled = inst;\n'
     + '   dictBusy = busy; dictProgress = prog;\n'
@@ -98,7 +109,8 @@ const CATALOGUE = [
   { id: 'jmnedict', label: 'Names', name: 'JMnedict', detail: 'names' },
 ];
 const INSTALLED = [
-  { file: 'jitendex-yomitan.zip', label: 'Jitendex', name: 'Jitendex', kind: 'term', size: 38e6 },
+  { file: 'jitendex-yomitan.zip', label: 'Jitendex', name: 'Jitendex',
+    kind: 'term', size: 38e6 },
   { file: 'meikyo.zip', label: '明鏡', name: '明鏡', kind: 'term', size: 54e6 },
 ];
 const fresh = () => JSON.parse(JSON.stringify(CONFIG));
@@ -116,7 +128,8 @@ test('the two groups are what they say they are', () => {
   const { api, host } = load(fresh());
   api.render(CATALOGUE, INSTALLED);
   // Headings are the only non-row children, in order, each above its rows.
-  const heads = host.children.filter((c) => c.className === 'hint');
+  const heads = host.children
+    .filter((c) => c.className.split(' ').includes('group-head'));
   assert.strictEqual(heads.length, 2, 'one heading per group');
   const [first, second] = heads.map((h) => host.children.indexOf(h));
   const between = host.children.slice(first + 1, second);
@@ -142,13 +155,18 @@ test('an installed dictionary offers Remove, an uninstalled one Download', () =>
   }
 });
 
-test('the action is the last thing in the row, the arrows the first', () => {
+test('a row reads on/off, priority, name, action', () => {
   const { api, host } = load(fresh());
   api.render(CATALOGUE, INSTALLED);
   const row = rowFor(host, 'Jitendex');
+  assert.strictEqual(row.children[0].type, 'checkbox', 'the checkbox leads');
+  assert.strictEqual(row.children[1].className, 'move', 'then priority');
+  assert.strictEqual(row.children[2].className, 'grow', 'then what it is');
   assert.strictEqual(row.children.at(-1).tag, 'button', 'action on the right');
   assert.strictEqual(row.children.at(-1).textContent, 'Remove');
-  assert.strictEqual(row.children[0].className, 'move', 'priority on the left');
+  // Clicking the name still toggles the box now that the two are siblings.
+  assert.strictEqual(row.children[2].htmlFor, row.children[0].id,
+                     'the name labels the checkbox');
 });
 
 test('a removed dictionary becomes downloadable again', () => {

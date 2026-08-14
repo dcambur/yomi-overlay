@@ -68,7 +68,7 @@ function open(at) {
     // their words stopped working because the app updated is the worse
     // failure — so both are read, and which one this is is asked once.
     structured = db.prepare(
-      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'"
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'",
     ).get().n > 0;
     // No LIMIT here. A SQL limit is applied before the visibility filter and
     // before ranking, so it silently starves whole dictionaries: 「こう」has 313
@@ -85,7 +85,8 @@ function open(at) {
     return true;
   } catch (e) {
     console.error('lookup: cannot open index.db —', e.message);
-    console.error('add a dictionary from the settings window (\u8aad -> Settings -> Dictionaries)');
+    console.error('add a dictionary from the settings window'
+                  + ' (\u8aad -> Settings -> Dictionaries)');
     return false;
   }
 }

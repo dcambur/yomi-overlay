@@ -1,7 +1,7 @@
 // What a recognised page is made of.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 struct Line {
     var text: String

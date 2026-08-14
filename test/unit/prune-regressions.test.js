@@ -28,7 +28,6 @@ const { build } = require(path.join(ROOT, 'app/main/index-builder.js'));
 assert.ok(!dictionaries.INDEX_PATH.startsWith(ROOT),
           `refusing to run: index path is ${dictionaries.INDEX_PATH}`);
 
-const have = () => true;
 
 test('an index built before the dict columns is not silently mangled', () => {
   // The shape the previous commit produced: structured glossaries, but no way

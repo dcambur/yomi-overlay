@@ -4,14 +4,13 @@
 // Scoping: yomi only ever captures the target window (see ocr/Sources/).
 // This process renders on top of it and never reads any other window.
 
-const { app, BrowserWindow, globalShortcut, Tray, Menu, dialog, shell,
-        systemPreferences, screen } = require('electron');
-const { spawn } = require('child_process');
-const path = require('path');
-const { lookup, open: openDict, initTransformer } = require('./main/lookup.js');
+// Only what this file itself uses. It once imported the whole surface of the
+// app — windows, tray, dialogs, paths — and kept the imports after the pieces
+// moved into main/, which is how a 40-line entry point reads like a god object.
+const { app, globalShortcut } = require('electron');
+const { open: openDict, initTransformer } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
-const { listWindows } = require('./main/window-list.js');
 const { openSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
 const overlayWindow = require('./main/overlay-window.js');
@@ -24,8 +23,7 @@ logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
 const cfg = require('./main/config.js');
 
-const { OCR_BIN: YOMI_BIN, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
-        ASSETS_DIR, TOOLS_DIR, VENV_DIR } = require('./paths.js');
+const { OCR_BIN: YOMI_BIN } = require('./paths.js');
 
 // Shown in the app switcher and menu bar instead of "Electron".
 app.setName('Yomi Overlay');
@@ -88,10 +86,10 @@ const ocrChild = new SupervisedChild({
     const voting = conf.voting || {};
     console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
     return ['--json', '--watch', '--interval', INTERVAL,
-      '--engine', conf.engine || 'auto',
-      '--votes', String(voting.passes ?? 3),
-      '--vote-every', String(voting.everyN ?? 2),
-      ...cfg.targetArgs()];
+            '--engine', conf.engine || 'auto',
+            '--votes', String(voting.passes ?? 3),
+            '--vote-every', String(voting.everyN ?? 2),
+            ...cfg.targetArgs()];
   },
   backoff: { initial: 1000, max: 30000, factor: 2 },
   watchdog: { silenceMs: OCR_WATCHDOG_MS, checkMs: 30000 },
@@ -140,8 +138,6 @@ const eventsChild = new SupervisedChild({
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
 });
-
-
 
 
 // Registered here, not earlier: it hands out both children, and eventsChild
@@ -199,10 +195,6 @@ app.whenReady().then(() => {
 // The app has no Dock icon and no menu bar (LSUIElement), so the menu-bar item
 // is the only discoverable way in — a global shortcut alone is not findable.
 // Screen Recording is required for every capture. Without it nothing works and
-
-
-
-
 
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });

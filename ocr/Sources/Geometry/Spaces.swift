@@ -1,7 +1,7 @@
 // The coordinate spaces this pipeline moves boxes between.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// A box in normalised image coordinates with a TOP-LEFT origin.
 ///
@@ -13,10 +13,16 @@ struct NBox {
     var x: Double, y: Double, w: Double, h: Double
 
     init(vision b: CGRect) {
-        x = b.minX; y = 1 - b.maxY; w = b.width; h = b.height
+        x = b.minX
+        y = 1 - b.maxY
+        w = b.width
+        h = b.height
     }
     init(x: Double, y: Double, w: Double, h: Double) {
-        self.x = x; self.y = y; self.w = w; self.h = h
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
     }
 
     /// Undo a 90° counter-clockwise image rotation.

@@ -46,19 +46,20 @@ const send = (ch, ...a) => win.webContents.send(ch, ...a);
 /** Let the renderer's own async work settle before asserting. */
 const settle = (ms = 60) => new Promise(r => setTimeout(r, ms));
 
-const glyphCount = () => js(`document.querySelectorAll('.g').length`);
-const hitCount = () => js(`document.querySelectorAll('.g.hit').length`);
-const popupShown = () => js(`getComputedStyle(document.getElementById('popup')).display !== 'none'`);
-const layerTransform = () => js(`document.getElementById('layer').style.transform`);
+const glyphCount = () => js('document.querySelectorAll(\'.g\').length');
+const hitCount = () => js('document.querySelectorAll(\'.g.hit\').length');
+const popupShown = () =>
+  js("getComputedStyle(document.getElementById('popup')).display !== 'none'");
+const layerTransform = () => js('document.getElementById(\'layer\').style.transform');
 
 /** Tag a live span. A rebuild wipes the layer, so the tag cannot survive one. */
 const markSpan = () => js(
   `(() => { const s = document.querySelector('.g'); if (!s) return false;
             s.dataset.mark = 'x'; return true; })()`);
 const spanSurvived = () => js(
-  `!!document.querySelector('.g[data-mark="x"]')`);
+  '!!document.querySelector(\'.g[data-mark="x"]\')');
 const markedText = () => js(
-  `(document.querySelector('.g[data-mark="x"]') || {}).textContent || null`);
+  '(document.querySelector(\'.g[data-mark="x"]\') || {}).textContent || null');
 
 // ---- payload shaping -------------------------------------------------------
 
@@ -118,7 +119,7 @@ async function run() {
     send('capture', nudged(A, 1)); await settle();
     send('capture', nudged(A, 1)); await settle();
     assert.ok(!(await spanSurvived()),
-      'layer never rebuilt — the bounded-refusal escape is gone');
+              'layer never rebuilt — the bounded-refusal escape is gone');
   });
 
   await test('a page turn rebuilds', async () => {
@@ -127,7 +128,7 @@ async function run() {
     send('capture', B); await settle();
     assert.ok(!(await spanSurvived()), 'page turn did not rebuild');
     assert.strictEqual(await glyphCount(),
-      B.lines.reduce((s, l) => s + l.chars.length, 0));
+                       B.lines.reduce((s, l) => s + l.chars.length, 0));
   });
 
   await test('same text at moved coordinates rebuilds', async () => {
@@ -135,7 +136,7 @@ async function run() {
     assert.ok(await markSpan());
     send('capture', moved(A)); await settle();
     assert.ok(!(await spanSurvived()),
-      'a pure re-layout was treated as unchanged — spans would stay welded');
+              'a pure re-layout was treated as unchanged — spans would stay welded');
   });
 
   await test('a voted payload is patched in place, not rebuilt', async () => {
@@ -144,9 +145,9 @@ async function run() {
     const before = await markedText();
     send('capture', voted(A)); await settle();
     assert.ok(await spanSurvived(),
-      'voting rebuilt the layer instead of correcting in place');
+              'voting rebuilt the layer instead of correcting in place');
     assert.notStrictEqual(await markedText(), before,
-      'voted correction did not reach the DOM');
+                          'voted correction did not reach the DOM');
   });
 
   await test('offset places the layer against the panel position', async () => {
@@ -178,7 +179,7 @@ async function run() {
     send('trigger', { type: 'click', x: c.x + c.w / 2, y: c.y + c.h / 2 });
     await settle(120);
     assert.strictEqual(await hitCount(), 0,
-      'a glyph behind another window was still looked up');
+                       'a glyph behind another window was still looked up');
     send('covers', []); await settle();
   });
 

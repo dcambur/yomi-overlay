@@ -76,7 +76,7 @@
   function fillStructured(root) {
     if (!window.structured) return;
     for (const slot of root.querySelectorAll('[data-sc]')) {
-      const i = +slot.dataset.sc;
+      const i = Number(slot.dataset.sc);
       const item = scSlots[i];
       if (!item) continue;
       slot.appendChild(window.structured.render(document, item.g, item.dict));
@@ -131,7 +131,8 @@
       if (en.kun) parts.push(`<div class="kv ja"><b>訓</b>${esc(en.kun)}</div>`);
       parts.push(`<div>${en.glosses.map(g => glossItem(g, en.dict)).join(', ')}</div>`);
     } else if (kind === 'name') {
-      parts.push(`<div class="ja">${en.glosses.map(g => glossItem(g, en.dict)).join('、 ')}</div>`);
+      const items = en.glosses.map((g) => glossItem(g, en.dict)).join('、 ');
+      parts.push(`<div class="ja">${items}</div>`);
     } else if (kind === 'bi') {
       parts.push('<ul class="gl">');
       for (const g of en.glosses) parts.push(`<li>${glossItem(g, en.dict)}</li>`);

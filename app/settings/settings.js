@@ -1,0 +1,434 @@
+// The settings window: target window, lookup trigger, dictionaries.
+//
+// A classic script, not a module — the same arrangement app/renderer uses, and
+// what lets the page load it under script-src 'self'. Everything outside the
+// page comes through window.settings, the preload bridge (app/preload/settings.js).
+//
+// Layout of this file, and of the window itself:
+//
+//   state and helpers
+//   tabs                the three panels
+//   target window       what the overlay attaches to
+//   lookup trigger      what makes a lookup fire
+//   dictionaries        what is installed, in what order
+//   wiring              footer buttons, progress events, first load
+//
+// Nothing here touches the filesystem or the index: every action is a request
+// to the main process, which owns both.
+
+// --- state ------------------------------------------------------------------
+
+let config = null;        // the whole saved config, edited in place until Save
+let windows = [];         // the last window list from the main process
+let selected = null;      // the target being chosen: {bundle, windowId, label}
+const expanded = new Set(); // bundles opened to pin one of their windows
+let lastWinJson = '';     // last rendered window list, to suppress no-op redraws
+
+let lastCatalogue = [];   // dictionaries we can fetch
+let lastInstalled = [];   // dictionaries present on disk
+let dictBusy = null;      // label of the row currently working, if any
+let dictProgress = null;  // its latest progress payload
+
+// --- helpers ----------------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => HTML_ESCAPES[c]);
+
+/** Bytes as the number a person reads: "38.4 MB" is 38.4, not 40265318. */
+const MB = 1024 * 1024;
+const inMB = (bytes) => (bytes / MB).toFixed(1);
+
+/**
+ * A progress payload as something to show: what is happening, and how far.
+ *
+ * `pct` is null when the step cannot be measured — the popup draws a moving
+ * bar rather than inventing a number. One function because the row and the
+ * status line used to each carry their own copy of this arithmetic, and one
+ * copy had an off-by-one that reported every step as finished the moment it
+ * started.
+ */
+function progressOf(p) {
+  const of = (done, total) => (total ? Math.round(100 * done / total) : null);
+  switch (p.phase) {
+    // `done` counts units that have FINISHED. Nothing is added to it: a step
+    // that has just begun is 0%, not 1 of 1.
+    case 'downloading': return { what: 'downloading', pct: of(p.got, p.total) };
+    case 'indexing': return { what: 'indexing', pct: of(p.done || 0, p.total) };
+    case 'pruning': return { what: 'removing', pct: of(p.done || 0, p.total) };
+    default: return { what: p.phase || '', pct: null };
+  }
+}
+
+// --- tabs -------------------------------------------------------------------
+
+const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger' };
+
+for (const tab of document.querySelectorAll('.tab')) {
+  tab.onclick = () => {
+    for (const t of document.querySelectorAll('.tab')) {
+      t.classList.toggle('on', t === tab);
+    }
+    for (const [name, id] of Object.entries(PANELS)) {
+      $(id).classList.toggle('on', tab.dataset.tab === name);
+    }
+  };
+}
+
+// --- target window ----------------------------------------------------------
+
+async function refreshWindows(auto) {
+  if (!auto) $('status').textContent = 'scanning windows…';
+  const ws = await window.settings.listWindows();
+  // Auto-refresh must not flicker the list (or eat a click mid-render):
+  // re-render only when something actually changed.
+  const j = JSON.stringify(ws);
+  if (auto && j === lastWinJson) return;
+  lastWinJson = j;
+  windows = ws;
+  renderWindows();
+  if (!auto) $('status').textContent = windows.length + ' windows';
+}
+
+/** The windows of one app, grouped under its bundle id. */
+function byBundle(list) {
+  const groups = new Map();
+  for (const w of list) {
+    if (!groups.has(w.bundle)) groups.set(w.bundle, []);
+    groups.get(w.bundle).push(w);
+  }
+  return groups;
+}
+
+/** One app: any of its windows, with the option to expand and pin one. */
+function appRow(bundle, ws) {
+  // Liveness per app: green if any window is on the ACTIVE Space; amber if the
+  // app is running but parked elsewhere (fullscreen on another desktop,
+  // hidden) — the window server cannot see other Spaces' visibility, so
+  // "gray = dead" was simply wrong for those targets.
+  const anyLive = ws.some((w) => w.onScreen);
+  const biggest = ws.reduce((a, b) => (a.width * a.height >= b.width * b.height ? a : b));
+  const sub = ws.length === 1
+    ? (ws[0].title || '(untitled)')
+    : ws.length + ' windows — click to ' + (expanded.has(bundle) ? 'collapse' : 'expand');
+
+  const el = document.createElement('div');
+  el.className = 'win';
+  if (selected.bundle === bundle && !selected.windowId) el.classList.add('sel');
+  el.innerHTML =
+    `<span class="dot ${anyLive ? 'live' : 'away'}" title="${anyLive
+      ? 'visible on this Space' : 'running — on another Space or hidden'}"></span>`
+    + '<span class="grow">'
+    + `<div class="app">${esc(ws[0].app)}</div>`
+    + `<div class="title">${esc(sub)}</div>`
+    + '</span>'
+    + `<span class="meta">${biggest.width}×${biggest.height}</span>`;
+
+  el.onclick = () => {
+    selected = { bundle, windowId: null, label: ws[0].app };
+    // Toggle. Clicking an expanded app used to re-add it to the set, so once
+    // opened it could never be closed.
+    if (ws.length > 1) {
+      if (expanded.has(bundle)) expanded.delete(bundle);
+      else expanded.add(bundle);
+    }
+    renderWindows();
+    $('status').textContent = 'target: ' + ws[0].app + ' (any window)';
+  };
+  return el;
+}
+
+/** One window of an expanded app, indented under it. */
+function windowRow(bundle, w, appName) {
+  const el = document.createElement('div');
+  el.className = 'win subwin';
+  if (selected.windowId === w.id) el.classList.add('sel');
+  el.innerHTML =
+    `<span class="dot ${w.onScreen ? 'live' : 'away'}"></span>`
+    + `<span class="grow"><div class="title">${esc(w.title || '(untitled)')}</div></span>`
+    + `<span class="meta">${w.width}×${w.height}</span>`;
+  el.onclick = (ev) => {
+    ev.stopPropagation();
+    selected = { bundle, windowId: w.id, label: appName + ' — ' + (w.title || 'window') };
+    renderWindows();
+    $('status').textContent = 'target: ' + selected.label + ' (pinned window)';
+  };
+  return el;
+}
+
+function renderWindows() {
+  const host = $('winlist');
+  host.innerHTML = '';
+  for (const [bundle, ws] of byBundle(windows)) {
+    // A pinned window keeps its app expanded so the pin stays visible.
+    if (selected.windowId && ws.some((w) => w.id === selected.windowId)) {
+      expanded.add(bundle);
+    }
+    host.appendChild(appRow(bundle, ws));
+    if (ws.length > 1 && expanded.has(bundle)) {
+      for (const w of ws) host.appendChild(windowRow(bundle, w, ws[0].app));
+    }
+  }
+}
+
+// --- lookup trigger ---------------------------------------------------------
+
+const DEFAULT_TRIGGER = { mode: 'hold', modifier: 'shift', hoverDelayMs: 250 };
+
+function renderTrigger() {
+  const t = config.trigger || DEFAULT_TRIGGER;
+  $('mode').value = t.mode || DEFAULT_TRIGGER.mode;
+  $('modifier').value = t.modifier || DEFAULT_TRIGGER.modifier;
+  $('delay').value = t.hoverDelayMs ?? DEFAULT_TRIGGER.hoverDelayMs;
+  syncTriggerRows();
+}
+
+/** Only show the setting that applies to the chosen mode. */
+function syncTriggerRows() {
+  const hover = $('mode').value === 'hover';
+  $('row-mod').classList.toggle('hidden', hover);
+  $('row-delay').classList.toggle('hidden', !hover);
+}
+
+function currentTrigger() {
+  const delay = parseInt($('delay').value, 10) || DEFAULT_TRIGGER.hoverDelayMs;
+  return {
+    mode: $('mode').value,
+    modifier: $('modifier').value,
+    // The input carries min/max, but a typed value can still be anything.
+    hoverDelayMs: Math.min(2000, Math.max(50, delay)),
+  };
+}
+
+// --- dictionaries -----------------------------------------------------------
+//
+// Two groups, because there are two kinds of dictionary and they differ in what
+// you can do with them: the recommended ones can be fetched here, the ones you
+// own can only be imported. Mixing them made a list where identical rows
+// carried different buttons for no visible reason.
+//
+// Rows are keyed on the LABEL the index uses, never on the archive's own title.
+// Keying on the title showed 明鏡 twice — once from the manifest and once from
+// the file — with a different button on each.
+
+async function refreshDictionaries() {
+  [lastCatalogue, lastInstalled] = await Promise.all([
+    window.settings.dictCatalogue(), window.settings.dictInstalled(),
+  ]);
+  config = await window.settings.getConfig();
+  renderDictionaries();
+}
+
+function setDictBusy(label, progress) {
+  dictBusy = label;
+  dictProgress = progress || null;
+  renderDictionaries();
+}
+
+/** Run one install/import/removal, with the whole list locked while it runs. */
+async function dictAction(label, fn) {
+  if (dictBusy) return;
+  setDictBusy(label, { phase: 'starting' });
+  const r = await fn();
+  setDictBusy(null);
+  await refreshDictionaries();
+  $('dictstatus').textContent =
+    r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '';
+}
+
+/** A row's progress, as a bar and a number, beside the button that started it. */
+function progressBar(p) {
+  const { what, pct } = progressOf(p);
+
+  const text = document.createElement('span');
+  text.className = 'pct';
+  text.textContent = pct === null ? what : `${what} ${pct}%`;
+
+  const fill = document.createElement('span');
+  fill.className = 'fill' + (pct === null ? ' indeterminate' : '');
+  if (pct !== null) fill.style.width = pct + '%';
+
+  const bar = document.createElement('span');
+  bar.className = 'bar';
+  bar.appendChild(fill);
+
+  const wrap = document.createElement('span');
+  wrap.className = 'prog';
+  wrap.appendChild(text);
+  wrap.appendChild(bar);
+  return wrap;
+}
+
+/** The enable/disable checkbox, for a dictionary that is in the index. */
+function enableBox(cfg) {
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!cfg.enabled;
+  cb.disabled = !!dictBusy;
+  cb.onchange = () => { cfg.enabled = cb.checked; renderDictionaries(); };
+  return cb;
+}
+
+/** Up/down, for a dictionary that is in the index. Priority is sense order. */
+function priorityButtons(idx) {
+  const move = document.createElement('span');
+  move.className = 'move';
+  // Every installed dictionary can be reordered — which one provides a sense
+  // first is a property of all of them, not of a chosen few.
+  for (const [glyph, delta] of [['▲', -1], ['▼', 1]]) {
+    const b = document.createElement('button');
+    b.textContent = glyph;
+    const to = idx + delta;
+    b.disabled = !!dictBusy || to < 0 || to >= config.dictionaries.length;
+    b.onclick = () => {
+      const list = config.dictionaries;
+      [list[idx], list[to]] = [list[to], list[idx]];
+      renderDictionaries();
+    };
+    move.appendChild(b);
+  }
+  return move;
+}
+
+/** The second line of a row: what the dictionary is, or what it would be. */
+function dictionaryDetail(entry) {
+  const { label, detail, info } = entry;
+  if (!info) return detail || '';
+  const named = info.title && info.title !== label ? ` · ${info.title}` : '';
+  return `${info.kind || 'unreadable'} · ${inMB(info.size)} MB${named}`;
+}
+
+/** One dictionary. `entry` carries whichever of catalogue/installed applies. */
+function dictionaryRow(entry) {
+  const { label, name, info, catalogueId } = entry;
+  const idx = config.dictionaries.findIndex((d) => d.name === label);
+  const cfg = idx >= 0 ? config.dictionaries[idx] : null;
+  // In the index, not merely on disk: only then is there an order to change or
+  // an enabled flag to set.
+  const indexed = !!(info && cfg);
+
+  const el = document.createElement('div');
+  el.className = 'dict' + (cfg && !cfg.enabled ? ' off' : '');
+
+  // Left to right: on/off, then priority, then what it is, then its one action.
+  // The checkbox leads because it answers the first question about a row — is
+  // this dictionary being consulted at all — and priority only means anything
+  // for the ones that are.
+  const cb = indexed ? enableBox(cfg) : document.createElement('span');
+  el.appendChild(cb);
+  el.appendChild(indexed ? priorityButtons(idx) : document.createElement('span'));
+
+  // The name is still a label for the checkbox, so clicking the text toggles
+  // it — the checkbox is no longer inside the label, so it needs saying.
+  const mid = document.createElement('label');
+  mid.className = 'grow';
+  if (indexed) {
+    cb.id = 'enable-' + idx;
+    mid.htmlFor = cb.id;
+  }
+  const txt = document.createElement('span');
+  txt.innerHTML = `<div class="app">${esc(name)}</div>`
+    + `<div class="title">${esc(dictionaryDetail(entry))}</div>`;
+  mid.appendChild(txt);
+  el.appendChild(mid);
+
+  // Right: progress while this row is working, then its one action.
+  if (dictBusy === label && dictProgress) el.appendChild(progressBar(dictProgress));
+  const act = document.createElement('button');
+  act.disabled = !!dictBusy;
+  if (info) {
+    act.textContent = 'Remove';
+    act.onclick = () => dictAction(label, () => window.settings.dictRemove(info.file));
+  } else {
+    act.textContent = 'Download';
+    act.onclick = () => dictAction(label, () => window.settings.dictDownload(catalogueId));
+  }
+  el.appendChild(act);
+  return el;
+}
+
+function group(host, title, rows) {
+  if (!rows.length) return;
+  const h = document.createElement('p');
+  h.className = 'hint group-head';
+  h.textContent = title;
+  host.appendChild(h);
+  for (const r of rows) host.appendChild(dictionaryRow(r));
+}
+
+function renderDictionaries() {
+  const host = $('dictlist');
+  host.innerHTML = '';
+  const byLabel = new Map(lastInstalled.map((d) => [d.label, d]));
+
+  const recommended = lastCatalogue.map((c) => ({
+    label: c.label, name: c.name, detail: c.detail,
+    info: byLabel.get(c.label), catalogueId: c.id,
+  }));
+  const known = new Set(lastCatalogue.map((c) => c.label));
+  const imported = lastInstalled
+    .filter((d) => !known.has(d.label))
+    .map((d) => ({ label: d.label, name: d.name, info: d }));
+
+  group(host, 'Recommended — freely licensed, downloaded here', recommended);
+  group(host, 'Imported — dictionaries you already own', imported);
+  if (!imported.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Nothing imported yet.';
+    host.appendChild(p);
+  }
+}
+
+// --- wiring -----------------------------------------------------------------
+
+$('mode').onchange = syncTriggerRows;
+$('import').onclick = () => dictAction('import', () => window.settings.dictImport());
+$('close').onclick = () => window.settings.close();
+$('save').onclick = async () => {
+  $('status').textContent = 'applying…';
+  await window.settings.saveConfig({
+    target: selected,
+    dictionaries: config.dictionaries,
+    trigger: currentTrigger(),
+  });
+  $('status').textContent = 'saved — overlay restarted';
+};
+
+// Progress belongs to the row that started the work; when nothing is working —
+// a rebuild the main process began on its own — it goes to the status line.
+window.settings.onDictProgress((p) => {
+  if (dictBusy) { setDictBusy(dictBusy, p); return; }
+  const { what, pct } = progressOf(p);
+  const shown = pct === null ? '' : ` — ${pct}%`;
+  if (p.phase === 'downloading') {
+    const of = p.total ? ' / ' + inMB(p.total) : '';
+    $('dictstatus').textContent = `downloading ${p.name} ${inMB(p.got)}${of} MB`;
+  } else if (p.phase === 'indexing') {
+    const at = p.total ? ` (${p.done || 0}/${p.total})` : '';
+    $('dictstatus').textContent = `indexing ${p.name || ''}${at}${shown}`;
+  } else if (p.phase === 'pruning') {
+    $('dictstatus').textContent = `removing: ${p.step}${shown}`;
+  } else if (p.phase === 'done') {
+    $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
+  } else if (p.phase === 'error') {
+    $('dictstatus').textContent = 'failed: ' + p.message;
+  } else {
+    $('dictstatus').textContent = what;
+  }
+});
+
+// The window list tracks reality on its own — no manual refresh. 2s is far
+// below human window-shuffling speed and the scan is ~50ms of CGWindowList.
+setInterval(() => { refreshWindows(true).catch(() => {}); }, 2000);
+
+async function init() {
+  config = await window.settings.getConfig();
+  selected = { ...(config.target || {}) };
+  renderTrigger();
+  await refreshDictionaries();
+  await refreshWindows();
+}
+
+init();

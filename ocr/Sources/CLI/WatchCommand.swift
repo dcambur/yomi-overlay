@@ -1,8 +1,8 @@
 // --watch: the capture loop. One pass per interval, emitting a payload,
 // a heartbeat, or an idle marker — never nothing.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// The gap between passes, spent watching the window we just captured instead
 /// of sleeping through it.
@@ -19,7 +19,10 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
         let step = min(0.15, left)
         try? await Task.sleep(nanoseconds: UInt64(step * 1_000_000_000))
         left -= step
-        if let id, !stillVisible(id) { emitIdle(json: json); return }
+        if let id, !stillVisible(id) {
+            emitIdle(json: json)
+            return
+        }
     } while left > 0
 }
 
@@ -99,8 +102,10 @@ func runWatchLoop(_ opts: Options) async throws {
                 let px = "\(shot.image.width)x\(shot.image.height)px"
                 let rg = CGRect(origin: shot.origin, size: shot.size)
                 let wf = current.frame
-                let rs = "\(Int(rg.origin.x)),\(Int(rg.origin.y)) \(Int(rg.width))x\(Int(rg.height))"
-                let ws = "\(Int(wf.origin.x)),\(Int(wf.origin.y)) \(Int(wf.width))x\(Int(wf.height))"
+                let rs =
+                    "\(Int(rg.origin.x)),\(Int(rg.origin.y)) \(Int(rg.width))x\(Int(rg.height))"
+                let ws =
+                    "\(Int(wf.origin.x)),\(Int(wf.origin.y)) \(Int(wf.width))x\(Int(wf.height))"
                 let msg = "dumped \(px) region=\(rs) window=\(ws)\n"
                 FileHandle.standardError.write(msg.data(using: .utf8)!)
             }
@@ -119,8 +124,9 @@ func runWatchLoop(_ opts: Options) async throws {
                 // contract below is inviolable.
                 stablePasses += 1
                 if opts.json, opts.votes > 1, !voteBuf.isEmpty,
-                   voteBuf.count < opts.votes,
-                   stablePasses % opts.voteEvery == 0 {
+                    voteBuf.count < opts.votes,
+                    stablePasses % opts.voteEvery == 0
+                {
                     let geom = Geometry(region: shot.region, window: shot.region)
                     let (pass, _) = try await recognizeAuto(
                         shot.image, geometry: geom, forced: opts.vertical,
@@ -145,7 +151,8 @@ func runWatchLoop(_ opts: Options) async throws {
                                 "voted pass \(voteBuf.count)/\(opts.votes)\n"
                                     .data(using: .utf8)!)
                             if opts.watch {
-                                await waitNextPass(opts.interval,
+                                await waitNextPass(
+                                    opts.interval,
                                     watching: lastWindowID, json: opts.json)
                             }
                             continue
@@ -159,13 +166,17 @@ func runWatchLoop(_ opts: Options) async throws {
                 // unchanged page looks identical to a vanished window,
                 // and the overlay hides itself while you are reading.
                 if opts.json {
-                    print(heartbeatJSON(frame: CGRect(origin: shot.origin,
-                                                      size: shot.size)))
+                    print(
+                        heartbeatJSON(
+                            frame: CGRect(
+                                origin: shot.origin,
+                                size: shot.size)))
                     fflush(stdout)
                 }
                 if opts.watch {
-                    await waitNextPass(opts.interval,
-                                       watching: lastWindowID, json: opts.json)
+                    await waitNextPass(
+                        opts.interval,
+                        watching: lastWindowID, json: opts.json)
                 }
                 continue
             }
@@ -223,10 +234,12 @@ func runWatchLoop(_ opts: Options) async throws {
                     fflush(stdout)
                 }
                 if opts.watch {
-                    settlePasses = producedNewText && settlePasses < maxSettlePasses
+                    settlePasses =
+                        producedNewText && settlePasses < maxSettlePasses
                         ? settlePasses + 1 : 0
-                    await waitNextPass(settlePasses > 0 ? settleInterval : opts.interval,
-                                       watching: lastWindowID, json: opts.json)
+                    await waitNextPass(
+                        settlePasses > 0 ? settleInterval : opts.interval,
+                        watching: lastWindowID, json: opts.json)
                 }
                 continue
             }
@@ -236,7 +249,8 @@ func runWatchLoop(_ opts: Options) async throws {
             // are dropped from text output — that is the filter's
             // whole point (readings are hints, not text).
             let textLines = lines.filter { !$0.ruby }
-            let text = (session.orientation == .verticalNative
+            let text =
+                (session.orientation == .verticalNative
                 // Native-vertical lines are pre-sorted by their char
                 // quads; order()'s 0.04 column-tie threshold exceeds a
                 // dense page's column spacing (kakuyomu: 0.033) and
@@ -276,8 +290,9 @@ func runWatchLoop(_ opts: Options) async throws {
         }
 
         if opts.watch {
-            await waitNextPass(opts.interval,
-                               watching: lastWindowID, json: opts.json)
+            await waitNextPass(
+                opts.interval,
+                watching: lastWindowID, json: opts.json)
         }
     } while opts.watch
 }

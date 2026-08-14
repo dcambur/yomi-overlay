@@ -68,7 +68,8 @@ const SCHEMA = `
   -- A dict column on every table, so a dictionary can be removed by deleting
   -- its rows instead of rebuilding the whole index. kanji and pitch had no
   -- such column, which is why removing anything used to cost a full rebuild.
-  CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT, meanings TEXT, dict TEXT);
+  CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT,
+                      meanings TEXT, dict TEXT);
   CREATE TABLE pitch (term TEXT, reading TEXT, position INT, dict TEXT);
 `;
 
@@ -97,9 +98,16 @@ function banks(z, prefix) {
  */
 function classify(zipPath) {
   let z;
-  try { z = zip.open(zipPath); } catch (e) { return { kind: null, title: '', error: e.message }; }
+  try {
+    z = zip.open(zipPath);
+  } catch (e) {
+    return { kind: null, title: '', error: e.message };
+  }
   let title = '';
-  try { title = String(z.readJSON('index.json').title || '').trim(); } catch { /* no index.json */ }
+  // No index.json is not fatal: the banks say what the archive is.
+  try {
+    title = String(z.readJSON('index.json').title || '').trim();
+  } catch { /* no index.json */ }
   // The bank count travels with the kind: it is the only measure of how much
   // work an archive is that can be had before doing the work, and progress
   // reported per ARCHIVE is no progress at all when there is one of them.
@@ -139,7 +147,10 @@ function discover(dir) {
   const banked = new Map();
   for (const name of ordered) {
     const { kind, title, banks: n, error } = classify(path.join(dir, name));
-    if (!kind) { found.skipped.push({ name, why: error || 'no recognisable banks' }); continue; }
+    if (!kind) {
+      found.skipped.push({ name, why: error || 'no recognisable banks' });
+      continue;
+    }
     labels.set(name, KNOWN_LABELS[name] || title || name.replace(/\.zip$/i, ''));
     banked.set(name, n || 1);
     found[kind].push(name);
