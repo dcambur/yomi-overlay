@@ -79,11 +79,11 @@ jobs:
         with: { node-version: '22' }
 
       - name: Fetch the freely-licensed dictionaries
-        run: tools/fetch-dicts.py
+        run: python3 tools/fetch-dicts.py
 
       - name: Build the index
         # ~100 MB from Jitendex + JMnedict + KANJIDIC + Wiktionary + frequency.
-        run: tools/build-index.py
+        run: python3 tools/build-index.py
 
       - name: Import the signing certificate
         if: env.CERT_P12 != ''

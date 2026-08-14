@@ -63,4 +63,19 @@ b4=$(grep -rn '^[^#]*\b\(mapfile\|readarray\)\b' --include='*.sh' . 2>/dev/null 
 if [ -z "$b4" ]; then ok "no bash 4 builtins (macOS ships 3.2)"
 else bad "bash 4 builtins used" "$b4"; fi
 
+# --- workflows can actually run what they name ------------------------------
+# A repo script invoked bare (`run: tools/x.py`) needs its executable bit
+# committed. git tracks that bit, a local chmod is easy to forget, and nothing
+# fails until the workflow runs — which for the release workflow means after a
+# merge, on main. Measured: `tools/build-index.py: Permission denied`, release
+# run 31815845246. Invoking through an interpreter sidesteps the bit entirely
+# and is what setup.sh already does, so either form passes.
+notexec=$(grep -hoE '^ *run: [a-z]+/[a-z0-9-]+\.(sh|py)' .github/workflows/*.yml 2>/dev/null |
+  sed 's/^ *run: //' | sort -u |
+  while read -r s; do
+    [ "$(git ls-files -s "$s" 2>/dev/null | awk '{print $1}')" = "100755" ] || echo "$s"
+  done)
+if [ -z "$notexec" ]; then ok "workflows only invoke executable scripts bare"
+else bad "invoked bare but not executable in git (chmod +x, or call via python3/bash)" "$notexec"; fi
+
 exit $fail
