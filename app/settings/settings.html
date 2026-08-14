@@ -147,6 +147,18 @@
         the popup.
       </p>
       <div id="dictlist"></div>
+
+      <p class="hint" style="margin-top:14px">
+        Add a dictionary. The recommended ones are freely licensed and download
+        here; anything you own already — 三省堂, 明鏡, DOJG — import as a
+        Yomitan <code>.zip</code>.
+      </p>
+      <div id="catalogue"></div>
+      <div id="installed"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="import">Import a .zip you own…</button>
+        <span id="dictstatus" class="unit"></span>
+      </div>
     </div>
   </main>
 
@@ -180,6 +192,7 @@ async function init() {
   selected = { ...(config.target || {}) };
   renderTrigger();
   renderDicts();
+  await refreshDictionarySources();
   await refreshWindows();
 }
 
@@ -285,6 +298,99 @@ function currentTrigger() {
     hoverDelayMs: Math.min(2000, Math.max(50, parseInt($('delay').value, 10) || 250)),
   };
 }
+
+// --- adding and removing dictionaries --------------------------------------
+// Every action here ends in a rebuild of the index, which the main process runs
+// in a forked worker; progress arrives on dict:progress. The buttons stay
+// disabled for the duration because a second rebuild while one is running would
+// race for the same file.
+let dictBusy = false;
+
+function setDictBusy(on, text) {
+  dictBusy = on;
+  $('dictstatus').textContent = text || '';
+  for (const b of document.querySelectorAll('#catalogue button, #installed button, #import')) {
+    b.disabled = on;
+  }
+}
+
+async function refreshDictionarySources() {
+  const [cat, have] = await Promise.all([
+    window.settings.dictCatalogue(), window.settings.dictInstalled(),
+  ]);
+
+  const c = $('catalogue');
+  c.innerHTML = '';
+  for (const d of cat) {
+    const el = document.createElement('div');
+    el.className = 'dict';
+    el.innerHTML = `<span class="grow"><div class="app">${esc(d.name)}</div>`
+      + `<div class="title">${esc(d.detail)}</div></span>`;
+    const b = document.createElement('button');
+    b.textContent = d.installed ? 'Installed' : 'Download';
+    b.disabled = d.installed;
+    b.onclick = async () => {
+      if (dictBusy) return;
+      setDictBusy(true, 'starting…');
+      const r = await window.settings.dictDownload(d.id);
+      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
+      await refreshDictionarySources();
+      config = await window.settings.getConfig();
+      renderDicts();
+    };
+    el.appendChild(b);
+    c.appendChild(el);
+  }
+
+  const h = $('installed');
+  h.innerHTML = have.length
+    ? '<p class="hint" style="margin-top:10px">Installed</p>' : '';
+  for (const d of have) {
+    const el = document.createElement('div');
+    el.className = 'dict';
+    const mb = (d.size / 1048576).toFixed(1);
+    el.innerHTML = `<span class="grow"><div class="app">${esc(d.name)}</div>`
+      + `<div class="title">${esc(d.kind || 'unreadable')} · ${mb} MB</div></span>`;
+    const b = document.createElement('button');
+    b.textContent = 'Remove';
+    b.onclick = async () => {
+      if (dictBusy) return;
+      setDictBusy(true, 'removing…');
+      const r = await window.settings.dictRemove(d.file);
+      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
+      await refreshDictionarySources();
+      config = await window.settings.getConfig();
+      renderDicts();
+    };
+    el.appendChild(b);
+    h.appendChild(el);
+  }
+}
+
+$('import').onclick = async () => {
+  if (dictBusy) return;
+  setDictBusy(true, 'reading…');
+  const r = await window.settings.dictImport();
+  setDictBusy(false, r.ok ? '' : (r.cancelled ? '' : 'failed: ' + r.error));
+  await refreshDictionarySources();
+  config = await window.settings.getConfig();
+  renderDicts();
+};
+
+window.settings.onDictProgress((p) => {
+  if (p.phase === 'downloading') {
+    const mb = (p.got / 1048576).toFixed(1);
+    const of = p.total ? ' / ' + (p.total / 1048576).toFixed(1) : '';
+    $('dictstatus').textContent = `downloading ${p.name} ${mb}${of} MB`;
+  } else if (p.phase === 'indexing') {
+    const at = p.total ? ` (${(p.done || 0) + 1}/${p.total})` : '';
+    $('dictstatus').textContent = `indexing ${p.name || ''}${at}`;
+  } else if (p.phase === 'done') {
+    $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
+  } else if (p.phase === 'error') {
+    $('dictstatus').textContent = 'failed: ' + p.message;
+  }
+});
 
 function renderDicts() {
   const host = $('dictlist');

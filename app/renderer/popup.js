@@ -60,6 +60,30 @@
     return esc(g).replace(/「[^」]*」/g, m => `<span class="ex">${m}</span>`);
   }
 
+  // A glossary is now whatever its dictionary wrote: a plain string for the
+  // ones that ship text (明鏡, 旺文社, 実用, DOJG, どんなとき) or structured
+  // content for the rest. Strings keep the formatting this popup already had;
+  // structure is built as DOM by structured.js, which cannot be expressed as a
+  // string here — so it is stubbed in and filled after innerHTML lands.
+  let scSlots = [];
+
+  function glossItem(g, dict) {
+    if (typeof g === 'string') return glossHtml(g);
+    return `<span data-sc="${scSlots.push({ g, dict }) - 1}"></span>`;
+  }
+
+  /** Replace the stubs with real nodes. Must run after innerHTML is assigned. */
+  function fillStructured(root) {
+    if (!window.structured) return;
+    for (const slot of root.querySelectorAll('[data-sc]')) {
+      const i = +slot.dataset.sc;
+      const item = scSlots[i];
+      if (!item) continue;
+      slot.appendChild(window.structured.render(document, item.g, item.dict));
+    }
+    scSlots = [];
+  }
+
   function esc(s) {
     return String(s).replace(/[&<>"]/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -105,16 +129,16 @@
     if (kind === 'kanji') {
       if (en.on)  parts.push(`<div class="kv ja"><b>音</b>${esc(en.on)}</div>`);
       if (en.kun) parts.push(`<div class="kv ja"><b>訓</b>${esc(en.kun)}</div>`);
-      parts.push(`<div>${en.glosses.map(esc).join(', ')}</div>`);
+      parts.push(`<div>${en.glosses.map(g => glossItem(g, en.dict)).join(', ')}</div>`);
     } else if (kind === 'name') {
-      parts.push(`<div class="ja">${en.glosses.map(esc).join('、 ')}</div>`);
+      parts.push(`<div class="ja">${en.glosses.map(g => glossItem(g, en.dict)).join('、 ')}</div>`);
     } else if (kind === 'bi') {
       parts.push('<ul class="gl">');
-      for (const g of en.glosses) parts.push(`<li>${glossHtml(g)}</li>`);
+      for (const g of en.glosses) parts.push(`<li>${glossItem(g, en.dict)}</li>`);
       parts.push('</ul>');
     } else {   // mono, gram — lines carry their own numbering
       parts.push('<ul class="gl plain">');
-      for (const g of en.glosses) parts.push(`<li class="ja">${glossHtml(g)}</li>`);
+      for (const g of en.glosses) parts.push(`<li class="ja">${glossItem(g, en.dict)}</li>`);
       parts.push('</ul>');
     }
     parts.push('</div>');
@@ -140,6 +164,7 @@
       parts.push('</div>');
     }
     popup.innerHTML = parts.join('');
+    fillStructured(popup);
     popup.style.display = 'block';
     popup.scrollTop = 0;       // a fresh word must not inherit the old scroll
 
