@@ -1,29 +1,67 @@
-// Dictionary lookup, against the real index.db.
+// Dictionary lookup: deinflection, prefix scanning, ranking, kanji fallback.
 //
-// This code had no test at all, and it is the hot path behind every popup:
-// Yomitan deinflection, multi-length prefix scanning, the four-key ranking
-// chain, and the single-kanji fallback. It is also pure and already
+// This is the hot path behind every popup, and it is pure and already
 // importable, so it needs no harness — just node.
 //
-//   node --test test/unit/            (node:sqlite prints an experimental warning)
+//   test/unit/run.sh node       (node:sqlite prints an experimental warning)
 //
-// Assertions are deliberately about SHAPE and ORDER rather than exact gloss
-// text: the dictionaries are user-supplied and their wording is not ours to
-// pin. What must hold is that 見つけた resolves to 見つける, that the longest
-// match wins, and that matchLength is counted in glyphs so it indexes spans.
+// It used to run against whatever index.db this machine had, which meant it
+// tested nothing anywhere else and stopped testing anything here the moment
+// those dictionaries were removed. The index is now built from dictionaries
+// generated for the purpose, so the words it looks for are words it put there.
+//
+// Assertions are about SHAPE and ORDER, not gloss text: 見つけた must resolve to
+// 見つける, the longest match must win, and matchLength must be counted in
+// glyphs so it indexes spans directly.
 
-const { test, before } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-const { lookup, open, initTransformer } =
-  require(path.resolve(__dirname, '..', '..', 'app', 'main', 'lookup.js'));
+// Before anything reads it: lookup shows only what settings has enabled, so it
+// needs a config that has heard of these dictionaries. paths.js resolves this
+// when it is first required.
+const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-home-'));
+process.env.YOMI_USER_DIR = HOME;
+
+const mk = require('./fixtures/make-dictionary.js');
+const { build } = require(path.resolve(__dirname, '../../app/main/index-builder.js'));
+const { lookup, open, close, initTransformer } =
+  require(path.resolve(__dirname, '../../app/main/lookup.js'));
 
 const glyphs = (s) => Array.from(s);
 
+// 見つける conjugates, 日本 is a prefix of 日本語, and 人 has a codepoint twin.
+// lookup.js gates the single-kanji fallback on the label "KANJIDIC", so the
+// kanji fixture must carry that title.
+const WORDS = [['見つける', 'みつける'], ['言葉', 'ことば'],
+               ['人', 'ひと'], ['日本', 'にほん'], ['日本語', 'にほんご']];
+const KANJI = ['憑', '人'];
+
 before(async () => {
-  assert.ok(open(), 'index.db missing — run tools/build-index.py');
+  const dicts = path.join(HOME, 'dicts');
+  fs.mkdirSync(dicts, { recursive: true });
+  mk.termDictionary(path.join(dicts, 'words.zip'),
+                    { title: 'Words', words: WORDS, shape: 'jmdict' });
+  mk.kanjiDictionary(path.join(dicts, 'kanjidic.zip'),
+                     { title: 'KANJIDIC', chars: KANJI });
+  fs.writeFileSync(path.join(HOME, 'dictionaries.json'),
+                   JSON.stringify(['Words', 'KANJIDIC']));
+  fs.writeFileSync(path.join(HOME, 'config.json'), JSON.stringify({
+    dictionaries: [{ name: 'Words', enabled: true },
+                   { name: 'KANJIDIC', enabled: true }],
+  }));
+  const db = path.join(HOME, 'index.db');
+  build(dicts, db);
+  assert.ok(open(db), 'the fixture index did not open');
   await initTransformer();
+});
+
+after(() => {
+  close();
+  fs.rmSync(HOME, { recursive: true, force: true });
 });
 
 test('deinflects a conjugated verb to its dictionary form', () => {
@@ -42,16 +80,17 @@ test('matchLength is counted in GLYPHS, so it indexes spans directly', () => {
 });
 
 test('longest match wins, and shorter prefixes still appear as groups', () => {
-  const r = lookup(glyphs('転生してきた'));
+  const r = lookup(glyphs('日本語'));
   assert.ok(r);
   assert.ok(r.groups.length > 1, 'expected more than one headword group');
   // Yomitan's chain: source length desc first.
   for (let i = 1; i < r.groups.length; i++) {
     assert.ok(r.groups[i - 1].matchLength >= r.groups[i].matchLength,
-      `groups out of order at ${i}: ` +
-      r.groups.map(g => `${g.surface}(${g.matchLength})`).join(' '));
+      `groups out of order at ${i}: `
+      + r.groups.map((g) => `${g.surface}(${g.matchLength})`).join(' '));
   }
   assert.strictEqual(r.groups[0].matchLength, r.matchLength);
+  assert.strictEqual(r.groups[0].surface, '日本語', 'the longer word first');
 });
 
 test('every group carries at least one entry with a dictionary name', () => {
@@ -67,18 +106,25 @@ test('every group carries at least one entry with a dictionary name', () => {
 });
 
 test('falls back to the single kanji when no word matches', () => {
-  // A kanji unlikely to head a common word on its own.
+  // In the kanji dictionary, and deliberately not a headword in the term one.
   const r = lookup(glyphs('憑'));
   assert.ok(r, 'no kanji fallback');
   assert.strictEqual(r.matchLength, 1);
   assert.strictEqual(r.entries[0].dict, 'KANJIDIC');
   assert.ok('on' in r.entries[0] && 'kun' in r.entries[0],
-    'kanji entries must keep 音/訓 separate for the popup');
+            'kanji entries must keep 音/訓 separate for the popup');
+});
+
+test('a word beats the kanji fallback', () => {
+  // 人 is in both fixtures. The fallback is a last resort, not a competitor.
+  const r = lookup(glyphs('人'));
+  assert.ok(r);
+  assert.strictEqual(r.groups[0].entries[0].dict, 'Words');
 });
 
 test('NFKC-normalises the query, so OCR codepoint twins still hit', () => {
-  // Full-width latin and the CJK-radical variant of 人 render identically to
-  // their normal forms but are different codepoints; OCR emits both.
+  // The CJK-radical variant of 人 renders identically to the normal form but is
+  // a different codepoint; OCR emits both.
   const plain = lookup(glyphs('人'));
   const twin = lookup(['⼈']);            // KANGXI RADICAL MAN
   assert.ok(plain, 'no result for 人');
@@ -99,6 +145,7 @@ test('returns null rather than throwing on empty input', () => {
 });
 
 test('respects maxLen, so the caller can bound the scan', () => {
-  const long = lookup(glyphs('転生してきた'), 2);
-  if (long) assert.ok(long.matchLength <= 2, 'maxLen was ignored');
+  const long = lookup(glyphs('日本語'), 2);
+  assert.ok(long, 'the bounded scan still found the shorter word');
+  assert.ok(long.matchLength <= 2, 'maxLen was ignored');
 });

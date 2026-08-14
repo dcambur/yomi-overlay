@@ -1,19 +1,14 @@
-// The index builder, checked against the archives themselves.
+// The index builder, checked against archives the test makes itself.
 //
 // The builder stores glossary structure verbatim, so the property that matters
-// is LOSSLESSNESS: what comes out of the database must deep-equal what went
-// into it. That is checkable without a second implementation to compare
-// against, and it is the property the whole design rests on — the reason a
-// dictionary nobody anticipated renders correctly is that nothing was thrown
-// away at import.
+// is LOSSLESSNESS: what comes out of the database must deep-equal what went in.
+// That is the reason a dictionary nobody anticipated renders correctly — nothing
+// was thrown away at import — and it is checkable without a second
+// implementation to compare against.
 //
-// Everything else is counted directly off the archives: if a term bank holds
-// N usable records, the database must hold N entries from it, indexed under
-// every key those records name.
-//
-// Needs data/dicts/. Skips itself when they are absent, because the free ones
-// are a download and the commercial ones cannot be shipped — the same reason
-// lookup.test.js skips without index.db.
+// Fixtures are generated, not borrowed from data/dicts/. The dictionaries worth
+// testing against there are commercial, so a suite that reads them cannot run
+// for anyone else and quietly skips instead.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -24,24 +19,20 @@ const zlib = require('zlib');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const DICTS = path.join(ROOT, 'data', 'dicts');
 const zip = require(path.join(ROOT, 'app/main/zip.js'));
 const { build, classify, discover } = require(path.join(ROOT, 'app/main/index-builder.js'));
+const mk = require('./fixtures/make-dictionary.js');
 
-const available = fs.existsSync(DICTS)
-  && fs.readdirSync(DICTS).some((n) => n.endsWith('.zip'));
-
-test('index builder', { skip: available ? false : 'no data/dicts/' }, async (t) => {
-  // One small dictionary, so the suite stays quick. DOJG is ~535 records and
-  // exercises the plain-string glossary path; KANJIDIC exercises kanji banks.
-  const picks = ['gram-dojg.zip', 'KANJIDIC_english.zip']
-    .filter((n) => fs.existsSync(path.join(DICTS, n)));
-  if (!picks.length) return t.skip('none of the expected sample dictionaries present');
-
+test('index builder', async (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-idx-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  for (const n of picks) fs.copyFileSync(path.join(DICTS, n), path.join(dicts, n));
+  mk.termDictionary(path.join(dicts, 'terms.zip'),
+                    { title: 'Terms', entries: 40, banks: 3 });
+  mk.kanjiDictionary(path.join(dicts, 'kanji.zip'),
+                     { title: 'Kanji', chars: ['一', '二', '三', '四'] });
+  mk.pitchDictionary(path.join(dicts, 'pitch_test.zip'), { title: 'Pitch' });
+  mk.freqDictionary(path.join(dicts, 'freq_test.zip'), { title: 'Freq' });
   const out = path.join(tmp, 'index.db');
 
   const result = build(dicts, out);
@@ -51,108 +42,145 @@ test('index builder', { skip: available ? false : 'no data/dicts/' }, async (t) 
   await t.test('writes the database and its manifest', () => {
     assert.ok(fs.existsSync(out), 'index.db exists');
     assert.ok(fs.existsSync(path.join(tmp, 'dictionaries.json')), 'manifest exists');
-    assert.ok(result.labels.length > 0, 'at least one dictionary labelled');
+    assert.ok(result.labels.includes('Terms'), 'term dictionary labelled');
+    assert.ok(result.labels.includes('Kanji'), 'kanji dictionary labelled');
   });
 
   await t.test('leaves no partial file behind', () => {
-    assert.ok(!fs.existsSync(out + '.building'), 'temp build file removed');
+    assert.ok(!fs.existsSync(out + '.building'));
   });
 
-  await t.test('term glossaries survive the round trip byte for byte', () => {
-    const term = picks.find((n) => classify(path.join(dicts, n)).kind === 'term');
-    if (!term) return;
-    const z = zip.open(path.join(dicts, term));
-    const bank = z.names().filter((n) => n.startsWith('term_bank')).sort()[0];
-    const records = z.readJSON(bank).filter((e) => Array.isArray(e) && e.length >= 6);
-    assert.ok(records.length > 0, 'sample bank has records');
-
-    // Through the join AND the deflate: the round trip now crosses dedupe and
-    // compression, so this asserts the storage saving costs no fidelity.
+  await t.test('glossaries survive the round trip byte for byte', () => {
+    const z = zip.open(path.join(dicts, 'terms.zip'));
     const q = db.prepare(
       'SELECT g.blob AS blob FROM terms t JOIN glosses g ON g.id = t.gloss'
       + ' WHERE t.key = ? AND t.dict = ?');
-    const label = result.labels[0];
     let checked = 0;
-    for (const e of records.slice(0, 200)) {
-      const [expr, , , , , gloss] = e;
-      if (!expr) continue;
-      const rows = q.all(String(expr), label);
-      assert.ok(rows.length > 0, `entry ${expr} was indexed`);
-      // Deep equality, not string equality: JSON key order is preserved by
-      // stringify but the assertion should be about the DATA, not its spelling.
-      const stored = rows.map((r) =>
-        JSON.stringify(JSON.parse(zlib.inflateSync(r.blob).toString('utf8'))));
-      assert.ok(stored.includes(JSON.stringify(gloss)),
-                `glossary for ${expr} round-tripped unchanged`);
-      checked++;
-    }
-    assert.ok(checked >= 50, `checked a meaningful sample (${checked})`);
-  });
-
-  await t.test('every usable record is indexed, under every key it names', () => {
-    for (const name of picks) {
-      const info = classify(path.join(dicts, name));
-      if (info.kind !== 'term') continue;
-      const z = zip.open(path.join(dicts, name));
-      let expected = 0;
-      const keys = new Set();
-      for (const b of z.names().filter((n) => n.startsWith('term_bank')).sort()) {
-        for (const e of z.readJSON(b)) {
-          if (!Array.isArray(e) || e.length < 6) continue;
-          expected++;
-          for (const k of new Set([e[0], e[1]])) if (k) keys.add(String(k));
-        }
-      }
-      assert.strictEqual(result.counts[name], expected,
-                         `${name}: every usable record counted`);
-      const label = result.labels[0];
-      const distinct = db.prepare(
-        'SELECT COUNT(DISTINCT key) AS n FROM terms WHERE dict = ?').get(label).n;
-      assert.strictEqual(distinct, keys.size, `${name}: every key indexed`);
-    }
-  });
-
-  await t.test('kanji entries match the archive', () => {
-    const name = picks.find((n) => classify(path.join(dicts, n)).kind === 'kanji');
-    if (!name) return;
-    const z = zip.open(path.join(dicts, name));
-    let expected = 0;
-    for (const b of z.names().filter((n) => n.startsWith('kanji_bank')).sort()) {
-      for (const e of z.readJSON(b)) {
-        if (Array.isArray(e) && e.length >= 5 && e[0]) expected++;
+    for (const bank of z.names().filter((n) => n.startsWith('term_bank')).sort()) {
+      for (const e of z.readJSON(bank)) {
+        const rows = q.all(String(e[0]), 'Terms');
+        assert.ok(rows.length > 0, `${e[0]} was indexed`);
+        const stored = rows.map((r) =>
+          JSON.stringify(JSON.parse(zlib.inflateSync(r.blob).toString('utf8'))));
+        assert.ok(stored.includes(JSON.stringify(e[5])),
+                  `glossary for ${e[0]} round-tripped unchanged`);
+        checked++;
       }
     }
-    const got = db.prepare('SELECT COUNT(*) AS n FROM kanji').get().n;
-    assert.strictEqual(got, expected, 'every kanji record indexed');
-    assert.strictEqual(result.counts[name], expected, 'reported count agrees');
+    z.close();
+    assert.strictEqual(checked, 40, 'every entry checked');
+  });
+
+  await t.test('every entry is indexed under both its forms', () => {
+    // Written under expression AND reading, so kana-only text resolves too.
+    const n = db.prepare(
+      'SELECT COUNT(DISTINCT key) AS n FROM terms WHERE dict = ?').get('Terms').n;
+    assert.strictEqual(n, 80, '40 entries, two keys each');
+    assert.strictEqual(result.counts['terms.zip'], 40);
+  });
+
+  await t.test('a plain-string glossary is stored as written', () => {
+    const dir = path.join(tmp, 'plain');
+    fs.mkdirSync(dir);
+    mk.termDictionary(path.join(dir, 'plain.zip'),
+                      { title: 'Plain', entries: 3, shape: 'plain' });
+    const o = path.join(tmp, 'plain.db');
+    build(dir, o);
+    const d2 = new DatabaseSync(o, { readOnly: true });
+    const row = d2.prepare(
+      'SELECT g.blob AS b FROM terms t JOIN glosses g ON g.id = t.gloss LIMIT 1').get();
+    const gloss = JSON.parse(zlib.inflateSync(row.b).toString('utf8'));
+    d2.close();
+    assert.ok(typeof gloss[0] === 'string', 'kept as a string, not wrapped');
+    assert.match(gloss[0], /meaning/);
+  });
+
+  await t.test('kanji, pitch and frequency all load', () => {
+    assert.strictEqual(db.prepare('SELECT COUNT(*) AS n FROM kanji').get().n, 4);
+    assert.ok(db.prepare('SELECT COUNT(*) AS n FROM pitch').get().n > 0);
+    assert.ok(db.prepare('SELECT COUNT(*) AS n FROM freq').get().n > 0);
+  });
+
+  await t.test('every table records which dictionary a row came from', () => {
+    // Without this a dictionary can only be removed by rebuilding the index.
+    for (const table of ['terms', 'kanji', 'pitch']) {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+      assert.ok(cols.includes('dict'), `${table} has dict`);
+    }
+    assert.ok(db.prepare('PRAGMA table_info(freq)').all()
+      .map((c) => c.name).includes('source'), 'freq has source');
   });
 
   await t.test('identical glossaries are stored once', () => {
     const rows = db.prepare('SELECT COUNT(*) AS n FROM terms').get().n;
     const distinct = db.prepare('SELECT COUNT(*) AS n FROM glosses').get().n;
-    assert.ok(distinct <= rows, 'never more glossaries than rows');
-    assert.strictEqual(distinct, result.glosses, 'reported count matches the table');
+    assert.ok(distinct < rows, 'deduplicated');
+    assert.strictEqual(distinct, result.glosses);
     const orphans = db.prepare(
-      'SELECT COUNT(*) AS n FROM terms WHERE gloss NOT IN (SELECT id FROM glosses)')
-      .get().n;
-    assert.strictEqual(orphans, 0, 'every term points at a glossary that exists');
+      'SELECT COUNT(*) AS n FROM terms WHERE gloss NOT IN (SELECT id FROM glosses)').get().n;
+    assert.strictEqual(orphans, 0);
   });
 
   await t.test('the query paths lookup.js depends on are indexed', () => {
     const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index'")
       .all().map((r) => r.name);
-    for (const want of ['idx_terms_key', 'idx_freq_term', 'idx_pitch_term']) {
+    for (const want of ['idx_terms_key', 'idx_terms_gloss', 'idx_freq_term', 'idx_pitch_term']) {
       assert.ok(idx.includes(want), `${want} exists`);
     }
   });
 
+  await t.test('a bad CRC is tolerated, because real archives have them', () => {
+    const dir = path.join(tmp, 'crc');
+    fs.mkdirSync(dir);
+    mk.pitchDictionary(path.join(dir, 'nhkish_test.zip'),
+                       { title: 'BadCRC', corruptCrc: true });
+    const o = path.join(tmp, 'crc.db');
+    const r = build(dir, o);
+    assert.ok(r.counts['nhkish_test.zip'] > 0, 'indexed despite the checksum');
+  });
+
   await t.test('an archive that is not a dictionary is reported, not indexed', () => {
-    const junk = path.join(dicts, 'not-a-dictionary.zip');
-    fs.writeFileSync(junk, Buffer.from('not a zip at all'));
+    const junk = path.join(dicts, 'junk.zip');
+    mk.notADictionary(junk);
     const d = discover(dicts);
-    assert.ok(d.skipped.some((s) => s.name === 'not-a-dictionary.zip'),
-              'reported as skipped');
-    assert.ok(!d.term.includes('not-a-dictionary.zip'), 'not treated as a term bank');
+    assert.ok(d.skipped.some((s) => s.name === 'junk.zip'));
+    assert.ok(!d.term.includes('junk.zip'));
     fs.rmSync(junk);
   });
+
+  await t.test('a file that is not a zip at all is reported too', () => {
+    const bad = path.join(dicts, 'notazip.zip');
+    fs.writeFileSync(bad, 'definitely not a zip');
+    assert.strictEqual(classify(bad).kind, null);
+    assert.ok(discover(dicts).skipped.some((s) => s.name === 'notazip.zip'));
+    fs.rmSync(bad);
+  });
+});
+
+test('progress starts at nothing and ends at everything', (t) => {
+  // The bug this pins: progress was reported per ARCHIVE, and the popup drew
+  // "done + 1 of total". Installing one dictionary therefore reported 1/1 —
+  // a full bar reading "indexing 100%" — before a single entry was read.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-prog-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dicts = path.join(dir, 'dicts');
+  fs.mkdirSync(dicts);
+  mk.termDictionary(path.join(dicts, 'one.zip'),
+                    { title: 'One', entries: 12, banks: 4 });
+
+  const seen = [];
+  build(dicts, path.join(dir, 'index.db'), (p) => seen.push(p));
+
+  const pct = (p) => Math.round(100 * (p.done || 0) / p.total);
+  assert.ok(seen.length > 1, `more than one report (${seen.length})`);
+  assert.strictEqual(pct(seen[0]), 0, 'the first report is not "finished"');
+  assert.strictEqual(pct(seen.at(-1)), 100, 'the last one is');
+  for (let i = 1; i < seen.length; i++) {
+    assert.ok(pct(seen[i]) >= pct(seen[i - 1]), 'progress never goes backwards');
+  }
+  // One dictionary is four banks here: the point of counting banks is that a
+  // single dictionary still has intermediate states to show.
+  const between = seen.map(pct).filter((n) => n > 0 && n < 100);
+  assert.ok(between.length >= 2,
+            `a single dictionary still reports partial progress (${seen.map(pct)})`);
 });

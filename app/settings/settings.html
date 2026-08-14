@@ -68,6 +68,14 @@
   .dict .grow { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
   .dict .grow .app { font-size: 12px; }
   .dict .grow .title { color: #6f6857; font-size: 11px; }
+  /* Progress sits with the button that started it, so it is obvious WHICH
+     dictionary is working when a list of them is on screen. */
+  .dict .prog { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+  .dict .prog .pct { color: #6f6857; font-size: 10px; white-space: nowrap; }
+  .dict .prog .bar { width: 96px; height: 4px; border-radius: 2px; background: #33313a; overflow: hidden; }
+  .dict .prog .fill { display: block; height: 100%; background: #d8b46a; transition: width .15s linear; }
+  .dict .prog .fill.indeterminate { width: 35%; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
   button {
     font: inherit; font-size: 11px; color: #d9d3c8; background: #2d2a34;
     border: 1px solid #3d3a45; border-radius: 5px; padding: 2px 7px; cursor: pointer;
@@ -307,131 +315,187 @@ function currentTrigger() {
 }
 
 // --- dictionaries ----------------------------------------------------------
-// One list, not three. It used to be a priority list, a catalogue of things to
-// download and a list of what was installed, which meant a dictionary appeared
-// in two of them at once and removing one left it behind in the third. Every
-// dictionary is one row: reorder on the left, what it is in the middle, and the
-// single action that applies to it on the right.
-let dictBusy = false;
+// Two groups, because there are two kinds of dictionary and they differ in
+// what you can do with them: the recommended ones can be fetched here, and the
+// ones you own can only be imported. Mixing them made a list where identical
+// rows carried different buttons for no visible reason.
+//
+// Rows are keyed on the LABEL the index uses, never on the archive's own title.
+// Keying on the title showed 明鏡 twice — once from the manifest and once from
+// the file — with a different button on each.
+let dictBusy = null;      // label of the row currently working
+let dictProgress = null;  // its latest progress payload
 
-function setDictBusy(on, text) {
-  dictBusy = on;
-  $('dictstatus').textContent = text || '';
-  for (const b of document.querySelectorAll('#dictlist button')) b.disabled = on;
-  $('import').disabled = on;
+function setDictBusy(label, progress) {
+  dictBusy = label;
+  dictProgress = progress || null;
+  renderDictionaries();
 }
 
-/** Reload everything the list is drawn from, then draw it. */
+let lastCatalogue = [];
+let lastInstalled = [];
+
 async function refreshDictionaries() {
-  const [cat, have] = await Promise.all([
+  [lastCatalogue, lastInstalled] = await Promise.all([
     window.settings.dictCatalogue(), window.settings.dictInstalled(),
   ]);
   config = await window.settings.getConfig();
-  renderDictionaries(cat, have);
+  renderDictionaries();
 }
 
-async function dictAction(text, fn) {
+async function dictAction(label, fn) {
   if (dictBusy) return;
-  setDictBusy(true, text);
+  setDictBusy(label, { phase: 'starting' });
   const r = await fn();
-  setDictBusy(false, r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '');
+  setDictBusy(null);
   await refreshDictionaries();
+  if (r && r.ok === false && !r.cancelled) $('dictstatus').textContent = 'failed: ' + r.error;
+  else $('dictstatus').textContent = '';
 }
 
-function renderDictionaries(cat, have) {
+/** A row's progress, as a bar and a number, beside the button that started it. */
+function progressBar(p) {
+  const wrap = document.createElement('span');
+  wrap.className = 'prog';
+  let pct = null;
+  let what = p.phase || '';
+  if (p.phase === 'downloading' && p.total) {
+    pct = Math.round(100 * p.got / p.total);
+    what = 'downloading';
+  } else if (p.phase === 'indexing' && p.total) {
+    // No +1. `done` counts banks that have FINISHED, so adding one reported a
+    // step as complete the moment it started — with a single dictionary that
+    // drew a full bar reading "indexing 100%" before anything was indexed.
+    pct = Math.round(100 * (p.done || 0) / p.total);
+    what = 'indexing';
+  } else if (p.phase === 'pruning' && p.total) {
+    pct = Math.round(100 * (p.done || 0) / p.total);
+    what = 'removing';
+  }
+  const bar = document.createElement('span');
+  bar.className = 'bar';
+  const fill = document.createElement('span');
+  fill.className = 'fill' + (pct === null ? ' indeterminate' : '');
+  if (pct !== null) fill.style.width = pct + '%';
+  bar.appendChild(fill);
+  const text = document.createElement('span');
+  text.className = 'pct';
+  text.textContent = pct === null ? what : `${what} ${pct}%`;
+  wrap.appendChild(text);
+  wrap.appendChild(bar);
+  return wrap;
+}
+
+/** One dictionary. `entry` carries whichever of catalogue/installed applies. */
+function dictionaryRow(entry) {
+  const { label, name, detail, info, catalogueId } = entry;
+  const idx = config.dictionaries.findIndex((d) => d.name === label);
+  const cfg = idx >= 0 ? config.dictionaries[idx] : null;
+
+  const el = document.createElement('div');
+  el.className = 'dict' + (cfg && !cfg.enabled ? ' off' : '');
+
+  // Left: priority. Every installed dictionary can be reordered — which one
+  // provides a sense first is a property of all of them, not of a chosen few.
+  const move = document.createElement('span');
+  move.className = 'move';
+  if (info && cfg) {
+    for (const [glyph, delta] of [['\u25b2', -1], ['\u25bc', 1]]) {
+      const b = document.createElement('button');
+      b.textContent = glyph;
+      const to = idx + delta;
+      b.disabled = !!dictBusy || to < 0 || to >= config.dictionaries.length;
+      b.onclick = () => {
+        const list = config.dictionaries;
+        [list[idx], list[to]] = [list[to], list[idx]];
+        renderDictionaries();
+      };
+      move.appendChild(b);
+    }
+  }
+  el.appendChild(move);
+
+  // Middle: what it is.
+  const mid = document.createElement('label');
+  mid.className = 'grow';
+  if (info && cfg) {
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!cfg.enabled;
+    cb.disabled = !!dictBusy;
+    cb.onchange = () => { cfg.enabled = cb.checked; renderDictionaries(); };
+    mid.appendChild(cb);
+  }
+  const sub = info
+    ? `${info.kind || 'unreadable'} \u00b7 ${(info.size / 1048576).toFixed(1)} MB`
+      + (info.title && info.title !== label ? ` \u00b7 ${info.title}` : '')
+    : (detail || '');
+  const txt = document.createElement('span');
+  txt.innerHTML = `<div class="app">${esc(name)}</div>`
+    + `<div class="title">${esc(sub)}</div>`;
+  mid.appendChild(txt);
+  el.appendChild(mid);
+
+  // Right: progress while this row is working, then its one action.
+  if (dictBusy === label && dictProgress) el.appendChild(progressBar(dictProgress));
+  const act = document.createElement('button');
+  act.disabled = !!dictBusy;
+  if (info) {
+    act.textContent = 'Remove';
+    act.onclick = () => dictAction(label, () => window.settings.dictRemove(info.file));
+  } else {
+    act.textContent = 'Download';
+    act.onclick = () => dictAction(label, () => window.settings.dictDownload(catalogueId));
+  }
+  el.appendChild(act);
+  return el;
+}
+
+function group(host, title, rows) {
+  if (!rows.length) return;
+  const h = document.createElement('p');
+  h.className = 'hint';
+  h.style.margin = '12px 0 6px';
+  h.textContent = title;
+  host.appendChild(h);
+  for (const r of rows) host.appendChild(dictionaryRow(r));
+}
+
+function renderDictionaries() {
   const host = $('dictlist');
   host.innerHTML = '';
-  const installedBy = new Map(have.map((d) => [d.name, d]));
+  const byLabel = new Map(lastInstalled.map((d) => [d.label, d]));
 
-  // Installed dictionaries first, in the popup's own priority order, then
-  // whatever else can be downloaded.
-  const rows = config.dictionaries.map((d, i) => ({
-    name: d.name, enabled: d.enabled, index: i, info: installedBy.get(d.name),
+  const recommended = lastCatalogue.map((c) => ({
+    label: c.label, name: c.name, detail: c.detail,
+    info: byLabel.get(c.label), catalogueId: c.id,
   }));
-  const listed = new Set(rows.map((r) => r.name));
-  for (const c of cat) {
-    if (!c.installed && !listed.has(c.name)) rows.push({ name: c.name, catalogue: c });
-  }
-  // An installed dictionary the config has not caught up with yet.
-  for (const d of have) {
-    if (!listed.has(d.name)) rows.push({ name: d.name, enabled: true, info: d });
-  }
+  const known = new Set(lastCatalogue.map((c) => c.label));
+  const imported = lastInstalled
+    .filter((d) => !known.has(d.label))
+    .map((d) => ({ label: d.label, name: d.name, info: d }));
 
-  for (const row of rows) {
-    const el = document.createElement('div');
-    el.className = 'dict' + (row.index !== undefined && !row.enabled ? ' off' : '');
-
-    // Left: order. Only meaningful for something that is actually in the index.
-    const move = document.createElement('span');
-    move.className = 'move';
-    if (row.index !== undefined) {
-      for (const [label, delta] of [['\u25b2', -1], ['\u25bc', 1]]) {
-        const b = document.createElement('button');
-        b.textContent = label;
-        b.disabled = row.index + delta < 0 || row.index + delta >= config.dictionaries.length;
-        b.onclick = () => {
-          const list = config.dictionaries;
-          const to = row.index + delta;
-          [list[row.index], list[to]] = [list[to], list[row.index]];
-          renderDictionaries(cat, have);
-        };
-        move.appendChild(b);
-      }
-    }
-    el.appendChild(move);
-
-    // Middle: what it is.
-    const text = document.createElement('label');
-    text.className = 'grow';
-    const sub = row.info
-      ? `${row.info.kind || 'unreadable'} \u00b7 ${(row.info.size / 1048576).toFixed(1)} MB`
-      : (row.catalogue ? row.catalogue.detail : 'in the index');
-    if (row.index !== undefined) {
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!row.enabled;
-      cb.onchange = () => {
-        config.dictionaries[row.index].enabled = cb.checked;
-        renderDictionaries(cat, have);
-      };
-      text.appendChild(cb);
-    }
-    const label = document.createElement('span');
-    label.innerHTML = `<div class="app">${esc(row.name)}</div>`
-      + `<div class="title">${esc(sub)}</div>`;
-    text.appendChild(label);
-    el.appendChild(text);
-
-    // Right: the one thing you can do to it.
-    const act = document.createElement('button');
-    if (row.info) {
-      act.textContent = 'Remove';
-      act.onclick = () => dictAction('removing\u2026',
-        () => window.settings.dictRemove(row.info.file));
-    } else if (row.catalogue) {
-      act.textContent = 'Download';
-      act.onclick = () => dictAction('starting\u2026',
-        () => window.settings.dictDownload(row.catalogue.id));
-    } else {
-      // In the index but its archive is gone — nothing to remove or fetch.
-      act.textContent = 'Rebuild';
-      act.disabled = true;
-    }
-    el.appendChild(act);
-    host.appendChild(el);
+  group(host, 'Recommended \u2014 freely licensed, downloaded here', recommended);
+  group(host, 'Imported \u2014 dictionaries you already own', imported);
+  if (!imported.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Nothing imported yet.';
+    host.appendChild(p);
   }
 }
 
-$('import').onclick = () => dictAction('reading…', () => window.settings.dictImport());
+$('import').onclick = () => dictAction('import', () => window.settings.dictImport());
 
 window.settings.onDictProgress((p) => {
+  if (dictBusy) { setDictBusy(dictBusy, p); return; }
   if (p.phase === 'downloading') {
     const mb = (p.got / 1048576).toFixed(1);
     const of = p.total ? ' / ' + (p.total / 1048576).toFixed(1) : '';
     $('dictstatus').textContent = `downloading ${p.name} ${mb}${of} MB`;
   } else if (p.phase === 'indexing') {
-    const pct = p.total ? ` — ${Math.round(100 * ((p.done || 0) + 1) / p.total)}%` : '';
-    const at = p.total ? ` (${(p.done || 0) + 1}/${p.total})` : '';
+    const pct = p.total ? ` — ${Math.round(100 * (p.done || 0) / p.total)}%` : '';
+    const at = p.total ? ` (${p.done || 0}/${p.total})` : '';
     $('dictstatus').textContent = `indexing ${p.name || ''}${at}${pct}`;
   } else if (p.phase === 'pruning') {
     const pct = p.total ? ` — ${Math.round(100 * (p.done || 0) / p.total)}%` : '';

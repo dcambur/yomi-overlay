@@ -2,9 +2,10 @@
 //
 // It used to be three lists — priority, downloadable, installed — and a
 // dictionary could appear in two of them at once. Removing one left it behind
-// in the priority list, still reorderable, answering nothing. One list means
-// every dictionary is one row, and these check the properties that made the
-// old arrangement wrong.
+// in the priority list, still reorderable, answering nothing. It is now one row
+// per dictionary under one of two headings — what we can fetch, and what the
+// user brought themselves — and these check the properties that made the old
+// arrangement wrong, plus the ones the grouping must not quietly reintroduce.
 //
 // The script is inline in settings.html and expects a browser, so it is
 // evaluated against the smallest fake document that lets it build rows.
@@ -32,10 +33,23 @@ function fakeElement(tag) {
       for (const c of this.children) out.push(...c.buttons());
       return out;
     },
+    /** Every element under here whose class contains `name`. */
+    withClass(name) {
+      const out = this.className.split(' ').includes(name) ? [this] : [];
+      for (const c of this.children) out.push(...c.withClass(name));
+      return out;
+    },
   };
 }
 
-/** Load the settings script with just enough browser to run the list. */
+/**
+ * Load the settings script with just enough browser to run the list.
+ *
+ * The catalogue and the installed set are module-level state the script fills
+ * from the bridge, so the harness assigns them directly rather than pretending
+ * to be an async bridge; same for the busy row, which is what decides whether a
+ * progress bar is drawn.
+ */
 function load(config) {
   const host = fakeElement('div');
   const document = {
@@ -50,7 +64,11 @@ function load(config) {
   // load, and a live timer keeps the test runner alive for ever.
   const make = new Function('document', 'window', '__config',
     'const setInterval = () => 0, setTimeout = () => 0;\n'
-    + src + '\n;config = __config;\n;return { renderDictionaries };');
+    + src + '\n;config = __config;\n'
+    + ';return { render(cat, inst, busy = null, prog = null) {\n'
+    + '   lastCatalogue = cat; lastInstalled = inst;\n'
+    + '   dictBusy = busy; dictProgress = prog;\n'
+    + '   renderDictionaries(); } };');
   // The script calls init() at load, which awaits the bridge. Give it shapes
   // it can use rather than undefined, or the failure surfaces long after the
   // test that caused it.
@@ -66,33 +84,57 @@ function load(config) {
   return { api, host };
 }
 
+/** The rows, without the group headings between them. */
+const rowsOf = (host) => host.children.filter((c) => c.className.startsWith('dict'));
+const rowFor = (host, name) => rowsOf(host).find((r) => r.text.includes(name));
+
+// Jitendex is in the catalogue and installed; JMnedict is in the catalogue and
+// not; 明鏡 is installed but in no catalogue — i.e. imported by the user.
 const CONFIG = {
-  dictionaries: [{ name: 'Jitendex', enabled: true }, { name: '三省堂', enabled: false }],
+  dictionaries: [{ name: 'Jitendex', enabled: true }, { name: '明鏡', enabled: false }],
 };
 const CATALOGUE = [
-  { id: 'jitendex', name: 'Jitendex', detail: 'JA-EN', file: 'jitendex-yomitan.zip', installed: true },
-  { id: 'jmnedict', name: 'JMnedict', detail: 'names', file: 'JMnedict.zip', installed: false },
+  { id: 'jitendex', label: 'Jitendex', name: 'Jitendex', detail: 'JA-EN' },
+  { id: 'jmnedict', label: 'Names', name: 'JMnedict', detail: 'names' },
 ];
 const INSTALLED = [
-  { file: 'jitendex-yomitan.zip', name: 'Jitendex', kind: 'term', size: 38e6 },
-  { file: 'mono-sankoku8.zip', name: '三省堂', kind: 'term', size: 54e6 },
+  { file: 'jitendex-yomitan.zip', label: 'Jitendex', name: 'Jitendex', kind: 'term', size: 38e6 },
+  { file: 'meikyo.zip', label: '明鏡', name: '明鏡', kind: 'term', size: 54e6 },
 ];
+const fresh = () => JSON.parse(JSON.stringify(CONFIG));
 
 test('every dictionary appears exactly once', () => {
-  const { api, host } = load(JSON.parse(JSON.stringify(CONFIG)));
-  api.renderDictionaries(CATALOGUE, INSTALLED);
-  const names = host.children.map((r) => r.text.match(/Jitendex|三省堂|JMnedict/)?.[0]);
-  assert.deepStrictEqual(names.filter(Boolean).sort(),
-                         ['JMnedict', 'Jitendex', '三省堂'].sort());
-  assert.strictEqual(new Set(names).size, names.length, 'no duplicates across sections');
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  const names = rowsOf(host)
+    .map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]).filter(Boolean);
+  assert.deepStrictEqual(names.sort(), ['JMnedict', 'Jitendex', '明鏡'].sort());
+  assert.strictEqual(new Set(names).size, names.length, 'no duplicates across groups');
+});
+
+test('the two groups are what they say they are', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  // Headings are the only non-row children, in order, each above its rows.
+  const heads = host.children.filter((c) => c.className === 'hint');
+  assert.strictEqual(heads.length, 2, 'one heading per group');
+  const [first, second] = heads.map((h) => host.children.indexOf(h));
+  const between = host.children.slice(first + 1, second);
+  const after = host.children.slice(second + 1);
+  const named = (list) => list.filter((c) => c.className.startsWith('dict'))
+    .map((r) => r.text.match(/Jitendex|明鏡|JMnedict/)?.[0]);
+  assert.deepStrictEqual(named(between).sort(), ['JMnedict', 'Jitendex'],
+                         'the catalogue is the first group');
+  assert.deepStrictEqual(named(after), ['明鏡'],
+                         'what the user imported is the second');
 });
 
 test('an installed dictionary offers Remove, an uninstalled one Download', () => {
-  const { api, host } = load(JSON.parse(JSON.stringify(CONFIG)));
-  api.renderDictionaries(CATALOGUE, INSTALLED);
-  for (const row of host.children) {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  for (const row of rowsOf(host)) {
     const labels = row.buttons().map((b) => b.textContent);
-    const isInstalled = /Jitendex|三省堂/.test(row.text);
+    const isInstalled = /Jitendex|明鏡/.test(row.text);
     assert.ok(labels.includes(isInstalled ? 'Remove' : 'Download'),
               `${row.text.slice(0, 20)} offers the right action (${labels.join(',')})`);
     // Never both — that was possible when the same dictionary sat in two lists.
@@ -100,15 +142,21 @@ test('an installed dictionary offers Remove, an uninstalled one Download', () =>
   }
 });
 
+test('the action is the last thing in the row, the arrows the first', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  const row = rowFor(host, 'Jitendex');
+  assert.strictEqual(row.children.at(-1).tag, 'button', 'action on the right');
+  assert.strictEqual(row.children.at(-1).textContent, 'Remove');
+  assert.strictEqual(row.children[0].className, 'move', 'priority on the left');
+});
+
 test('a removed dictionary becomes downloadable again', () => {
   // What the app reports after a removal: gone from the config (config.js now
-  // bounds the saved list by the manifest) and gone from installed, while the
-  // catalogue reports it as no longer installed.
-  const after = { dictionaries: [{ name: '三省堂', enabled: false }] };
-  const cat = CATALOGUE.map((c) => ({ ...c, installed: false }));
-  const { api, host } = load(after);
-  api.renderDictionaries(cat, [INSTALLED[1]]);
-  const jit = host.children.find((r) => /Jitendex/.test(r.text));
+  // bounds the saved list by the manifest) and gone from installed.
+  const { api, host } = load({ dictionaries: [{ name: '明鏡', enabled: false }] });
+  api.render(CATALOGUE, [INSTALLED[1]]);
+  const jit = rowFor(host, 'Jitendex');
   assert.ok(jit, 'Jitendex still listed');
   assert.ok(jit.buttons().some((b) => b.textContent === 'Download'),
             'and can be downloaded again');
@@ -116,14 +164,69 @@ test('a removed dictionary becomes downloadable again', () => {
             'and is no longer removable');
 });
 
-test('order controls exist only for what is in the index', () => {
-  const { api, host } = load(JSON.parse(JSON.stringify(CONFIG)));
-  api.renderDictionaries(CATALOGUE, INSTALLED);
-  const jmnedict = host.children.find((r) => /JMnedict/.test(r.text));
-  const arrows = jmnedict.buttons().filter((b) => /[▲▼]/.test(b.textContent));
-  assert.strictEqual(arrows.length, 0, 'nothing to reorder before it is installed');
-  const jit = host.children.find((r) => /Jitendex/.test(r.text));
-  assert.strictEqual(
-    jit.buttons().filter((b) => /[▲▼]/.test(b.textContent)).length, 2,
-    'an indexed dictionary can be moved up and down');
+test('anything installed can be reordered, catalogue or not', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  const arrows = (row) => row.buttons().filter((b) => /[▲▼]/.test(b.textContent));
+  // The point of the rewrite: priority is a property of every dictionary the
+  // index holds, not of the ones we happen to ship a download for.
+  assert.strictEqual(arrows(rowFor(host, '明鏡')).length, 2,
+                     'an imported dictionary can be moved too');
+  assert.strictEqual(arrows(rowFor(host, 'Jitendex')).length, 2,
+                     'so can one we downloaded');
+  assert.strictEqual(arrows(rowFor(host, 'JMnedict')).length, 0,
+                     'nothing to reorder before it is installed');
+});
+
+test('reordering moves the dictionary and redraws', () => {
+  const config = fresh();
+  const { api, host } = load(config);
+  api.render(CATALOGUE, INSTALLED);
+  const down = rowFor(host, 'Jitendex').buttons()
+    .find((b) => b.textContent === '▼');
+  down.onclick();
+  assert.deepStrictEqual(config.dictionaries.map((d) => d.name), ['明鏡', 'Jitendex'],
+                         'the config list is what actually moved');
+});
+
+test('progress is drawn on the busy row, and only there', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED, '明鏡',
+             { phase: 'pruning', step: 'terms', done: 3, total: 4 });
+  const busy = rowFor(host, '明鏡').withClass('prog');
+  assert.strictEqual(busy.length, 1, 'the row being worked on shows a bar');
+  assert.match(busy[0].text, /removing 75%/, 'with what it is doing, and how far');
+  assert.strictEqual(busy[0].withClass('fill')[0].style.width, '75%',
+                     'and the bar is filled to match');
+  assert.strictEqual(rowFor(host, 'Jitendex').withClass('prog').length, 0,
+                     'no other row does');
+});
+
+test('a step that has just started reads zero, not done', () => {
+  // The bar drew "indexing 100%" the moment an install began: the builder
+  // reports how many units have FINISHED, and this added one to it.
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED, 'Jitendex',
+             { phase: 'indexing', done: 0, total: 4 });
+  const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
+  assert.strictEqual(bar.text, 'indexing 0%');
+  assert.strictEqual(bar.withClass('fill')[0].style.width, '0%');
+});
+
+test('an unmeasurable step still shows what it is doing', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED, 'Jitendex', { phase: 'downloading' });
+  const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
+  assert.strictEqual(bar.text, 'downloading', 'named, without a false percentage');
+  assert.ok(bar.withClass('fill')[0].className.includes('indeterminate'));
+});
+
+test('nothing is actionable while something else is working', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED, '明鏡', { phase: 'pruning' });
+  for (const row of rowsOf(host)) {
+    for (const b of row.buttons()) {
+      assert.ok(b.disabled, `${row.text.slice(0, 12)}: ${b.textContent} is disabled`);
+    }
+  }
 });

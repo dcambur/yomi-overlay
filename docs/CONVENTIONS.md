@@ -136,10 +136,17 @@ change.
 
 | Suite | Needs | Sees |
 |---|---|---|
-| `test/unit/run.sh` | nothing | lookup, child supervision, the glyph layer |
+| `test/unit/run.sh` | nothing (`python3` for one) | lookup, the index builder, dictionary install/import/removal, settings, child supervision, the glyph layer |
 | `test/golden.sh` | a built `bin/yomi` | every byte the OCR helper emits |
 | `test/verify*.py` | Screen Recording, a live desktop, network | real capture geometry |
 
+- **A test may not depend on a file we cannot ship.** The dictionary suites
+  used to read `data/dicts/`, which is gitignored and mostly commercial: on a
+  runner and in anyone else's clone they skipped, so CI ran two of them and
+  green meant nothing. Generate the input instead — `test/unit/fixtures/`
+  writes the Yomitan archives, and that is also the only way to test a bad
+  CRC, an unknown bank, or two dictionaries claiming one title. The same rule
+  is why `golden.sh` and `verify*.py` are separate tiers rather than skips.
 - **Record `golden.sh` before any structural change to the Swift, and require
   byte-identical output after.** It runs off `--image`, so it needs no
   permission and no window, and works while the overlay is running.

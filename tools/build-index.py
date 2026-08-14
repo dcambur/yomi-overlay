@@ -427,6 +427,24 @@ def discover():
     return found
 
 
+def create_schema(db):
+    """The shape of an index built by this script.
+
+    A function rather than a literal inside main() so a test can build a small
+    index in this shape without reproducing it — lookup.js still reads indexes
+    built here, and a hand-copied CREATE TABLE in a test would drift from the
+    thing it claims to describe the moment either side changed.
+    """
+    db.executescript("""
+        PRAGMA journal_mode = OFF;
+        PRAGMA synchronous = OFF;
+        CREATE TABLE terms (key TEXT, reading TEXT, gloss TEXT, score INT, dict TEXT);
+        CREATE TABLE freq  (term TEXT, source TEXT, value INT);
+        CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT, meanings TEXT);
+        CREATE TABLE pitch (term TEXT, reading TEXT, position INT);
+    """)
+
+
 def main():
     if not DICTS.exists():
         print("no dicts/ — run fetch-dicts.py first")
@@ -436,14 +454,7 @@ def main():
 
     OUT.unlink(missing_ok=True)
     db = sqlite3.connect(OUT)
-    db.executescript("""
-        PRAGMA journal_mode = OFF;
-        PRAGMA synchronous = OFF;
-        CREATE TABLE terms (key TEXT, reading TEXT, gloss TEXT, score INT, dict TEXT);
-        CREATE TABLE freq  (term TEXT, source TEXT, value INT);
-        CREATE TABLE kanji (char TEXT PRIMARY KEY, on_yomi TEXT, kun_yomi TEXT, meanings TEXT);
-        CREATE TABLE pitch (term TEXT, reading TEXT, position INT);
-    """)
+    create_schema(db)
 
     # Labels in the order they are loaded — the popup's default sense priority
     # and the order shown in the settings window.

@@ -6,11 +6,15 @@
 // replaced it must still display. If a sense the old index showed is missing
 // from the new rendering, the redesign lost something a reader used to see.
 //
-// Deterministic by construction: a fixed slice of keys in key order, not a
-// random sample, so a failure is reproducible and a pass means the same thing
-// on every machine.
+// Deterministic by construction: every key, in key order, out of dictionaries
+// generated for this test — so a failure is reproducible and a pass means the
+// same thing on every machine.
 //
-// Needs both shapes — data/index.db from the old builder, and one built here.
+// The oracle is the old flattener ITSELF, run over those dictionaries
+// (fixtures/legacy-index.js), not a transcript of what it once printed. That
+// also covers more than the old comparison did: the flattener has a separate
+// path per glossary shape, and the fixtures carry all four, where any single
+// real dictionary exercises one.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -21,8 +25,12 @@ const zlib = require('zlib');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const OLD_DB = path.join(ROOT, 'data', 'index.db');
-const DICTS = path.join(ROOT, 'data', 'dicts');
+const mk = require('./fixtures/make-dictionary.js');
+const legacy = require('./fixtures/legacy-index.js');
+
+// One dictionary per glossary shape the old flattener knows.
+const ENTRIES = 25;
+const SHAPES = ['jmdict', 'mono', 'plain', 'sc'];
 
 // The module is a browser IIFE hanging itself off window; give it one.
 global.window = global.window || {};
@@ -70,18 +78,21 @@ function subsequence(needle, hay) {
   return want.length === 0;
 }
 
-const ready = fs.existsSync(OLD_DB)
-  && fs.existsSync(path.join(DICTS, 'gram-dojg.zip'));
-
 test('structured rendering keeps every sense the old index showed', {
-  skip: ready ? false : 'needs data/index.db and data/dicts/',
+  // The oracle is Python; without it there is nothing to compare against.
+  skip: legacy.available() ? false : 'no python3 to run the old flattener',
 }, async (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-sc-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  for (const n of fs.readdirSync(DICTS).filter((f) => f.endsWith('.zip'))) {
-    fs.copyFileSync(path.join(DICTS, n), path.join(dicts, n));
+  const labels = {};
+  for (const shape of SHAPES) {
+    labels[`${shape}.zip`] = shape;
+    mk.termDictionary(path.join(dicts, `${shape}.zip`),
+                      { title: shape, entries: ENTRIES, shape });
   }
+  const OLD_DB = path.join(tmp, 'old.db');
+  legacy.build(dicts, OLD_DB, labels);
   const newDb = path.join(tmp, 'index.db');
   require(path.join(ROOT, 'app/main/index-builder.js')).build(dicts, newDb);
 
@@ -96,8 +107,8 @@ test('structured rendering keeps every sense the old index showed', {
   const qNew = newD.prepare(
     'SELECT g.blob AS b, t.dict FROM terms t JOIN glosses g ON g.id = t.gloss'
     + ' WHERE t.key = ?');
-  // Fixed slice, in key order: reproducible on any machine with these dicts.
-  const keys = oldD.prepare('SELECT DISTINCT key FROM terms ORDER BY key LIMIT 3000')
+  // Every key, in key order — the fixtures are small enough to check whole.
+  const keys = oldD.prepare('SELECT DISTINCT key FROM terms ORDER BY key')
     .all().map((r) => r.key);
 
   let senses = 0, covered = 0;
@@ -125,7 +136,10 @@ test('structured rendering keeps every sense the old index showed', {
   }
 
   await t.test('the comparison actually compared something', () => {
-    assert.ok(senses > 1000, `enough senses to mean anything (${senses})`);
+    // One sense line per entry per dictionary, and both the surface form and
+    // the reading are indexed — so each entry is reached twice.
+    assert.strictEqual(senses, SHAPES.length * ENTRIES * 2,
+                       'every sense of every fixture was compared');
   });
 
   await t.test('no sense the old index displayed was lost', () => {

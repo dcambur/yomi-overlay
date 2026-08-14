@@ -31,6 +31,7 @@ const INDEX_PATH = path.join(USER_DIR, 'index.db');
 const CATALOGUE = [
   {
     id: 'jitendex',
+    label: 'Jitendex',
     file: 'jitendex-yomitan.zip',
     name: 'Jitendex',
     detail: 'Japanese to English. The one to start with.',
@@ -38,6 +39,7 @@ const CATALOGUE = [
   },
   {
     id: 'jmnedict',
+    label: 'Names',
     file: 'JMnedict.zip',
     name: 'JMnedict',
     detail: 'Names of people, places and organisations.',
@@ -45,6 +47,7 @@ const CATALOGUE = [
   },
   {
     id: 'kanjidic',
+    label: 'KANJIDIC',
     file: 'KANJIDIC_english.zip',
     name: 'KANJIDIC',
     detail: 'Readings and meanings for individual kanji.',
@@ -52,6 +55,7 @@ const CATALOGUE = [
   },
   {
     id: 'jpdb',
+    label: 'JPDB',
     file: 'JPDB_frequency.zip',
     name: 'JPDB frequency',
     detail: 'How common a word is. Orders senses in the popup.',
@@ -68,6 +72,7 @@ const CATALOGUE = [
   },
   {
     id: 'bccwj',
+    label: 'BCCWJ',
     file: 'BCCWJ_frequency.zip',
     name: 'BCCWJ frequency',
     detail: 'A second frequency source, from a balanced corpus.',
@@ -112,12 +117,19 @@ function installed() {
     .sort()
     .map((file) => {
       const info = classify(path.join(DICTS_DIR, file));
-      const cat = CATALOGUE.find((c) => c.file === file);
+      const label = labelOf(file, info.kind, info.title);
+      const cat = CATALOGUE.find((c) => c.label === label);
       return {
         file,
-        name: cat ? cat.name : (info.title || file.replace(/\.zip$/i, '')),
-        // What the archive calls ITSELF, which is how two files are recognised
-        // as the same dictionary regardless of what they were named on disk.
+        // The name the INDEX uses. Everything that has to line up — the
+        // priority list, the manifest, removing the right rows — lines up on
+        // this and not on the filename or the archive's own title. Keying the
+        // settings list on the title instead showed 明鏡 twice: once as 明鏡
+        // from the manifest and once as 明鏡国語辞典　第二版 from the archive.
+        label,
+        name: cat ? cat.name : label,
+        // What the archive calls itself: how two files are recognised as the
+        // same dictionary whatever they were named on disk.
         title: info.title || '',
         kind: info.kind,
         size: fs.statSync(path.join(DICTS_DIR, file)).size,
@@ -127,9 +139,12 @@ function installed() {
 
 /** The catalogue, marked up with what is already here. */
 function catalogue() {
-  const have = new Set(installed().map((d) => d.file));
+  // By label, not by filename: these are fetched under whatever name the
+  // upstream release uses, and a frequency list carries its version in it.
+  const have = new Set(installed().map((d) => d.label));
   return CATALOGUE.map((c) => ({
-    id: c.id, name: c.name, detail: c.detail, file: c.file, installed: have.has(c.file),
+    id: c.id, name: c.name, detail: c.detail, file: c.file, label: c.label,
+    installed: have.has(c.label),
   }));
 }
 
@@ -270,11 +285,21 @@ function prune(label, onProgress = () => {}) {
             + ' (SELECT 1 FROM terms WHERE terms.gloss = glosses.id)');
     db.exec('COMMIT');
 
-    onProgress({ phase: 'pruning', step: 'finishing', done: 2, total: 3 });
+    onProgress({ phase: 'pruning', step: 'reclaiming space', done: 2, total: 3 });
     const left = db.prepare('SELECT COUNT(*) AS n FROM terms').get().n;
-    return { pruned: true, rows: left };
-  } finally {
+    const any = left
+      + db.prepare('SELECT COUNT(*) AS n FROM kanji').get().n
+      + db.prepare('SELECT COUNT(*) AS n FROM pitch').get().n
+      + db.prepare('SELECT COUNT(*) AS n FROM freq').get().n;
+    // Deleting rows does not give the pages back, so an index that has had a
+    // dictionary taken out of it keeps the size it had with the dictionary in
+    // it. Removing everything left a 448 MB file that answered nothing.
+    if (any) db.exec('VACUUM');
     db.close();
+    if (!any) fs.rmSync(INDEX_PATH, { force: true });
+    return { pruned: true, rows: left, emptied: !any };
+  } finally {
+    try { db.close(); } catch { /* closed above on the success path */ }
   }
 }
 
@@ -289,8 +314,12 @@ function writeManifest() {
         'SELECT dict, MIN(rowid) AS first FROM terms GROUP BY dict ORDER BY first').all()) {
         if (r.dict) labels.push(r.dict);
       }
-      for (const r of db.prepare('SELECT DISTINCT dict FROM kanji').all()) {
-        if (r.dict && !labels.includes(r.dict)) labels.push(r.dict);
+      for (const sql of ['SELECT DISTINCT dict FROM kanji',
+                         'SELECT DISTINCT dict FROM pitch',
+                         'SELECT DISTINCT source AS dict FROM freq']) {
+        for (const r of db.prepare(sql).all()) {
+          if (r.dict && !labels.includes(r.dict)) labels.push(r.dict);
+        }
       }
     } finally { db.close(); }
   }

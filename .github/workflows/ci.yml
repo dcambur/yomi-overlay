@@ -36,10 +36,13 @@ jobs:
           python3 -m py_compile $(find tools test -name '*.py')
 
       - name: Unit tests
-        # lookup.test.js needs data/index.db (~370 MB, generated, gitignored),
-        # so it is skipped here and runs locally. The suites listed below need
-        # nothing but node.
-        run: node --test test/unit/child.test.js test/unit/config.test.js
+        # Every node suite, not a chosen two. They used to need dictionaries
+        # from data/ — gitignored, and mostly commercial — so all the
+        # interesting ones were left out here and quietly skipped when anyone
+        # else ran them. They now generate the archives they need
+        # (test/unit/fixtures/), so the runner checks what a laptop checks.
+        # Not test/unit/run.sh: its renderer suite needs Electron and a display.
+        run: node --test test/unit/*.test.js
 
       - name: Conventions
         run: tools/check-conventions.sh

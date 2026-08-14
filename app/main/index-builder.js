@@ -81,7 +81,7 @@ const SCHEMA = `
  * both go through here.
  */
 function freqLabel(file) {
-  return file.split('_')[0];
+  return file.replace(/\.zip$/i, '').split('_')[0];
 }
 
 /** Bank files of a kind, in archive order. */
@@ -100,8 +100,13 @@ function classify(zipPath) {
   try { z = zip.open(zipPath); } catch (e) { return { kind: null, title: '', error: e.message }; }
   let title = '';
   try { title = String(z.readJSON('index.json').title || '').trim(); } catch { /* no index.json */ }
-  if (banks(z, 'kanji_bank').length) return { kind: 'kanji', title, zip: z };
-  if (banks(z, 'term_bank').length) return { kind: 'term', title, zip: z };
+  // The bank count travels with the kind: it is the only measure of how much
+  // work an archive is that can be had before doing the work, and progress
+  // reported per ARCHIVE is no progress at all when there is one of them.
+  const kanjiBanks = banks(z, 'kanji_bank');
+  if (kanjiBanks.length) return { kind: 'kanji', title, banks: kanjiBanks.length, zip: z };
+  const termBanks = banks(z, 'term_bank');
+  if (termBanks.length) return { kind: 'term', title, banks: termBanks.length, zip: z };
   const metas = banks(z, 'term_meta_bank');
   if (metas.length) {
     // The kind is the second field of each record, and the first few are
@@ -111,8 +116,11 @@ function classify(zipPath) {
     const head = z.readPrefix(metas[0], 64 * 1024).toString('utf8');
     const pitch = head.indexOf('"pitch"');
     const freq = head.indexOf('"freq"');
-    if (pitch >= 0 && (freq < 0 || pitch < freq)) return { kind: 'pitch', title, zip: z };
-    if (freq >= 0) return { kind: 'freq', title, zip: z };
+    const n = metas.length;
+    if (pitch >= 0 && (freq < 0 || pitch < freq)) {
+      return { kind: 'pitch', title, banks: n, zip: z };
+    }
+    if (freq >= 0) return { kind: 'freq', title, banks: n, zip: z };
   }
   return { kind: null, title, zip: z };
 }
@@ -128,13 +136,15 @@ function discover(dir) {
   ];
   const found = { term: [], kanji: [], pitch: [], freq: [], skipped: [] };
   const labels = new Map();
+  const banked = new Map();
   for (const name of ordered) {
-    const { kind, title, error } = classify(path.join(dir, name));
+    const { kind, title, banks: n, error } = classify(path.join(dir, name));
     if (!kind) { found.skipped.push({ name, why: error || 'no recognisable banks' }); continue; }
     labels.set(name, KNOWN_LABELS[name] || title || name.replace(/\.zip$/i, ''));
+    banked.set(name, n || 1);
     found[kind].push(name);
   }
-  return { ...found, labels };
+  return { ...found, labels, banks: banked };
 }
 
 /**
@@ -142,7 +152,7 @@ function discover(dir) {
  * this file. Entries are indexed under both surface form and reading so that
  * kana-only text and kanji text both resolve.
  */
-function loadTerms(zipPath, db, dict, insert, glossary) {
+function loadTerms(zipPath, db, dict, insert, glossary, onBank = () => {}) {
   const z = zip.open(zipPath);
   let entries = 0;
   for (const bank of banks(z, 'term_bank')) {
@@ -155,6 +165,7 @@ function loadTerms(zipPath, db, dict, insert, glossary) {
       }
       entries++;
     }
+    onBank();
   }
   return entries;
 }
@@ -186,7 +197,7 @@ function glossaryTable(db) {
 }
 
 /** KANJIDIC banks: [character, onyomi, kunyomi, tags, meanings, stats]. */
-function loadKanji(zipPath, db, insert, dict) {
+function loadKanji(zipPath, db, insert, dict, onBank = () => {}) {
   const z = zip.open(zipPath);
   let n = 0;
   for (const bank of banks(z, 'kanji_bank')) {
@@ -196,12 +207,13 @@ function loadKanji(zipPath, db, insert, dict) {
                  JSON.stringify(e[4] || []), dict);
       n++;
     }
+    onBank();
   }
   return n;
 }
 
 /** NHK banks: [term, "pitch", {reading, pitches:[{position}]}]. */
-function loadPitch(zipPath, db, insert, dict) {
+function loadPitch(zipPath, db, insert, dict, onBank = () => {}) {
   const z = zip.open(zipPath);
   let n = 0;
   for (const bank of banks(z, 'term_meta_bank')) {
@@ -216,12 +228,13 @@ function loadPitch(zipPath, db, insert, dict) {
         }
       }
     }
+    onBank();
   }
   return n;
 }
 
 /** Frequency banks. Lowest value wins — these are ranks, not counts. */
-function loadFreq(zipPath) {
+function loadFreq(zipPath, onBank = () => {}) {
   const z = zip.open(zipPath);
   const freq = new Map();
   for (const bank of banks(z, 'term_meta_bank')) {
@@ -237,6 +250,7 @@ function loadFreq(zipPath) {
         if (prev === undefined || val < prev) freq.set(e[0], val);
       }
     }
+    onBank();
   }
   return freq;
 }
@@ -266,16 +280,25 @@ function build(dictsDir, outPath, onProgress = () => {}) {
   const insPitch = db.prepare('INSERT INTO pitch VALUES (?,?,?,?)');
   const insFreq = db.prepare('INSERT INTO freq VALUES (?,?,?)');
 
-  const total = sources.term.length + sources.kanji.length
-    + sources.pitch.length + sources.freq.length;
+  // Bank files, not archives. Progress per archive told the user nothing in
+  // the case that matters — installing ONE dictionary, where the only report
+  // available is "starting the single thing", which the popup drew as a full
+  // bar before any work had happened. A dictionary is many bank files and each
+  // is a comparable slice of the work, so they are the unit.
+  const banked = sources.banks || new Map();
+  const all = [...sources.term, ...sources.kanji, ...sources.pitch, ...sources.freq];
+  const total = all.reduce((n, name) => n + (banked.get(name) || 1), 0);
   let done = 0;
-  const step = (name) => onProgress({ name, done: done++, total });
+  // `done` counts FINISHED banks, so the first report is 0 of n, not 1 of 1.
+  const tick = (name) => () => onProgress({ name, done: ++done, total });
+  const step = (name) => onProgress({ name, done, total });
 
   for (const name of sources.term) {
     step(name);
     const label = sources.labels.get(name);
     db.exec('BEGIN');
-    counts[name] = loadTerms(path.join(dictsDir, name), db, label, insTerm, glossary);
+    counts[name] = loadTerms(path.join(dictsDir, name), db, label, insTerm,
+                             glossary, tick(name));
     db.exec('COMMIT');
     if (counts[name]) labels.push(label);
   }
@@ -283,25 +306,32 @@ function build(dictsDir, outPath, onProgress = () => {}) {
     step(name);
     db.exec('BEGIN');
     counts[name] = loadKanji(path.join(dictsDir, name), db, insKanji,
-                             sources.labels.get(name));
+                             sources.labels.get(name), tick(name));
     db.exec('COMMIT');
     if (counts[name]) labels.push(sources.labels.get(name));
   }
   for (const name of sources.pitch) {
     step(name);
+    const label = freqLabel(name);
     db.exec('BEGIN');
-    counts[name] = loadPitch(path.join(dictsDir, name), db, insPitch,
-                             freqLabel(name));
+    counts[name] = loadPitch(path.join(dictsDir, name), db, insPitch, label,
+                             tick(name));
     db.exec('COMMIT');
+    // Listed like the rest. A pitch or frequency dictionary does not put
+    // senses in the popup, so its position changes nothing — but leaving it
+    // out of the manifest left it out of the settings list too, with no way to
+    // see it was installed or to take it out again.
+    if (counts[name]) labels.push(label);
   }
   for (const name of sources.freq) {
     step(name);
-    const freq = loadFreq(path.join(dictsDir, name));
+    const freq = loadFreq(path.join(dictsDir, name), tick(name));
     const label = freqLabel(name);
     db.exec('BEGIN');
     for (const [term, value] of freq) insFreq.run(String(term), label, value);
     db.exec('COMMIT');
     counts[name] = freq.size;
+    if (freq.size) labels.push(label);
   }
 
   onProgress({ name: 'building index', done: total, total });

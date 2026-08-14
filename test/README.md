@@ -17,9 +17,23 @@ test/unit/run.sh            # everything
 test/unit/run.sh node       # pure-logic suites only
 ```
 
-- **`lookup.test.js`** — deinflection, multi-length grouping, the ranking
-  chain, the kanji fallback and NFKC normalisation, against the real
-  `index.db`.
+- **`*.test.js`** — lookup (deinflection, multi-length grouping, the ranking
+  chain, the kanji fallback, NFKC), the index builder, dictionary
+  install/import/removal, both index schemas, structured-content rendering,
+  the settings dictionary list, the OCR child process and config sanitising.
+
+  **No dictionary is needed and none is read.** `unit/fixtures/` writes the
+  Yomitan archives each suite wants — index.json and bank files in a zip it
+  builds itself — so the suites run in a fresh clone and on a runner, which is
+  what they are for. They used to read `data/dicts/`, which is gitignored and
+  largely commercial: everywhere but this laptop they skipped, and "all green"
+  meant "all absent". Add a case by generating the dictionary that shows it
+  (`make-dictionary.js`), never by adding a file to `data/`.
+
+  `fixtures/legacy-index.js` is the exception that proves it: `lookup.js` must
+  keep reading indexes built by `tools/build-index.py`, so that test builds one
+  by calling the old builder's own loaders. It needs `python3`, and says so
+  when it skips.
 - **`renderer.js`** — the glyph layer driven as a black box in a *hidden*
   Electron window, through the real preload and the real IPC channels, with
   payloads captured from the ground-truth corpus. Covers the rebuild gate
