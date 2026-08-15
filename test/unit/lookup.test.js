@@ -163,3 +163,23 @@ test('respects maxLen, so the caller can bound the scan', () => {
   assert.ok(long, 'the bounded scan still found the shorter word');
   assert.ok(long.matchLength <= 2, 'maxLen was ignored');
 });
+
+test('the route from the page form to the dictionary form is kept', () => {
+  // How a word was deinflected is the thing a learner is trying to see, and
+  // the transformer is the only place that knows it. It used to be counted and
+  // thrown away.
+  const r = lookup(glyphs('見つけた'));
+  assert.ok(r);
+  const g = r.groups[0];
+  assert.strictEqual(g.base, '見つける');
+  assert.ok(Array.isArray(g.route) && g.route.length > 0,
+            `the steps are named (${JSON.stringify(g.route)})`);
+  assert.ok(g.route.every((s) => typeof s === 'string' && s.length),
+            'each step is a name, not an object');
+});
+
+test('a word already in its dictionary form has no route', () => {
+  const r = lookup(glyphs('言葉'));
+  assert.deepStrictEqual(r.groups[0].route, [], 'nothing to explain');
+  assert.strictEqual(r.groups[0].base, null);
+});

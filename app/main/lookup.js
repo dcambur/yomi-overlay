@@ -107,17 +107,22 @@ async function initTransformer() {
  * the surface itself first, then Yomitan's derived forms.
  */
 function deinflect(surface) {
-  if (!transformer) return [surface];
+  if (!transformer) return [{ text: surface, route: [] }];
   const seen = new Set();
   const out = [];
   for (const r of transformer.transform(surface)) {
     if (seen.has(r.text)) continue;
     seen.add(r.text);
-    out.push({ text: r.text, steps: r.trace ? r.trace.length : 0 });
+    // The trace names each step it took ("-た", "polite", "potential"). It is
+    // kept, not just counted: how a word on the page reaches its dictionary
+    // form is the thing a learner is trying to see, and the transformer is
+    // the only place that knows.
+    const route = (r.trace || []).map(t => t.transform).filter(Boolean);
+    out.push({ text: r.text, route, steps: route.length });
   }
   // Fewest transformations first — the least tortured reading is usually right.
   out.sort((a, b) => a.steps - b.steps);
-  return out.map(o => o.text);
+  return out;
 }
 
 /**
@@ -218,7 +223,7 @@ function lookup(input, maxLen = 12, hint = null) {
 
     const cands = deinflect(surface);
     for (let ci = 0; ci < cands.length; ci++) {
-      const cand = cands[ci];
+      const { text: cand, route } = cands[ci];
       if (seenTerm.has(cand)) continue;   // found via a longer source already
       const rows = qTerm.all(cand);
       if (!rows.length) continue;
@@ -239,6 +244,8 @@ function lookup(input, maxLen = 12, hint = null) {
       groups.push({
         surface,
         base: cand !== surface ? cand : null,
+        // How the surface form was reached, outermost step first.
+        route: cand !== surface ? route : [],
         // Counted in glyphs, so the caller can highlight exactly this many spans.
         matchLength: len,
         entries: built.entries,

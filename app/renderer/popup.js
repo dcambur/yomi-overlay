@@ -14,17 +14,57 @@
   // bulleted list, monolingual senses keep their own ①❶ numbering, grammar
   // entries are prose-like, names are a single line. Mirrors how Yomitan
   // treats term / pitch / frequency / kanji dictionaries as different things.
-  const DICT_KIND = {
-    'Jitendex': 'bi', 'Names': 'name', 'KANJIDIC': 'kanji',
-    '三省堂': 'mono', '明鏡': 'mono', '旺文社': 'mono', '実用': 'mono',
-    'DOJG': 'gram', 'どんなとき': 'gram',
-  };
+  // Matched as a PREFIX of the label, because an imported archive is called
+  // whatever it calls itself: "三省堂国語辞典　第八版", not "三省堂". Keying on
+  // the exact string sent every monolingual through the script heuristic
+  // below, and put a grammar dictionary in with them.
+  const DICT_KIND = [
+    ['Jitendex', 'bi'], ['JMdict', 'bi'], ['Names', 'name'], ['JMnedict', 'name'],
+    ['KANJIDIC', 'kanji'],
+    ['三省堂', 'mono'], ['明鏡', 'mono'], ['旺文社', 'mono'], ['実用', 'mono'],
+    ['DOJG', 'gram'], ['どんなとき', 'gram'], ['日本語文法辞典', 'gram'],
+  ];
+  // The order entries are shown in, whatever order the index returned them:
+  // what the word means first, in the language that answers fastest; then the
+  // Japanese definition; then how it is used; then reference material.
+  const KIND_ORDER = { bi: 0, mono: 1, gram: 2, kanji: 3, name: 4 };
+
   // Unknown (user-added) dictionaries: guess from the glosses' script.
   function dictKind(en) {
-    if (DICT_KIND[en.dict]) return DICT_KIND[en.dict];
+    const hit = DICT_KIND.find(([name]) => String(en.dict).startsWith(name));
+    if (hit) return hit[1];
     const sample = (en.glosses || []).join('');
     return /[぀-ヿ一-鿿]/.test(sample) ? 'mono' : 'bi';
   }
+
+  /**
+   * Entries in reading order, then kind order, with repeats removed.
+   *
+   * A word with several readings is answered by the same dictionary once per
+   * reading, and two readings often share an entry — 大丈夫 came back with the
+   * identical Jitendex block twice. Identity is the dictionary plus the
+   * glossary itself; two entries that would print the same thing are one.
+   */
+  function orderEntries(entries) {
+    const seen = new Set();
+    const out = [];
+    for (const en of entries) {
+      const key = en.dict + '\u0000' + JSON.stringify(en.glosses);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(en);
+    }
+    // Stable: within a kind the index's own priority order survives, which is
+    // what the arrows in settings control.
+    return out
+      .map((en, i) => ({ en, i, k: KIND_ORDER[dictKind(en)] ?? 9 }))
+      .sort((a, b) => a.k - b.k || a.i - b.i)
+      .map((x) => x.en);
+  }
+
+  // A line that opens with a sense marker: circled or parenthesised digits,
+  // the kanji numerals a monolingual numbers its divisions with, or a bracket.
+  const NUMBERED = /^\s*[\u2460-\u2473\u2776-\u277f\u3251-\u325f\u32b1-\u32bf\u3220-\u3229\u2460-\u24ff\uff10-\uff19\d][\s.、)）]?/;
 
   /** Split kana into morae: small ゃゅょ etc. bind to the preceding kana. */
   function morae(kana) {
@@ -89,45 +129,77 @@
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
-  /** Headword block: term, reading/pitch row, base + frequency chips. */
+  /**
+   * How the word on the page reaches the word in the dictionary.
+   *
+   * 始まりました → 始まる, and the steps that got there. The transformer knows
+   * this and it used to be counted and discarded; it is the one thing a
+   * learner is actually trying to work out when a form is unfamiliar.
+   */
+  function routeHtml(g) {
+    if (!g.base || g.base === g.surface) return '';
+    const steps = (g.route || []).map((s) => esc(s)).join('\u00b7');
+    return `<div class="route">${esc(g.surface)}<span class="arr">\u2192</span>`
+      + `<span class="ja">${esc(g.base)}</span>`
+      + (steps ? `<span class="steps">\u2039${steps}\u203a</span>` : '')
+      + '</div>';
+  }
+
+  /** Headword block: the dictionary form, its reading and pitch, how common. */
   function headerHtml(g) {
-    const parts = [];
+    const parts = ['<div class="hd">'];
     // The DICTIONARY form leads. A reader looking at 始まります wants 始まる —
-    // that is the word to learn, to look up again, and to put on a card; the
-    // form on the page is a fact about this sentence. It is still shown, small,
-    // because knowing which inflection produced the match is how you check the
-    // deinflector got it right.
-    const head = g.base || g.surface;
-    parts.push(`<div class="term ja">${esc(head)}</div>`);
-    if (g.base && g.base !== g.surface) {
-      parts.push(`<div class="infl ja">${esc(g.surface)}</div>`);
+    // that is the word to learn and to look up again; the form on the page is
+    // a fact about this sentence, and it goes on the line below.
+    parts.push(`<div class="term ja">${esc(g.base || g.surface)}</div>`);
+
+    // A kanji answered by the single-character fallback has readings, not a
+    // reading: 音 and 訓 belong in the body with their labels, and putting
+    // them in the pitch slot implied an accent that does not exist for an
+    // isolated character.
+    const onlyKanji = g.entries.length > 0 && g.entries.every((e) => dictKind(e) === 'kanji');
+    const rd = onlyKanji ? null : g.entries[0]?.reading;
+    // Only accents FOR THE READING SHOWN. 下 came back with the accents of
+    // した, しも, もと and げ, all hanging off げ.
+    const acc = (g.pitch || []).filter((x) => !rd || x.reading === rd);
+    if (acc.length && acc[0].reading) parts.push(pitchHtml(acc[0].reading, acc[0].position));
+    else if (rd) parts.push(`<span class="pitch ja">${esc(rd)}</span>`);
+    if (acc.length > 1) {
+      parts.push(`<span class="pitch-num">${
+        acc.slice(1, 4).map((x) => '[' + x.position + ']').join(' ')}</span>`);
     }
 
-    const rd = g.entries[0]?.reading;
-    const p = g.pitch?.length ? g.pitch[0] : null;
-    if (rd || p) {
-      parts.push('<div class="hdr-rd">');
-      if (p && p.reading) parts.push(pitchHtml(p.reading, p.position));
-      else if (rd) parts.push(`<span class="pitch ja">${esc(rd)}</span>`);
-      // Further accent variants, numbers only.
-      if (g.pitch?.length > 1) {
-        parts.push(`<span class="pitch-num">${
-          g.pitch.slice(1, 4).map(x => '[' + x.position + ']').join(' ')}</span>`);
-      }
-      parts.push('</div>');
-    }
-
-    const chips = [];
-    for (const f of (g.freq || []).slice(0, 2)) {
-      chips.push(`<span class="chip freq">${esc(f.source)} ${esc(String(f.value))}</span>`);
-    }
-    if (chips.length) parts.push(`<div class="chips">${chips.join('')}</div>`);
+    // How common, right-aligned on the same line: it answers one yes/no
+    // question and does not deserve a row of its own.
+    const freq = (g.freq || []).slice(0, 2)
+      .map((f) => `<span class="chip freq">${esc(f.source)} ${esc(String(f.value))}</span>`)
+      .join('');
+    if (freq) parts.push(`<span class="chips">${freq}</span>`);
+    parts.push('</div>');
+    parts.push(routeHtml(g));
     return parts.join('');
+  }
+
+  /** Every name reading this word has, as one dim line at the foot of a card. */
+  function namesHtml(entries) {
+    const readings = [];
+    for (const en of entries) {
+      for (const g of en.glosses) {
+        const t = typeof g === 'string' ? g : (window.structured?.textOf(g) || '');
+        for (const part of t.split(/[、,]/)) {
+          const w = part.trim();
+          if (w && !readings.includes(w)) readings.push(w);
+        }
+      }
+    }
+    if (!readings.length) return '';
+    return `<div class="names ja"><span class="names-label">名</span>${
+      esc(readings.slice(0, 24).join('、'))}</div>`;
   }
 
   function entryHtml(en, headerReading) {
     const kind = dictKind(en);
-    const parts = ['<div class="ent">', '<div class="ent-hd">'];
+    const parts = [`<div class="ent ${kind}">`, '<div class="ent-hd">'];
     parts.push(`<span class="src ${kind}">${esc(en.dict)}</span>`);
     if (en.reading && en.reading !== headerReading && kind !== 'kanji') {
       parts.push(`<span class="rd ja">${esc(en.reading)}</span>`);
@@ -151,7 +223,14 @@
       parts.push('</ul>');
     } else {   // mono, gram — lines carry their own numbering
       parts.push('<ul class="gl plain">');
-      for (const g of en.glosses) parts.push(`<li class="ja">${glossItem(g, en.dict)}</li>`);
+      for (const g of en.glosses) {
+        // The hanging indent belongs to a line that opens with a sense marker
+        // and to no other: applied to unmarked prose it pushed every wrapped
+        // line in and pulled the first one out, so a continuation and a new
+        // sense started at the same place.
+        const numbered = typeof g === 'string' && NUMBERED.test(g) ? ' numbered' : '';
+        parts.push(`<li class="ja${numbered}">${glossItem(g, en.dict)}</li>`);
+      }
       parts.push('</ul>');
     }
     parts.push('</div>');
@@ -172,8 +251,30 @@
     for (const g of groups) {
       parts.push('<div class="card">');
       parts.push(headerHtml(g));
-      const rd = g.entries[0]?.reading;
-      for (const en of g.entries) parts.push(entryHtml(en, rd));
+
+      const entries = orderEntries(g.entries);
+      // Proper names are a reference list, not a definition: 神 answers with
+      // four blocks of kana readings before any dictionary says what it means.
+      // One line, at the foot.
+      const names = entries.filter((en) => dictKind(en) === 'name');
+      const rest = entries.filter((en) => dictKind(en) !== 'name');
+
+      // Inside a card the READING is the divider, not the dictionary: 神 is
+      // かみ and しん and じん, and every dictionary answers for each. Grouping
+      // by dictionary made the reader reassemble that themselves.
+      const byReading = new Map();
+      for (const en of rest) {
+        const k = en.reading || '';
+        if (!byReading.has(k)) byReading.set(k, []);
+        byReading.get(k).push(en);
+      }
+      for (const [reading, list] of byReading) {
+        if (byReading.size > 1 && reading) {
+          parts.push(`<div class="rgroup ja">${esc(reading)}</div>`);
+        }
+        for (const en of list) parts.push(entryHtml(en, reading));
+      }
+      if (names.length) parts.push(namesHtml(names));
       parts.push('</div>');
     }
     popup.innerHTML = parts.join('');
