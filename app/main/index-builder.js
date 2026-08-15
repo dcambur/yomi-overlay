@@ -103,6 +103,21 @@ function classify(zipPath) {
   } catch (e) {
     return { kind: null, title: '', error: e.message };
   }
+  // The handle belongs to this function, and this function closes it. It used
+  // to be handed back in the result, where no caller ever wanted it, so every
+  // call leaked an open file: installed() classifies every archive and runs on
+  // each settings render — measured at 133 descriptors after twelve calls,
+  // which ends at EMFILE, and a process that cannot open a file cannot read a
+  // dictionary or spawn the capture helper.
+  try {
+    return describe(z);
+  } finally {
+    z.close();
+  }
+}
+
+/** What an opened archive is, judged by the banks it holds. */
+function describe(z) {
   let title = '';
   // No index.json is not fatal: the banks say what the archive is.
   try {
@@ -112,9 +127,9 @@ function classify(zipPath) {
   // work an archive is that can be had before doing the work, and progress
   // reported per ARCHIVE is no progress at all when there is one of them.
   const kanjiBanks = banks(z, 'kanji_bank');
-  if (kanjiBanks.length) return { kind: 'kanji', title, banks: kanjiBanks.length, zip: z };
+  if (kanjiBanks.length) return { kind: 'kanji', title, banks: kanjiBanks.length };
   const termBanks = banks(z, 'term_bank');
-  if (termBanks.length) return { kind: 'term', title, banks: termBanks.length, zip: z };
+  if (termBanks.length) return { kind: 'term', title, banks: termBanks.length };
   const metas = banks(z, 'term_meta_bank');
   if (metas.length) {
     // The kind is the second field of each record, and the first few are
@@ -126,11 +141,11 @@ function classify(zipPath) {
     const freq = head.indexOf('"freq"');
     const n = metas.length;
     if (pitch >= 0 && (freq < 0 || pitch < freq)) {
-      return { kind: 'pitch', title, banks: n, zip: z };
+      return { kind: 'pitch', title, banks: n };
     }
-    if (freq >= 0) return { kind: 'freq', title, banks: n, zip: z };
+    if (freq >= 0) return { kind: 'freq', title, banks: n };
   }
-  return { kind: null, title, zip: z };
+  return { kind: null, title };
 }
 
 /** Every archive in `dir`, grouped by kind, known ones first and in order. */
@@ -165,6 +180,14 @@ function discover(dir) {
  */
 function loadTerms(zipPath, db, dict, insert, glossary, onBank = () => {}) {
   const z = zip.open(zipPath);
+  try {
+    return readTerms(z, dict, insert, glossary, onBank);
+  } finally {
+    z.close();
+  }
+}
+
+function readTerms(z, dict, insert, glossary, onBank) {
   let entries = 0;
   for (const bank of banks(z, 'term_bank')) {
     for (const e of z.readJSON(bank)) {
@@ -210,6 +233,14 @@ function glossaryTable(db) {
 /** KANJIDIC banks: [character, onyomi, kunyomi, tags, meanings, stats]. */
 function loadKanji(zipPath, db, insert, dict, onBank = () => {}) {
   const z = zip.open(zipPath);
+  try {
+    return readKanji(z, insert, dict, onBank);
+  } finally {
+    z.close();
+  }
+}
+
+function readKanji(z, insert, dict, onBank) {
   let n = 0;
   for (const bank of banks(z, 'kanji_bank')) {
     for (const e of z.readJSON(bank)) {
@@ -226,6 +257,14 @@ function loadKanji(zipPath, db, insert, dict, onBank = () => {}) {
 /** NHK banks: [term, "pitch", {reading, pitches:[{position}]}]. */
 function loadPitch(zipPath, db, insert, dict, onBank = () => {}) {
   const z = zip.open(zipPath);
+  try {
+    return readPitch(z, insert, dict, onBank);
+  } finally {
+    z.close();
+  }
+}
+
+function readPitch(z, insert, dict, onBank) {
   let n = 0;
   for (const bank of banks(z, 'term_meta_bank')) {
     for (const e of z.readJSON(bank)) {
@@ -247,6 +286,14 @@ function loadPitch(zipPath, db, insert, dict, onBank = () => {}) {
 /** Frequency banks. Lowest value wins — these are ranks, not counts. */
 function loadFreq(zipPath, onBank = () => {}) {
   const z = zip.open(zipPath);
+  try {
+    return readFreq(z, onBank);
+  } finally {
+    z.close();
+  }
+}
+
+function readFreq(z, onBank) {
   const freq = new Map();
   for (const bank of banks(z, 'term_meta_bank')) {
     for (const e of z.readJSON(bank)) {

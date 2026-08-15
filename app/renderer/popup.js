@@ -81,7 +81,11 @@
 
   // A line that opens with a sense marker: circled or parenthesised digits,
   // the kanji numerals a monolingual numbers its divisions with, or a bracket.
-  const NUMBERED = /^\s*[\u2460-\u2473\u2776-\u277f\u3251-\u325f\u32b1-\u32bf\u3220-\u3229\u2460-\u24ff\uff10-\uff19\d][\s.、)）]?/;
+  // A circled or bracketed number is self-delimiting; a bare digit is not, so
+  // it has to be followed by something that makes it a marker. Without that,
+  // any sentence opening with a year — 「2020年に…」 — was given a sense
+  // marker's hanging indent and hung out into the margin.
+  const NUMBERED = /^\s*(?:[\u2460-\u24ff\u2776-\u277f\u3220-\u3229\u3251-\u325f\u32b1-\u32bf]|[\d\uff10-\uff19]{1,2}[.、)）]\s?)/;
 
   // Dictionaries that ship prose rather than structure still HAVE structure —
   // they put it in the shape of the line. 日本語文法辞典 heads its sections
@@ -115,12 +119,12 @@
     for (const raw of String(text).split('\n')) {
       const line = raw.trim();
       if (!line) continue;
-      // A label introducing nothing: 旺文社 writes 「筆順：」 before a
-      // stroke-order diagram, and the diagram is an image we cannot draw, so
-      // the colon used to be followed by a hole the height of two lines.
-      if (/[：:]\s*$/.test(line) && line.length <= 8) continue;
-
       let kind = (LINE.find(([re]) => re.test(line)) || [])[1] || '';
+      // A short label with nothing after its colon: 旺文社 writes 「筆順：」 and
+      // then a stroke-order diagram, which is an image we cannot draw. Read as
+      // a heading it introduces whatever follows; dropped, it took its meaning
+      // with it, and left as prose it was a colon pointing at nothing.
+      if (!kind && /[：:]\s*$/.test(line) && Array.from(line).length <= 9) kind = 'head';
       // Inside an example section every line is an example, marked up or not.
       if (!kind && section === 'ex') kind = 'ex';
       if (kind === 'row') {
@@ -132,7 +136,7 @@
         continue;
       }
       if (kind === 'head') {
-        const label = line.replace(/^[\s[［〘【]+|[\]］〙】\s]+$/g, '');
+        const label = line.replace(/^[\s[［〘【]+|[\]］〙】：:\s]+$/g, '');
         section = (SECTION.find(([re]) => re.test(label)) || [])[1] || '';
         out.push(`<div class="ln head">${esc(label)}</div>`);
         continue;

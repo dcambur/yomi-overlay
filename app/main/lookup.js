@@ -32,7 +32,14 @@ let transformer = null;
 let orderCache = null;
 function refreshOrder() {
   const list = cfg.enabledDictionaries();
-  orderCache = { list, index: new Map(list.map((n, i) => [n, i])) };
+  // Everything settings has an opinion about, enabled or not. A name it has
+  // never heard of is a different thing from one that was switched off, and
+  // conflating them hid data: the frequency filter added below reads this, and
+  // an index built before frequency sources reached the manifest has JPDB in
+  // it and not in the config — so every frequency chip silently vanished until
+  // the next rebuild.
+  const known = new Set((cfg.load().dictionaries || []).map((d) => d.name));
+  orderCache = { list, known, index: new Map(list.map((n, i) => [n, i])) };
   return orderCache;
 }
 function rank(d) {
@@ -41,7 +48,11 @@ function rank(d) {
   return i === undefined ? o.list.length : i;
 }
 function visible(d) {
-  return (orderCache || refreshOrder()).index.has(d);
+  const o = orderCache || refreshOrder();
+  // Switched off means hidden. Never heard of means shown: a dictionary the
+  // config does not list yet is one the settings window has not caught up
+  // with, and showing it is the honest degradation.
+  return o.index.has(d) || !o.known.has(d);
 }
 
 /** Drop the handle so the next open() sees a newly imported index. */

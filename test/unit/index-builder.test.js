@@ -185,3 +185,52 @@ test('progress starts at nothing and ends at everything', (t) => {
   assert.ok(between.length >= 2,
             `a single dictionary still reports partial progress (${seen.map(pct)})`);
 });
+
+test('reading an archive does not leave it open', () => {
+  // classify() used to hand its zip handle back in the result, where no caller
+  // wanted it, so every call leaked an open file. installed() classifies every
+  // archive and runs on each settings render: measured at 133 descriptors
+  // after twelve calls. A process that runs out of them cannot open a
+  // dictionary — or spawn the capture helper.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-fd-'));
+  for (const n of ['a', 'b', 'c']) {
+    mk.termDictionary(path.join(dir, n + '.zip'), { title: n, entries: 2 });
+  }
+  const open = () => {
+    try {
+      return Number(require('child_process')
+        .execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`).toString().trim());
+    } catch { return 0; }
+  };
+  const before = open();
+  for (let i = 0; i < 20; i++) {
+    for (const n of ['a', 'b', 'c']) classify(path.join(dir, n + '.zip'));
+  }
+  const after = open();
+  fs.rmSync(dir, { recursive: true, force: true });
+  // 60 classifications. A handle per call would be unmistakable; allow a small
+  // margin for whatever else the process opens meanwhile.
+  assert.ok(after - before < 10,
+            `${after - before} more open files after 60 classifications`);
+});
+
+test('a build closes every archive it read', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-fd2-'));
+  const dicts = path.join(dir, 'dicts');
+  fs.mkdirSync(dicts);
+  mk.termDictionary(path.join(dicts, 'terms.zip'), { title: 'T', entries: 3 });
+  mk.kanjiDictionary(path.join(dicts, 'kanji.zip'), { title: 'K' });
+  mk.pitchDictionary(path.join(dicts, 'pitch_p.zip'), { title: 'P' });
+  mk.freqDictionary(path.join(dicts, 'freq_f.zip'), { title: 'F' });
+  const open = () => {
+    try {
+      return Number(require('child_process')
+        .execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`).toString().trim());
+    } catch { return 0; }
+  };
+  const before = open();
+  build(dicts, path.join(dir, 'index.db'));
+  const after = open();
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.ok(after - before < 8, `${after - before} files left open by one build`);
+});
