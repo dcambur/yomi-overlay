@@ -196,6 +196,21 @@ test('a row reads on/off, priority, name, action', () => {
                      'the name labels the checkbox');
 });
 
+test('an archive the index does not know says so', () => {
+  // What the window drew when the index was rebuilt underneath it and the
+  // labels changed: a row with no checkbox and no arrows, which reads as a
+  // dictionary that failed rather than a config that is behind.
+  const { api, host } = load({ dictionaries: [{ name: 'Jitendex', enabled: true }] });
+  api.render(CATALOGUE, INSTALLED);
+  const row = rowFor(host, '明鏡');
+  assert.ok(row.className.includes('orphan'), 'the row is marked');
+  assert.match(row.text, /not in the index/, 'and says what is wrong');
+  assert.ok(row.buttons().some((b) => b.textContent === 'Remove'),
+            'and can still be acted on');
+  // The one that IS in the index is untouched.
+  assert.ok(!rowFor(host, 'Jitendex').className.includes('orphan'));
+});
+
 test('a removed dictionary becomes downloadable again', () => {
   // What the app reports after a removal: gone from the config (config.js now
   // bounds the saved list by the manifest) and gone from installed.

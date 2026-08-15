@@ -360,3 +360,9 @@ input[type=number] {
 input[type=number] { width: 80px; }
 
 input[type=checkbox] { accent-color: var(--accent); }
+
+/* An archive that is on disk and not in the index. Its row has no checkbox and
+   no priority, because there is nothing to enable or to order — without a word
+   for it that reads as a bug rather than a state. */
+.dict.orphan { border-color: rgba(200,167,106,0.35); }
+.dict.orphan .title { color: var(--accent); }

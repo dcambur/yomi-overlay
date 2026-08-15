@@ -401,11 +401,15 @@ function priorityButtons(label, shown) {
 }
 
 /** The second line of a row: what the dictionary is, or what it would be. */
-function dictionaryDetail(entry) {
+function dictionaryDetail(entry, indexed) {
   const { label, detail, info } = entry;
   if (!info) return detail || '';
   const named = info.title && info.title !== label ? ` · ${info.title}` : '';
-  return `${info.kind || 'unreadable'} · ${inMB(info.size)} MB${named}`;
+  // On disk, and the index has no rows for it. Say so: without a word for it,
+  // the row simply loses its checkbox and its arrows, which reads as a
+  // dictionary that failed rather than one the index has not caught up with.
+  const orphan = indexed ? '' : ' · not in the index — remove and import it again';
+  return `${info.kind || 'unreadable'} · ${inMB(info.size)} MB${named}${orphan}`;
 }
 
 /** One dictionary. `entry` carries whichever of catalogue/installed applies. */
@@ -418,7 +422,8 @@ function dictionaryRow(entry, shown) {
   const indexed = !!(info && cfg);
 
   const el = document.createElement('div');
-  el.className = 'dict' + (cfg && !cfg.enabled ? ' off' : '');
+  el.className = 'dict' + (cfg && !cfg.enabled ? ' off' : '')
+    + (info && !cfg ? ' orphan' : '');
 
   // Left to right: on/off, then priority, then what it is, then its one action.
   // The checkbox leads because it answers the first question about a row — is
@@ -439,7 +444,7 @@ function dictionaryRow(entry, shown) {
   }
   const txt = document.createElement('span');
   txt.innerHTML = `<div class="app">${esc(name)}</div>`
-    + `<div class="title">${esc(dictionaryDetail(entry))}</div>`;
+    + `<div class="title">${esc(dictionaryDetail(entry, indexed))}</div>`;
   mid.appendChild(txt);
   el.appendChild(mid);
 

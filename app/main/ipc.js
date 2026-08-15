@@ -57,7 +57,17 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
   // everything else keeps falling through to the target.
   ipcMain.on('set-interactive', (_e, want) => overlayWindow.setInteractive(!!want));
 
-  ipcMain.handle('cfg:get', () => cfg.load());
+  ipcMain.handle('cfg:get', () => {
+    // Re-read first. The index can change without this process doing it — a
+    // rebuild from the command line, a second window, a restore from backup —
+    // and the config's list of dictionaries is bounded by the manifest, so a
+    // cached copy silently drops every dictionary whose label the rebuild
+    // changed. In the settings window that shows up as a row with no checkbox
+    // and no arrows, which looks exactly like a dictionary that failed to
+    // index.
+    cfg.refreshDictionaries();
+    return cfg.load();
+  });
   ipcMain.handle('cfg:windows', () => listWindows());
 
   ipcMain.handle('cfg:save', (_e, next) => {
