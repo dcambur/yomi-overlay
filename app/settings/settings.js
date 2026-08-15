@@ -26,8 +26,14 @@ let lastWinJson = '';     // last rendered window list, to suppress no-op redraw
 
 let lastCatalogue = [];   // dictionaries we can fetch
 let lastInstalled = [];   // dictionaries present on disk
-let dictBusy = null;      // label of the row currently working, if any
-let dictProgress = null;  // its latest progress payload
+// The job key for an import. It has no row: the dictionary is not in the list
+// until the archive has been read.
+const IMPORT = 'import';
+
+// What the main process is doing, keyed by the row it belongs to. A map and
+// not a single value: work is queued there, so more than one dictionary can be
+// waiting, and the window must be able to say which.
+const dictJobs = new Map();
 
 // --- helpers ----------------------------------------------------------------
 
@@ -52,6 +58,8 @@ const inMB = (bytes) => (bytes / MB).toFixed(1);
 function progressOf(p) {
   const of = (done, total) => (total ? Math.round(100 * done / total) : null);
   switch (p.phase) {
+    // Asked for, but something else is using the index first.
+    case 'queued': return { what: 'waiting…', pct: null };
     // `done` counts units that have FINISHED. Nothing is added to it: a step
     // that has just begun is 0%, not 1 of 1.
     case 'downloading': return { what: 'downloading', pct: of(p.got, p.total) };
@@ -261,18 +269,20 @@ async function refreshDictionaries() {
   renderDictionaries();
 }
 
-function setDictBusy(label, progress) {
-  dictBusy = label;
-  dictProgress = progress || null;
-  renderDictionaries();
-}
-
-/** Run one install/import/removal, with the whole list locked while it runs. */
+/**
+ * Ask for one install/import/removal. It happens in turn.
+ *
+ * Nothing is blocked while another job runs: the main process queues them
+ * because they all write one index, and refusing the click was the old way of
+ * saying so — which left "Import a .zip you own…" looking clickable and doing
+ * nothing. Only the row that already has a job outstanding is inert.
+ */
 async function dictAction(label, fn) {
-  if (dictBusy) return;
-  setDictBusy(label, { phase: 'starting' });
+  if (dictJobs.has(label)) return;
+  dictJobs.set(label, { phase: 'starting' });
+  renderDictionaries();
   const r = await fn();
-  setDictBusy(null);
+  dictJobs.delete(label);
   await refreshDictionaries();
   $('dictstatus').textContent =
     r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '';
@@ -306,7 +316,7 @@ function enableBox(cfg) {
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = !!cfg.enabled;
-  cb.disabled = !!dictBusy;
+  cb.disabled = dictJobs.has(cfg.name);
   cb.onchange = () => {
     cfg.enabled = cb.checked;
     saveDictionaryOrder();
@@ -336,7 +346,7 @@ function priorityButtons(label, shown) {
     const b = document.createElement('button');
     b.textContent = glyph;
     const neighbour = shown[at + delta];
-    b.disabled = !!dictBusy || neighbour === undefined;
+    b.disabled = dictJobs.size > 0 || neighbour === undefined;
     b.onclick = () => {
       const list = config.dictionaries;
       const i = list.findIndex((d) => d.name === label);
@@ -394,10 +404,12 @@ function dictionaryRow(entry, shown) {
   mid.appendChild(txt);
   el.appendChild(mid);
 
-  // Right: progress while this row is working, then its one action.
-  if (dictBusy === label && dictProgress) el.appendChild(progressBar(dictProgress));
+  // Right: progress while this row has work outstanding, then its one action.
+  const job = dictJobs.get(label);
+  if (job) el.appendChild(progressBar(job));
   const act = document.createElement('button');
-  act.disabled = !!dictBusy;
+  // Only this row waits on this row. Anything else can still be asked for.
+  act.disabled = !!job;
   if (info) {
     act.textContent = 'Remove';
     act.onclick = () => dictAction(label, () => window.settings.dictRemove(info.file));
@@ -419,6 +431,9 @@ function group(host, title, rows, shown) {
 }
 
 function renderDictionaries() {
+  // Only an import already asked for blocks the import button; everything else
+  // can be queued while one runs.
+  $('import').disabled = dictJobs.has(IMPORT);
   const host = $('dictlist');
   host.innerHTML = '';
 
@@ -465,7 +480,7 @@ function renderDictionaries() {
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
 }
-$('import').onclick = () => dictAction('import', () => window.settings.dictImport());
+$('import').onclick = () => dictAction(IMPORT, () => window.settings.dictImport());
 $('close').onclick = () => window.settings.close();
 $('save').onclick = async () => {
   $('status').textContent = 'applying…';
@@ -474,13 +489,33 @@ $('save').onclick = async () => {
   $('status').textContent = 'now watching ' + (selected.label || 'the chosen window');
 };
 
-// Progress belongs to the row that started the work; when nothing is working —
-// a rebuild the main process began on its own — it goes to the status line.
+// Every progress event names the job it belongs to, because with a queue the
+// window can no longer assume that whatever is happening is the thing it last
+// clicked. A job with a row shows its state on that row; anything else — a
+// rebuild the main process started on its own — goes to the status line.
 window.settings.onDictProgress((p) => {
-  if (dictBusy) { setDictBusy(dictBusy, p); return; }
+  if (p.job) {
+    if (p.phase === 'done' || p.phase === 'error') dictJobs.delete(p.job);
+    else dictJobs.set(p.job, p);
+    renderDictionaries();
+  }
+
   const { what, pct } = progressOf(p);
   const shown = pct === null ? '' : ` — ${pct}%`;
-  if (p.phase === 'downloading') {
+  if (p.phase === 'error') {
+    $('dictstatus').textContent = 'failed: ' + p.message;
+  } else if (p.phase === 'done') {
+    $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
+  } else if (p.job === IMPORT) {
+    // An import has no row of its own — the dictionary is not in the list
+    // until it lands — so its progress belongs beside the button that started
+    // it, which is where this line sits.
+    $('dictstatus').textContent = `${what}${shown}`;
+  } else if (p.job) {
+    // The row is showing the detail; the line just says how much is behind it.
+    const rest = dictJobs.size - 1;
+    $('dictstatus').textContent = rest > 0 ? `${rest} more waiting` : '';
+  } else if (p.phase === 'downloading') {
     const of = p.total ? ' / ' + inMB(p.total) : '';
     $('dictstatus').textContent = `downloading ${p.name} ${inMB(p.got)}${of} MB`;
   } else if (p.phase === 'indexing') {
@@ -488,10 +523,6 @@ window.settings.onDictProgress((p) => {
     $('dictstatus').textContent = `indexing ${p.name || ''}${at}${shown}`;
   } else if (p.phase === 'pruning') {
     $('dictstatus').textContent = `removing: ${p.step}${shown}`;
-  } else if (p.phase === 'done') {
-    $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
-  } else if (p.phase === 'error') {
-    $('dictstatus').textContent = 'failed: ' + p.message;
   } else {
     $('dictstatus').textContent = what;
   }

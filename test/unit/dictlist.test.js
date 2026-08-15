@@ -69,10 +69,20 @@ function fakeElement(tag) {
  * progress bar is drawn.
  */
 function load(config) {
+  let onProgress = () => {};
   const host = fakeElement('div');
+  // One element per id, rather than the same one for everything: the script
+  // now sets state on elements OTHER than the list — the import button's
+  // disabled flag, the footer button's visibility — and a shared stub cannot
+  // tell those apart.
+  const elements = new Map([['dictlist', host]]);
+  const byId = (id) => {
+    if (!elements.has(id)) elements.set(id, fakeElement('div'));
+    return elements.get(id);
+  };
   const document = {
     createElement: fakeElement,
-    getElementById: () => host,
+    getElementById: byId,
     querySelectorAll: () => [],
   };
   // `config` is a top-level binding in the script, so it cannot also be a
@@ -82,10 +92,12 @@ function load(config) {
   const make = new Function('document', 'window', '__config',
                             'const setInterval = () => 0, setTimeout = () => 0;\n'
     + SRC + '\n;config = __config;\n'
-    + ';return { render(cat, inst, busy = null, prog = null) {\n'
+    + ';return { render(cat, inst, jobs = []) {\n'
     + '   lastCatalogue = cat; lastInstalled = inst;\n'
-    + '   dictBusy = busy; dictProgress = prog;\n'
-    + '   renderDictionaries(); } };');
+    + '   dictJobs.clear();\n'
+    + '   for (const [k, v] of jobs) dictJobs.set(k, v);\n'
+    + '   renderDictionaries(); },\n'
+    + '  jobs: () => dictJobs };');
   // The script calls init() at load, which awaits the bridge. Give it shapes
   // it can use rather than undefined, or the failure surfaces long after the
   // test that caused it.
@@ -98,11 +110,15 @@ function load(config) {
     listWindows: async () => [],
     dictCatalogue: async () => [],
     dictInstalled: async () => [],
-    onDictProgress: () => {},
+    onDictProgress: (fn) => { onProgress = fn; },
     close: () => {},
   };
   const api = make(document, { settings }, config);
-  return { api, host, saved };
+  // The script's own progress listener, callable from out here: the harness
+  // records it when the script registers it, and the wrapper cannot reach a
+  // binding in this scope.
+  api.progress = (p) => onProgress(p);
+  return { api, host, saved, el: byId };
 }
 
 /** The rows, without the group headings between them. */
@@ -255,8 +271,8 @@ test('turning a dictionary off saves without a button press', () => {
 
 test('progress is drawn on the busy row, and only there', () => {
   const { api, host } = load(fresh());
-  api.render(CATALOGUE, INSTALLED, '明鏡',
-             { phase: 'pruning', step: 'terms', done: 3, total: 4 });
+  api.render(CATALOGUE, INSTALLED,
+             [['明鏡', { phase: 'pruning', step: 'terms', done: 3, total: 4 }]]);
   const busy = rowFor(host, '明鏡').withClass('prog');
   assert.strictEqual(busy.length, 1, 'the row being worked on shows a bar');
   assert.match(busy[0].text, /removing 75%/, 'with what it is doing, and how far');
@@ -270,8 +286,7 @@ test('a step that has just started reads zero, not done', () => {
   // The bar drew "indexing 100%" the moment an install began: the builder
   // reports how many units have FINISHED, and this added one to it.
   const { api, host } = load(fresh());
-  api.render(CATALOGUE, INSTALLED, 'Jitendex',
-             { phase: 'indexing', done: 0, total: 4 });
+  api.render(CATALOGUE, INSTALLED, [['Jitendex', { phase: 'indexing', done: 0, total: 4 }]]);
   const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
   assert.strictEqual(bar.text, 'indexing 0%');
   assert.strictEqual(bar.withClass('fill')[0].style.width, '0%');
@@ -279,18 +294,51 @@ test('a step that has just started reads zero, not done', () => {
 
 test('an unmeasurable step still shows what it is doing', () => {
   const { api, host } = load(fresh());
-  api.render(CATALOGUE, INSTALLED, 'Jitendex', { phase: 'downloading' });
+  api.render(CATALOGUE, INSTALLED, [['Jitendex', { phase: 'downloading' }]]);
   const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
   assert.strictEqual(bar.text, 'downloading', 'named, without a false percentage');
   assert.ok(bar.withClass('fill')[0].className.includes('indeterminate'));
 });
 
-test('nothing is actionable while something else is working', () => {
+test('a row with work outstanding is inert; the others are not', () => {
+  // The whole list used to freeze while anything ran, which is why "Import a
+  // .zip you own…" looked clickable and did nothing. Work is queued in the
+  // main process now, so only the row already waiting is out of action.
   const { api, host } = load(fresh());
-  api.render(CATALOGUE, INSTALLED, '明鏡', { phase: 'pruning' });
-  for (const row of rowsOf(host)) {
-    for (const b of row.buttons()) {
-      assert.ok(b.disabled, `${row.text.slice(0, 12)}: ${b.textContent} is disabled`);
-    }
-  }
+  api.render(CATALOGUE, INSTALLED, [['明鏡', { phase: 'pruning' }]]);
+  const busyRow = rowFor(host, '明鏡');
+  assert.ok(busyRow.buttons().every((b) => b.disabled), 'the working row is inert');
+  const other = rowFor(host, 'JMnedict');
+  assert.ok(other.buttons().some((b) => b.textContent === 'Download' && !b.disabled),
+            'another dictionary can still be asked for');
+});
+
+test('queued work says so on its own row', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED,
+             [['明鏡', { phase: 'pruning', done: 1, total: 4 }],
+              ['Names', { phase: 'queued' }]]);
+  assert.match(rowFor(host, '明鏡').withClass('prog')[0].text, /removing 25%/);
+  assert.match(rowFor(host, 'JMnedict').withClass('prog')[0].text, /waiting/,
+               'the one behind it is told it is waiting');
+});
+
+test('an import can be asked for while a download runs', () => {
+  const { api, el } = load(fresh());
+  api.render(CATALOGUE, INSTALLED, [['Jitendex', { phase: 'downloading' }]]);
+  assert.strictEqual(el('import').disabled, false, 'the import button stays live');
+  api.render(CATALOGUE, INSTALLED, [['import', { phase: 'queued' }]]);
+  assert.strictEqual(el('import').disabled, true,
+                     'and only an import already asked for blocks it');
+});
+
+test('progress finds the right row, whatever was clicked last', () => {
+  // With a queue, an event can belong to a job the window did not just start.
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  api.progress({ job: '明鏡', phase: 'pruning', done: 2, total: 4 });
+  assert.match(rowFor(host, '明鏡').withClass('prog')[0].text, /removing 50%/);
+  assert.strictEqual(rowFor(host, 'Jitendex').withClass('prog').length, 0);
+  api.progress({ job: '明鏡', phase: 'done', labels: ['Jitendex'] });
+  assert.strictEqual(api.jobs().size, 0, 'a finished job stops being drawn');
 });
