@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('overlay', {
   // {modifier, mode, hoverDelayMs} — which key arms a lookup, or whether to
   // look up on dwell with no key at all.
   onTriggerConfig: (cb) => ipcRenderer.on('trigger-config', (_e, t) => cb(t)),
+  // {images} — what the popup draws. Separate from the trigger because it is
+  // about the answer, not about the question.
+  onViewConfig: (cb) => ipcRenderer.on('view-config', (_e, v) => cb(v)),
   // Target changed — the glyph layer describes a window we no longer track.
   onReset: (cb) => ipcRenderer.on('reset', () => cb()),
   // `glyphs` is the array of per-character strings from the cursor to end of

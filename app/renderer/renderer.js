@@ -131,6 +131,13 @@ function modifierHeld(e) {
   return !!e[MODIFIER_PROP[trigger.modifier] || 'shiftKey'];
 }
 
+// What the popup draws. structured.js reads this when it decides whether to
+// build an <img> at all — a reader who does not want pictures gets the label
+// the image carries, which is what every dictionary mark has anyway.
+window.overlay.onViewConfig((v) => {
+  window.viewOptions = { ...(window.viewOptions || {}), ...(v || {}) };
+});
+
 window.overlay.onTriggerConfig(t => {
   trigger = { ...trigger, ...t };
   if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }

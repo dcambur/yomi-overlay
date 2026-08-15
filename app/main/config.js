@@ -58,6 +58,9 @@ const DEFAULTS = {
   // word's region. 'shadow' = log disagreements only (popup unaffected);
   // 'off' disables. The sidecar is lazy and killed after idleKillMin idle.
   tier2: { mode: 'shadow', idleKillMin: 10 },
+  // Dictionary images. On, because a dictionary that ships them means
+  // them; off for a reader who wants the popup to stay text.
+  images: true,
 };
 
 let cached = null;
@@ -149,6 +152,7 @@ function sanitize(next, current) {
     g.hoverDelayMs = num(g.hoverDelayMs, 50, 2000, current.trigger.hoverDelayMs);
     out.trigger = g;
   }
+  if ('images' in out) out.images = !!out.images;
   if ('engine' in out && !ENGINES.has(out.engine)) out.engine = current.engine;
   if ('interval' in out) out.interval = num(out.interval, 0.1, 10, current.interval);
   if (out.voting && typeof out.voting === 'object') {

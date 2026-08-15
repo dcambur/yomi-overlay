@@ -122,6 +122,10 @@ function sendTrigger() {
   if (!win || win.isDestroyed()) return;
   const t = cfg.trigger();
   win.webContents.send('trigger-config', t);
+  // What the popup should draw, as opposed to when it should appear. One
+  // channel for both because they arrive together and for the same reason:
+  // settings changed.
+  win.webContents.send('view-config', { images: cfg.load().images !== false });
   console.log(`[trigger] ${t.mode === 'hover'
     ? `hover (${t.hoverDelayMs}ms dwell)` : t.modifier + ' + point'}`);
 }
