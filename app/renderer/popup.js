@@ -29,11 +29,28 @@
   // Japanese definition; then how it is used; then reference material.
   const KIND_ORDER = { bi: 0, mono: 1, gram: 2, kanji: 3, name: 4 };
 
-  // Unknown (user-added) dictionaries: guess from the glosses' script.
+  /**
+   * What kind of dictionary this entry came from.
+   *
+   * The names above are a shortcut for the ones we ship, not the mechanism: an
+   * imported dictionary nobody has heard of has to land somewhere sensible.
+   * So the STRUCTURE is asked first — an entry carrying 音 and 訓 readings is
+   * from a kanji dictionary whatever it calls itself — and the script of the
+   * glosses decides the rest. A dictionary defining Japanese in Japanese is a
+   * monolingual; one defining it in English is bilingual.
+   *
+   * Grammar and name dictionaries are the two we cannot tell apart from their
+   * content, so an unknown one is styled as a monolingual or a bilingual. That
+   * is a nearest-neighbour, not a failure: it still gets senses, examples and
+   * cross-references from its own structure.
+   */
   function dictKind(en) {
+    if (en.on !== undefined || en.kun !== undefined) return 'kanji';
     const hit = DICT_KIND.find(([name]) => String(en.dict).startsWith(name));
     if (hit) return hit[1];
-    const sample = (en.glosses || []).join('');
+    const sample = (en.glosses || [])
+      .map((g) => (typeof g === 'string' ? g : window.structured?.textOf(g) || ''))
+      .join('');
     return /[぀-ヿ一-鿿]/.test(sample) ? 'mono' : 'bi';
   }
 
@@ -66,6 +83,70 @@
   // the kanji numerals a monolingual numbers its divisions with, or a bracket.
   const NUMBERED = /^\s*[\u2460-\u2473\u2776-\u277f\u3251-\u325f\u32b1-\u32bf\u3220-\u3229\u2460-\u24ff\uff10-\uff19\d][\s.、)）]?/;
 
+  // Dictionaries that ship prose rather than structure still HAVE structure —
+  // they put it in the shape of the line. 日本語文法辞典 heads its sections
+  // 「[解説]」「[意味]」「[例文A]」「[接続]」, 実用 writes 「読み方：」, and every
+  // monolingual quotes its examples whole in 「」. Read line by line, a plain
+  // string gets the same vocabulary a structured entry gets from its `data`
+  // object — which is what makes the two look alike instead of one being
+  // typeset and the other being dumped.
+  const LINE = [
+    // A section heading, alone on its line.
+    [/^\s*[[［〘【]([^\]］〙】]{1,14})[\]］〙】]\s*$/, 'head'],
+    // A whole line that is a quotation: an example, in every dictionary here.
+    [/^\s*[「『].{1,120}[」』]\s*$/, 'ex'],
+    // A row of a table. Two separators at least: one is punctuation, two is
+    // a table. The grammar dictionary uses ASCII |, others the full-width ｜.
+    [/[|｜][^|｜]*[|｜]/, 'row'],
+    [NUMBERED, 'numbered'],
+  ];
+  // A label that introduces the rest of its line: 「読み方：ようき」.
+  const LABEL = /^\s*([^\s：:]{1,8})[：:]\s*/;
+
+  // What a section heading means for the lines UNDER it. A dictionary that
+  // writes 「[例文A]」 and then two lines is giving an example as surely as one
+  // that wraps it in a node called example-sentence.
+  const SECTION = [[/例文|用例|^例$/, 'ex'], [/接続|活用/, 'table']];
+
+  /** One plain-string gloss as classified lines. */
+  function plainLines(text, dict) {
+    const out = [];
+    let section = '';
+    for (const raw of String(text).split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      // A label introducing nothing: 旺文社 writes 「筆順：」 before a
+      // stroke-order diagram, and the diagram is an image we cannot draw, so
+      // the colon used to be followed by a hole the height of two lines.
+      if (/[：:]\s*$/.test(line) && line.length <= 8) continue;
+
+      let kind = (LINE.find(([re]) => re.test(line)) || [])[1] || '';
+      // Inside an example section every line is an example, marked up or not.
+      if (!kind && section === 'ex') kind = 'ex';
+      if (kind === 'row') {
+        // Both separators, as the detection accepts both. Splitting on the
+        // full-width one alone left every ASCII-piped table showing its pipes.
+        const cells = line.split(/[|｜]/).map((c) => c.trim()).filter(Boolean);
+        out.push(`<div class="ln row">${
+          cells.map((c) => `<span>${glossHtml(c, dict)}</span>`).join('')}</div>`);
+        continue;
+      }
+      if (kind === 'head') {
+        const label = line.replace(/^[\s[［〘【]+|[\]］〙】\s]+$/g, '');
+        section = (SECTION.find(([re]) => re.test(label)) || [])[1] || '';
+        out.push(`<div class="ln head">${esc(label)}</div>`);
+        continue;
+      }
+      const m = !kind && LABEL.exec(line);
+      const body = m
+        ? `<span class="ln-label">${esc(m[1])}</span>`
+          + glossHtml(line.slice(m[0].length), dict)
+        : glossHtml(line, dict);
+      out.push(`<div class="ln${kind ? ' ' + kind : ''}">${body}</div>`);
+    }
+    return out.join('');
+  }
+
   /** Split kana into morae: small ゃゅょ etc. bind to the preceding kana. */
   function morae(kana) {
     const small = 'ゃゅょぁぃぅぇぉャュョァィゥェォヮ';
@@ -97,7 +178,7 @@
 
   /** Dim quoted usage examples (「━政治」) inside a monolingual sense line. */
   function glossHtml(g) {
-    return esc(g).replace(/「[^」]*」/g, m => `<span class="ex">${m}</span>`);
+    return esc(g).replace(/「[^」]*」/g, (m) => `<span class="ex">${m}</span>`);
   }
 
   // A glossary is now whatever its dictionary wrote: a plain string for the
@@ -224,12 +305,9 @@
     } else {   // mono, gram — lines carry their own numbering
       parts.push('<ul class="gl plain">');
       for (const g of en.glosses) {
-        // The hanging indent belongs to a line that opens with a sense marker
-        // and to no other: applied to unmarked prose it pushed every wrapped
-        // line in and pulled the first one out, so a continuation and a new
-        // sense started at the same place.
-        const numbered = typeof g === 'string' && NUMBERED.test(g) ? ' numbered' : '';
-        parts.push(`<li class="ja${numbered}">${glossItem(g, en.dict)}</li>`);
+        parts.push(typeof g === 'string'
+          ? `<li class="ja">${plainLines(g, en.dict)}</li>`
+          : `<li class="ja">${glossItem(g, en.dict)}</li>`);
       }
       parts.push('</ul>');
     }

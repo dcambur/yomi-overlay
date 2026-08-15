@@ -104,10 +104,22 @@
   /* Pitch accent, Yomitan-style: one span per mora, high morae carry an
      overline, and the mora before the downstep also carries a falling right
      edge. Heiban gets a rising left edge on mora 2 and no fall. */
-  .pitch { font-size: 15px; color: #d3b072; letter-spacing: .02em; }
-  .pitch .m { padding: 1px 0; border-top: 1.5px solid transparent; }
+  .pitch { font-size: 15px; color: #d3b072; }
+  .pitch .m {
+    display: inline-block; padding: 0 1px;
+    border-top: 1.5px solid transparent;
+  }
   .pitch .m.hi { border-top-color: #d3b072; }
-  .pitch .m.fall { border-right: 2px solid #d3b072; padding-right: 1px; }
+  /* The downstep is the END of the overline, drawn as a short drop off its
+     right edge — not a full-height rule between two characters, which at this
+     size read as a text cursor sitting inside the word. */
+  .pitch .m.fall {
+    position: relative; margin-right: 2px;
+  }
+  .pitch .m.fall::after {
+    content: ""; position: absolute; right: -1px; top: -1.5px;
+    width: 1.5px; height: 5px; background: #d3b072;
+  }
   .pitch-num { color: #8d8778; font-size: 10.5px; }
 
   /* How the form on the page reaches the form in the dictionary. One line,
@@ -197,8 +209,43 @@
      first line back out, so a wrapped line and a new sense began at the same
      x — which is most of 実用, 旺文社 and the grammar dictionary. */
   #popup .gl.plain li.numbered { padding-left: 15px; text-indent: -15px; }
-  /* Usage examples quoted in the sense line (「━政治」) render dimmer. */
+  /* Usage examples quoted inside a sense line (「━政治」) render dimmer. */
   #popup .ex { color: #97907f; }
+
+  /* --- prose dictionaries, read line by line -----------------------------
+     Same vocabulary as the structured ones, recovered from the shape of each
+     line: a bracketed heading, a quotation, a numbered sense, a ｜-separated
+     table row, a 「label：」 prefix. See plainLines() in popup.js. */
+  #popup .ln { margin: 2px 0; }
+  /* A section heading — 日本語文法辞典's [解説] [意味] [例文] [接続], which
+     used to be body text indistinguishable from the paragraph under it. */
+  #popup .ln.head {
+    margin: 7px 0 2px; color: #d8b46a; font-size: 11px; font-weight: 600;
+    letter-spacing: .04em; font-family: -apple-system, system-ui, sans-serif;
+  }
+  #popup .ln:first-child.head { margin-top: 1px; }
+  /* A sense marker earns the hanging indent; unmarked prose does not, and
+     giving it one pushed every wrapped line in and pulled the first one out. */
+  #popup .ln.numbered { padding-left: 15px; text-indent: -15px; }
+  /* A ｜-separated row. The grammar dictionary's 接続 tables were a wall of
+     pipes; two columns is what they are. */
+  #popup .ln.row {
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    gap: 0 8px; font-size: 12px; color: #8d8778;
+    padding: 2px 0 2px 7px; border-left: 1px solid rgba(255,255,255,0.08);
+  }
+  /* The pattern leads, its explanation follows underneath and dimmer. Two
+     columns is the honest shape of the data and the wrong shape for a 430px
+     tray: every English cell wrapped to four lines beside a two-word pattern. */
+  #popup .ln.row span:first-child { color: #d8d3c8; font-size: 12.5px; }
+  #popup .ln.row + .ln.row {
+    margin-top: 0; border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  /* 「読み方：」 and friends: a label introducing the rest of its line. */
+  #popup .ln-label {
+    color: #6f6857; font-size: 9.5px; letter-spacing: .04em; margin-right: 5px;
+    font-family: -apple-system, system-ui, sans-serif;
+  }
 
   /* Kanji readings: labelled 音 / 訓 rows. */
   #popup .kv { margin-top: 3px; }
@@ -236,10 +283,14 @@
   #popup [data-role="sense-group"] { list-style: none; padding-left: 0; }
 
   /* A top-level division (三省堂's 一 二 三) is the biggest boundary inside an
-     entry and used to render as the smallest, dimmest thing on it. */
-  #popup [data-role="division"] {
-    display: inline-block; margin: 6px 5px 1px 0;
-    color: #d8b46a; font-size: 12px; font-weight: 600;
+     entry and used to render as the smallest, dimmest thing on it.
+     The colour goes on its MARKER, not on the division: 大語義 wraps the senses
+     it divides, so colouring the container turned every sense under it gold —
+     one dictionary's definitions in a different colour from its neighbours'. */
+  #popup [data-role="division"] { display: block; margin: 6px 0 1px; }
+  #popup [data-role="division"] > .sc-label:first-child,
+  #popup [data-role="division"] > :first-child > .sc-label:first-child {
+    color: #d8b46a; font-size: 12px; font-weight: 600; margin-right: 5px;
   }
 
   /* One sense's translations read as one line — "spirit; psyche" — not a
@@ -255,11 +306,20 @@
      like in a sentence is the second thing a reader wants, and it must not be
      mistaken for the definition — which is exactly what happened in every
      monolingual, where 用例 was styled identically to 語釈. */
-  #popup [data-role="example"] {
+  /* An example, from a dictionary that marked one up and from a dictionary
+     that only quoted one on its own line. Same rule for both, deliberately:
+     the reader is looking at eleven dictionaries and they must not each have
+     their own idea of what an example looks like. */
+  #popup [data-role="example"], #popup .ln.ex {
     margin: 2px 0 2px .2em; padding-left: .6em;
     border-left: 2px solid rgba(200,167,106,0.22);
     font-size: 12.5px; color: #b9b2a1;
   }
+  #popup .ln.ex .ex { color: inherit; }
+  /* A run of example lines is ONE example block, not a stack of bordered
+     strips: a dictionary that writes the Japanese and its translation on
+     consecutive lines means them to be read together. */
+  #popup .ln.ex + .ln.ex { margin-top: 0; padding-top: 1px; }
   /* A tray is for an example that carries its TRANSLATION — two lines that
      belong together, and worth a surface of their own. A monolingual puts one
      「…」 under every sense; boxing each of those turned an entry into a

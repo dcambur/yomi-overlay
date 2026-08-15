@@ -79,7 +79,18 @@ function open(at) {
       ? 'SELECT t.reading, g.blob AS gloss, t.dict, t.score FROM terms t'
         + ' JOIN glosses g ON g.id = t.gloss WHERE t.key = ?'
       : 'SELECT reading, gloss, dict, score FROM terms WHERE key = ?');
-    qKanji = db.prepare('SELECT on_yomi, kun_yomi, meanings FROM kanji WHERE char = ?');
+    // `dict` too, WHEN the index has it: the row itself says which dictionary
+    // answered, so the fallback works for any kanji dictionary rather than one
+    // named KANJIDIC. An index built by the Python builder has no such column,
+    // and asking for it there threw inside open() — which failed the whole
+    // index, not just its kanji, and is exactly the "your words stopped
+    // working because the app updated" failure the two schemas exist to avoid.
+    const kanjiHasDict = db.prepare('PRAGMA table_info(kanji)').all()
+      .some((c) => c.name === 'dict');
+    qKanji = db.prepare(kanjiHasDict
+      ? 'SELECT on_yomi, kun_yomi, meanings, dict FROM kanji WHERE char = ?'
+      : "SELECT on_yomi, kun_yomi, meanings, 'KANJIDIC' AS dict FROM kanji"
+        + ' WHERE char = ?');
     qPitch = db.prepare('SELECT reading, position FROM pitch WHERE term = ? LIMIT 4');
     qFreq = db.prepare('SELECT source, value FROM freq WHERE term = ?');
     return true;
@@ -274,7 +285,13 @@ function lookup(input, maxLen = 12, hint = null) {
   // No word matched — fall back to the single kanji. Index the glyph array, not
   // the raw string: text[0] would hand a lone surrogate half to the query.
   const ch = glyphs[0].normalize('NFKC');
-  const k = visible('KANJIDIC') ? qKanji.get(ch) : null;
+  // Whatever kanji dictionary holds the character, checked for visibility by
+  // its own name. This used to be gated on the literal label "KANJIDIC", so a
+  // reader who installed any other kanji dictionary got no fallback at all —
+  // the index-builder recognises one by its kanji_bank files, and nothing else
+  // should need to recognise it by name.
+  const row = qKanji.get(ch);
+  const k = row && visible(row.dict) ? row : null;
   if (k) {
     let meanings;
     try { meanings = JSON.parse(k.meanings); } catch { meanings = []; }
@@ -285,7 +302,7 @@ function lookup(input, maxLen = 12, hint = null) {
         // dictionary does, instead of one undifferentiated slash-run.
         reading: [k.on_yomi, k.kun_yomi].filter(Boolean).join(' / '),
         on: k.on_yomi || '', kun: k.kun_yomi || '',
-        dict: 'KANJIDIC',
+        dict: k.dict || 'kanji',
         glosses: meanings.slice(0, 5),
       }],
       pitch: [], freq: [],

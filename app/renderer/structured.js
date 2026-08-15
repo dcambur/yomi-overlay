@@ -86,7 +86,10 @@
     'xref': 'xref', 'reference-label': 'xref-label',
     'xref-content': 'xref', 'xref-glossary': 'xref',
     'attribution': 'meta', 'forms': 'meta', 'forms-label': 'meta',
-    'graphic-attribution': 'meta', 'extra-info': 'extra', 'extra-box': 'extra',
+    // A footnote marker into a bibliography the popup does not show, and the
+    // caption of an image it cannot draw.
+    'attribution-footnote': 'meta', 'graphic-attribution': 'meta',
+    'extra-info': 'extra', 'extra-box': 'extra',
     // 三省堂国語辞典 (data.name)
     '語釈': 'sense', '語義': 'sense-group', '語義番号': 'sense-num',
     '大語義': 'division', '用例': 'example', '用例G': 'example',
