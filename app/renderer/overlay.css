@@ -391,3 +391,26 @@
 
   /* A marker whose image we cannot draw, rendered as its own label. */
   #popup .sc-label { color: #9d9484; font-size: 11px; margin-right: 3px; }
+
+  /* --- images a dictionary ships -----------------------------------------
+     Served straight out of the archive (main/media.js), sized in em by the
+     dictionary itself so an inline marker scales with the text around it. */
+  #popup .sc-img {
+    vertical-align: -0.15em;
+    /* A dictionary sizes its inline marks itself, in em, and those stay as
+       they are. What needs a ceiling is the full-page kind — 旺文社's
+       stroke-order diagrams are 300px tall and would take the whole tray,
+       which is 380px at its largest. */
+    max-width: 100%; max-height: 130px;
+  }
+  /* A diagram is usually black on white, which is a slab of white on a dark
+     panel. Rounding it and easing it back reads as an inset illustration
+     rather than a hole. */
+  #popup .sc-img:not(.sc-mono) { border-radius: 3px; opacity: .92; }
+  /* `appearance: "monochrome"` is line art meant to take the surrounding text
+     colour, drawn black on transparent — invisible on this panel as it is.
+     A CSS mask would tint it properly and needs the image URL a second time,
+     which img-src does not cover and default-src 'none' refuses; inverting
+     costs nothing and is allowed. Named marks never reach here at all: they
+     are set as text (structured.js), which is what they are. */
+  #popup .sc-img.sc-mono { filter: invert(1); opacity: .85; }

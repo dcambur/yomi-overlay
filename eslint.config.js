@@ -40,6 +40,9 @@ const NODE = {
   setInterval: 'readonly', clearInterval: 'readonly', setImmediate: 'readonly',
   URL: 'readonly', TextDecoder: 'readonly', TextEncoder: 'readonly',
   structuredClone: 'readonly', fetch: 'readonly', AbortController: 'readonly',
+  // The fetch-family globals Electron's main process answers protocol
+  // requests with (protocol.handle).
+  Response: 'readonly', Request: 'readonly', Headers: 'readonly', Blob: 'readonly',
 };
 
 const LAYOUT = {

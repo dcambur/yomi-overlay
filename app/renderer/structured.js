@@ -34,11 +34,6 @@
     'table', 'tr', 'td', 'th', 'br', 'em', 'strong', 'sup', 'sub',
   ]);
 
-  // Dictionary media (the SVG markers monolinguals ship) is not extracted from
-  // archives yet — see issue #11. Until it is, an <img> can only ever be a
-  // broken one. Flipping this back on is the last step of that work.
-  const MEDIA_AVAILABLE = false;
-
   /**
    * A marker's name from its filename, when the node carries no label.
    *
@@ -167,14 +162,24 @@
     // — so it is shown as text. textOf() treats it as text for the same
     // reason. An image with no label is decoration we cannot draw, and a box
     // saying so is worth less than the space it takes.
-    if (!MEDIA_AVAILABLE) {
-      // The filename is the last resort, and a good one: a dictionary names
-      // these after what they show — 一-fill.svg is the division marker 一,
-      // ㉑.svg is sense 21. Without it, 明鏡 lost every sense number past ⓴ and
-      // 三省堂 lost all six of its 大語義 dividers, leaving bare gaps.
-      const named = label || fromPath(node.path);
-      // An image with no name at all is decoration we cannot draw. Returning
-      // an empty element for it put 348 of them in one page.
+    // A named monochrome mark is TYPOGRAPHY, not a picture: 三省堂 draws its
+    // 一 二 三 divisions and its part-of-speech tags as 128px glyphs meant to
+    // be tinted to the text colour. Set as text they align with the line, take
+    // the accent colour and stay legible at 11px; set as images they are a
+    // grey smudge — and the tinting itself is not available, because a CSS
+    // mask URL is not something this page's policy allows.
+    //
+    // The filename is a name too: a dictionary calls these after what they
+    // show, so 一-fill.svg is the division 一. Without any name there is
+    // nothing to say, and an empty element is worse than none (there were 348
+    // of those on one page).
+    // Turned off in settings: the label is what a reader gets, which for a
+    // sense marker or a part-of-speech mark is the whole of its meaning. The
+    // pictures — an illustration, a stroke-order diagram — are what actually
+    // go away, and that is the point of the setting.
+    const wanted = !window.viewOptions || window.viewOptions.images !== false;
+    const named = label || fromPath(node.path);
+    if (!node.path || !wanted || (named && node.appearance === 'monochrome')) {
       if (!named) return doc.createDocumentFragment();
       const span = doc.createElement('span');
       span.className = 'sc-label';
@@ -188,9 +193,20 @@
     const unit = node.sizeUnits === 'em' ? 'em' : 'px';
     if (typeof node.height === 'number') el.style.height = node.height + unit;
     if (typeof node.width === 'number') el.style.width = node.width + unit;
-    // monochrome images are line art meant to take the text colour.
+    // monochrome images are line art meant to take the text colour: a black
+    // glyph on a dark panel is invisible. The stylesheet turns the image into
+    // a mask over currentColor, and needs the same URL to do it. Every segment
+    // of that URL is percent-encoded by mediaURL(), so a dictionary cannot
+    // break out of the url() with a quote or a paren.
+    // Unnamed line art still has to be visible on a dark panel: the drawing is
+    // black on transparent, and inverting it is the one way to tint an image
+    // that a strict policy allows — a CSS mask would need the URL again, which
+    // img-src does not cover.
     if (node.appearance === 'monochrome') el.classList.add('sc-mono');
-    if (label) el.alt = String(label);
+    // The alt text is what a reader gets if the archive no longer has the
+    // file — a dictionary removed while its popup is open, say. Falling back
+    // to the filename keeps a sense marker readable even then.
+    el.alt = String(named || '');
     return el;
   }
 

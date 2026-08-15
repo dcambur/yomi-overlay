@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('settings', {
   saveConfig: (next) => ipcRenderer.invoke('cfg:save', next),
   // Both applied immediately, without restarting the overlay — see ipc.js.
   saveTrigger: (next) => ipcRenderer.invoke('cfg:trigger', next),
+  // What the popup draws. Applied immediately, like the trigger.
+  saveView: (next) => ipcRenderer.invoke('cfg:view', next),
   saveDictionaries: (list) => ipcRenderer.invoke('cfg:dictionaries', list),
   listWindows: () => ipcRenderer.invoke('cfg:windows'),
   close: () => ipcRenderer.send('cfg:close'),

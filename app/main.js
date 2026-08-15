@@ -7,7 +7,7 @@
 // Only what this file itself uses. It once imported the whole surface of the
 // app — windows, tray, dialogs, paths — and kept the imports after the pieces
 // moved into main/, which is how a 40-line entry point reads like a god object.
-const { app, globalShortcut } = require('electron');
+const { app, globalShortcut, protocol } = require('electron');
 const { open: openDict, initTransformer } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
@@ -18,6 +18,8 @@ const permissions = require('./main/permissions.js');
 const { reportSpawnFailure } = permissions;
 const tray = require('./main/tray.js');
 const ipc = require('./main/ipc.js');
+const media = require('./main/media.js');
+const dictionaries = require('./main/dictionaries.js');
 
 logf('--- launch, argv=' + process.argv.slice(1).join(' ') +
      ' RUN_AS_NODE=' + (process.env.ELECTRON_RUN_AS_NODE || 'unset'));
@@ -27,6 +29,18 @@ const { OCR_BIN: YOMI_BIN } = require('./paths.js');
 
 // Shown in the app switcher and menu bar instead of "Electron".
 app.setName('Yomi Overlay');
+
+// The scheme dictionary images are served on, declared before the app is ready
+// because that is the only time Chromium accepts a new one. Registering it as
+// standard is what lets the renderer's CSP name it in img-src; it is NOT given
+// fetch/CORS privileges, because nothing should be able to READ a dictionary's
+// bytes from script — only <img> should resolve them.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: media.SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: false },
+  },
+]);
 
 // Without a lock every launch stacks another instance, and they fight over the
 // same target window while each spawning their own capture and event monitors.
@@ -149,6 +163,9 @@ app.on('before-quit', () => logf('before-quit'));
 
 app.whenReady().then(() => {
   logf('app ready');
+  // Dictionary images, read out of the archives themselves. See main/media.js
+  // for why nothing is extracted to disk.
+  protocol.handle(media.SCHEME, (req) => media.serve(req.url, dictionaries));
   // The bundle's LSUIElement hides the Dock tile for packaged launches, but
   // macOS can still surface one (dev launches are regular apps; some window
   // states re-show it) — and that tile did nothing when clicked. Enforce

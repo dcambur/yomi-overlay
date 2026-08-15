@@ -20,6 +20,7 @@ const { lookup } = require('./lookup.js');
 const { listWindows } = require('./window-list.js');
 const dictionaries = require('./dictionaries.js');
 const { createQueue } = require('./job-queue.js');
+const media = require('./media.js');
 const lookupModule = require('./lookup.js');
 const { openSettings, closeSettings } = require('./settings-window.js');
 
@@ -110,6 +111,18 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     return cfg.load();
   });
 
+  // What the popup draws. Like the trigger, this needs nothing restarted: the
+  // overlay is told and the next popup is drawn the new way.
+  ipcMain.handle('cfg:view', (_e, next) => {
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      reject('cfg:view', 'not an object');
+      return cfg.load();
+    }
+    cfg.save({ images: !!next.images });
+    overlayWindow.sendTrigger();
+    return cfg.load();
+  });
+
   // Which dictionaries are on, and in what order. Deliberately NOT cfg:save:
   // that one restarts the capture and event children, because the target
   // window and the modifier are baked into their argv. Neither is affected by
@@ -145,6 +158,9 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     // next lookup opens what was just written.
     lookupModule.close();
     cfg.refreshDictionaries();
+    // The media handler holds archives open to serve images out of them; a
+    // rebuild can have replaced or removed any of them.
+    media.forget();
     report({ phase: 'done', labels: result.labels });
     return result;
   }
@@ -226,6 +242,7 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
       const labels = dictionaries.writeManifest();
       lookupModule.close();
       cfg.refreshDictionaries();
+      media.forget();
       report({ phase: 'done', labels });
       return { ok: true };
     });

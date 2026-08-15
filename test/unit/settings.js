@@ -23,7 +23,7 @@ let win;
 const consoleMessages = [];
 // What the page saved, per channel, so a test can assert that a change applied
 // itself rather than waiting for the footer button.
-const saved = { trigger: 0, dictionaries: 0, config: 0 };
+const saved = { trigger: 0, dictionaries: 0, config: 0, view: null };
 
 const results = [];
 async function test(name, fn) {
@@ -136,6 +136,18 @@ async function run() {
       "document.getElementById('row-mod').classList.contains('hidden')"));
   });
 
+  await test('images can be turned off, and it applies at once', async () => {
+    await js("document.querySelector('[data-tab=\"trigger\"]').click()");
+    await settle();
+    assert.strictEqual(await js('document.getElementById("images").checked'), true,
+                       'on by default — a dictionary that ships images means them');
+    await js('(() => { const b = document.getElementById("images");'
+             + ' b.checked = false; b.onchange(); })()');
+    await settle();
+    assert.deepStrictEqual(saved.view, { images: false },
+                           'the main process was told, without a button');
+  });
+
   const failed = results.filter(([ok]) => !ok);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -150,6 +162,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('cfg:windows', () => WINDOWS);
   ipcMain.handle('cfg:save', () => { saved.config++; return CONFIG; });
   ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
+  ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);

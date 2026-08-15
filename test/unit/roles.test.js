@@ -19,8 +19,9 @@ const path = require('path');
 // document just big enough to build elements with.
 function fakeDoc() {
   const el = (tag) => ({
-    tag, children: [], className: '', textContent: '', title: '',
-    style: {}, dataset: {},
+    tag, children: [], className: '', textContent: '', title: '', src: '', alt: '',
+    style: { setProperty(k, v) { this[k] = v; } }, dataset: {},
+    classList: { add(n) { this.owner.className = (this.owner.className + ' ' + n).trim(); } },
     appendChild(c) { this.children.push(c); return c; },
     get text() {
       return (this.textContent || '') + this.children.map((c) => c.text).join('');
@@ -31,8 +32,9 @@ function fakeDoc() {
       return out;
     },
   });
+  const make = (tag) => { const e = el(tag); e.classList.owner = e; return e; };
   return {
-    createElement: el,
+    createElement: make,
     createTextNode: (t) => ({ tag: '#text', textContent: t, children: [],
                               text: t, find: () => [] }),
     createDocumentFragment: () => el('#fragment'),
@@ -99,17 +101,56 @@ test('a name no dictionary here uses simply has no role', () => {
   assert.strictEqual(roleOf({ tag: 'span' }), undefined);
 });
 
-test('an image we cannot draw becomes its label, or nothing', () => {
-  // Media is not extracted from archives yet, so every <img> would be broken.
-  const titled = render(doc, { tag: 'img', title: '一', path: 'x/一-fill.svg' }, 'd');
-  assert.strictEqual(titled.text, '一', 'the label it carries');
+test('a named monochrome mark is set as text, not drawn', () => {
+  // 三省堂 draws its 一 二 三 divisions and its part-of-speech tags as 128px
+  // glyphs meant to be tinted to the text colour. As text they align with the
+  // line and stay legible at 11px; as images they are a grey smudge, and the
+  // tinting is not available to a page whose policy refuses a CSS mask URL.
+  const mark = { tag: 'img', appearance: 'monochrome', title: '一',
+                 path: 'sankoku8/一-fill.svg' };
+  const el = render(doc, mark, 'd');
+  assert.strictEqual(el.tag, 'span', 'text, not an image');
+  assert.strictEqual(el.text, '一');
 
-  const named = render(doc, { tag: 'img', path: 'sankoku8/二-fill.svg' }, 'd');
-  assert.strictEqual(named.text, '二', 'or the marker its filename names');
+  // The filename names it too, which is how the markers past ⓴ survive.
+  const unnamed = render(doc, { tag: 'img', appearance: 'monochrome',
+                                path: 'sankoku8/二-fill.svg' }, 'd');
+  assert.strictEqual(unnamed.text, '二');
+});
 
-  const anonymous = render(doc, { tag: 'img', path: 'meikyo/B92D.png' }, 'd');
-  assert.strictEqual(anonymous.text, '',
-                     'and decoration we cannot draw leaves nothing behind');
+test('a picture is drawn, and says what it is if it cannot be', () => {
+  const el = render(doc, { tag: 'img', path: 'img/plant.avif', title: 'Cannabis' }, '辞');
+  assert.strictEqual(el.tag, 'img', 'an illustration is an image');
+  assert.match(el.src, /^yomi-media:\/\/media\/%E8%BE%9E\//, 'served from its own archive');
+  assert.strictEqual(el.alt, 'Cannabis',
+                     'and names itself if the archive no longer has the file');
+});
+
+test('line art with no name is drawn, and made visible', () => {
+  // Black on transparent, on a dark panel. Nothing names it, so there is no
+  // text to fall back to — it has to be shown, and shown inverted.
+  const el = render(doc, { tag: 'img', appearance: 'monochrome',
+                           path: 'meikyo/B92D.png' }, 'd');
+  assert.strictEqual(el.tag, 'img');
+  assert.ok(el.className.includes('sc-mono'), 'marked for inversion');
+});
+
+test('with images turned off, a picture becomes what it is called', () => {
+  // The setting exists because a dictionary is already big and not everyone
+  // wants pictures in a reading popup. What survives is the label, which for
+  // a sense mark is its whole meaning.
+  global.window.viewOptions = { images: false };
+  const el = render(doc, { tag: 'img', path: 'img/plant.avif', title: 'Cannabis' }, 'd');
+  assert.strictEqual(el.tag, 'span', 'no image is built at all');
+  assert.strictEqual(el.text, 'Cannabis');
+  // And one that cannot be named leaves nothing rather than a gap.
+  assert.strictEqual(render(doc, { tag: 'img', path: 'x/B92D.png' }, 'd').text, '');
+  delete global.window.viewOptions;
+});
+
+test('an image with no file and no name leaves nothing behind', () => {
+  const el = render(doc, { tag: 'img' }, 'd');
+  assert.strictEqual(el.text, '', 'not an empty element — there were 348 on one page');
 });
 
 test('blank lines are collapsed, so a dropped image leaves no hole', () => {

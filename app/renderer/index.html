@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <!-- No 'unsafe-inline' for either scripts or styles: nothing in this page is
      inline any more, so the renderer can only run code that ships with it. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+<!-- img-src is the one thing this page loads from outside itself: the images a
+     dictionary ships, served out of its own archive by main/media.js. The
+     scheme is named explicitly, so a dictionary still cannot reach the network
+     or the filesystem, and data: URLs remain refused. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src yomi-media:">
 <title>Yomi overlay</title>
 <link rel="stylesheet" href="overlay.css">
 </head>

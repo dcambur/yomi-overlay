@@ -207,6 +207,7 @@ function renderWindows() {
 const DEFAULT_TRIGGER = { mode: 'hold', modifier: 'shift', hoverDelayMs: 250 };
 
 function renderTrigger() {
+  $('images').checked = config.images !== false;
   const t = config.trigger || DEFAULT_TRIGGER;
   $('mode').value = t.mode || DEFAULT_TRIGGER.mode;
   $('modifier').value = t.modifier || DEFAULT_TRIGGER.modifier;
@@ -526,6 +527,14 @@ function renderDictionaries() {
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
 }
+// Live, like everything else on this tab: the overlay is told, and the next
+// popup is drawn the new way. Nothing is rebuilt and nothing restarts —
+// images are read from the archives at the moment they are shown.
+$('images').onchange = () => {
+  config.images = $('images').checked;
+  window.settings.saveView({ images: config.images });
+  $('status').textContent = 'saved';
+};
 // Nothing blocks an import: pick as many archives as you like, whenever. Each
 // gets its own key so they queue behind each other rather than colliding.
 $('import').onclick = () => {
