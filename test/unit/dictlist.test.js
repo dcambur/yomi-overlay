@@ -102,6 +102,7 @@ function load(config) {
   // it can use rather than undefined, or the failure surfaces long after the
   // test that caused it.
   const saved = [];
+  const imported = [];
   const settings = {
     getConfig: async () => config,
     // Priority and on/off apply immediately; the harness records the calls so
@@ -110,6 +111,7 @@ function load(config) {
     listWindows: async () => [],
     dictCatalogue: async () => [],
     dictInstalled: async () => [],
+    dictImport: async (job) => { imported.push(job); return { ok: true }; },
     onDictProgress: (fn) => { onProgress = fn; },
     close: () => {},
   };
@@ -118,7 +120,7 @@ function load(config) {
   // records it when the script registers it, and the wrapper cannot reach a
   // binding in this scope.
   api.progress = (p) => onProgress(p);
-  return { api, host, saved, el: byId };
+  return { api, host, saved, imported, el: byId };
 }
 
 /** The rows, without the group headings between them. */
@@ -323,13 +325,57 @@ test('queued work says so on its own row', () => {
                'the one behind it is told it is waiting');
 });
 
-test('an import can be asked for while a download runs', () => {
-  const { api, el } = load(fresh());
+test('imports queue behind each other and behind everything else', () => {
+  // Nothing blocks an import. It used to block after the first: every import
+  // shared one job key, so the second looked like the first still running.
+  const { api, el, imported } = load(fresh());
   api.render(CATALOGUE, INSTALLED, [['Jitendex', { phase: 'downloading' }]]);
-  assert.strictEqual(el('import').disabled, false, 'the import button stays live');
-  api.render(CATALOGUE, INSTALLED, [['import', { phase: 'queued' }]]);
-  assert.strictEqual(el('import').disabled, true,
-                     'and only an import already asked for blocks it');
+  assert.strictEqual(el('import').disabled, false, 'live while a download runs');
+  el('import').onclick();
+  el('import').onclick();
+  assert.strictEqual(imported.length, 2, 'two imports were asked for');
+  assert.notStrictEqual(imported[0], imported[1], 'and they are two jobs');
+});
+
+test('an import reports beside the button, having no row of its own', () => {
+  const { api, el } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  api.progress({ job: 'import:1', phase: 'indexing', done: 1, total: 4 });
+  assert.match(el('dictstatus').textContent, /indexing — 25%/);
+});
+
+test('a progress update is written into the bar, not a new one', () => {
+  // The bug this pins: the list was rebuilt on every progress event, so the
+  // bar was a NEW element each time — and a CSS animation restarts from the
+  // beginning when its element is replaced. A download reports many times a
+  // second, so the row queued behind it sat frozen at the left edge instead of
+  // sliding. Same trick as the renderer suite: tag the live element, and see
+  // whether it survived. (ARCHITECTURE §5 — do not rebuild what you can write
+  // into.)
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  api.progress({ job: 'Jitendex', phase: 'downloading', got: 1, total: 10 });
+  const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
+  bar.marked = 'x';
+  assert.match(bar.text, /downloading 10%/);
+
+  api.progress({ job: 'Jitendex', phase: 'downloading', got: 6, total: 10 });
+  const after = rowFor(host, 'Jitendex').withClass('prog')[0];
+  assert.strictEqual(after.marked, 'x', 'the same bar, updated in place');
+  assert.match(after.text, /downloading 60%/, 'and it says the new number');
+  assert.strictEqual(after.withClass('fill')[0].style.width, '60%');
+});
+
+test('a bar that becomes measurable stops sliding', () => {
+  const { api, host } = load(fresh());
+  api.render(CATALOGUE, INSTALLED);
+  api.progress({ job: 'Jitendex', phase: 'queued' });
+  const bar = rowFor(host, 'Jitendex').withClass('prog')[0];
+  assert.ok(bar.withClass('fill')[0].className.includes('indeterminate'));
+  api.progress({ job: 'Jitendex', phase: 'indexing', done: 2, total: 4 });
+  const fill = rowFor(host, 'Jitendex').withClass('prog')[0].withClass('fill')[0];
+  assert.ok(!fill.className.includes('indeterminate'), 'the animation is dropped');
+  assert.strictEqual(fill.style.width, '50%');
 });
 
 test('progress finds the right row, whatever was clicked last', () => {

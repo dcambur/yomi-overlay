@@ -26,9 +26,17 @@ let lastWinJson = '';     // last rendered window list, to suppress no-op redraw
 
 let lastCatalogue = [];   // dictionaries we can fetch
 let lastInstalled = [];   // dictionaries present on disk
-// The job key for an import. It has no row: the dictionary is not in the list
-// until the archive has been read.
-const IMPORT = 'import';
+// Job keys for imports. An import has no row — the dictionary is not in the
+// list until the archive has been read — and each one needs a key of its own,
+// or the second is mistaken for the first still running and refused. Which is
+// what happened: importing blocked after the first file.
+const IMPORT = 'import:';
+const isImport = (job) => typeof job === 'string' && job.startsWith(IMPORT);
+let importSeq = 0;
+
+// The progress bar drawn for each job, so an update can be written into the
+// one on screen instead of replacing it. Rebuilt with the list.
+const bars = new Map();
 
 // What the main process is doing, keyed by the row it belongs to. A map and
 // not a single value: work is queued there, so more than one dictionary can be
@@ -288,17 +296,17 @@ async function dictAction(label, fn) {
     r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '';
 }
 
-/** A row's progress, as a bar and a number, beside the button that started it. */
+/**
+ * A row's progress, as a bar and a number, beside the button that started it.
+ *
+ * Returns the parts as well as the element, so an update can be written into
+ * the pieces directly rather than found again.
+ */
 function progressBar(p) {
-  const { what, pct } = progressOf(p);
-
   const text = document.createElement('span');
   text.className = 'pct';
-  text.textContent = pct === null ? what : `${what} ${pct}%`;
 
   const fill = document.createElement('span');
-  fill.className = 'fill' + (pct === null ? ' indeterminate' : '');
-  if (pct !== null) fill.style.width = pct + '%';
 
   const bar = document.createElement('span');
   bar.className = 'bar';
@@ -308,7 +316,30 @@ function progressBar(p) {
   wrap.className = 'prog';
   wrap.appendChild(text);
   wrap.appendChild(bar);
-  return wrap;
+
+  const parts = { wrap, text, fill };
+  paintProgress(parts, p);
+  return parts;
+}
+
+/**
+ * Write a progress payload into a bar that already exists.
+ *
+ * Separate from building one because REBUILDING it is the bug: an unmeasurable
+ * step is drawn as a sliding fill, and a CSS animation restarts from the
+ * beginning every time its element is replaced. A download reports many times
+ * a second, so the row behind it redrew that fast and its "waiting…" bar sat
+ * frozen at the left edge, never sliding. The determinate bars had the same
+ * problem more quietly: their width transition never got to run either.
+ *
+ * Same lesson as the glyph layer (ARCHITECTURE §5) — do not rebuild what you
+ * can write into.
+ */
+function paintProgress({ text, fill }, p) {
+  const { what, pct } = progressOf(p);
+  text.textContent = pct === null ? what : `${what} ${pct}%`;
+  fill.className = 'fill' + (pct === null ? ' indeterminate' : '');
+  fill.style.width = pct === null ? '' : pct + '%';
 }
 
 /** The enable/disable checkbox, for a dictionary that is in the index. */
@@ -406,7 +437,11 @@ function dictionaryRow(entry, shown) {
 
   // Right: progress while this row has work outstanding, then its one action.
   const job = dictJobs.get(label);
-  if (job) el.appendChild(progressBar(job));
+  if (job) {
+    const parts = progressBar(job);
+    bars.set(label, parts);
+    el.appendChild(parts.wrap);
+  }
   const act = document.createElement('button');
   // Only this row waits on this row. Anything else can still be asked for.
   act.disabled = !!job;
@@ -431,11 +466,9 @@ function group(host, title, rows, shown) {
 }
 
 function renderDictionaries() {
-  // Only an import already asked for blocks the import button; everything else
-  // can be queued while one runs.
-  $('import').disabled = dictJobs.has(IMPORT);
   const host = $('dictlist');
   host.innerHTML = '';
+  bars.clear();
 
   const byCatalogue = new Map(lastCatalogue.map((c) => [c.label, c]));
   // Priority is the position in the saved list; anything the index does not
@@ -480,7 +513,12 @@ function renderDictionaries() {
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
 }
-$('import').onclick = () => dictAction(IMPORT, () => window.settings.dictImport());
+// Nothing blocks an import: pick as many archives as you like, whenever. Each
+// gets its own key so they queue behind each other rather than colliding.
+$('import').onclick = () => {
+  const job = IMPORT + (++importSeq);
+  dictAction(job, () => window.settings.dictImport(job));
+};
 $('close').onclick = () => window.settings.close();
 $('save').onclick = async () => {
   $('status').textContent = 'applying…';
@@ -495,9 +533,17 @@ $('save').onclick = async () => {
 // rebuild the main process started on its own — goes to the status line.
 window.settings.onDictProgress((p) => {
   if (p.job) {
-    if (p.phase === 'done' || p.phase === 'error') dictJobs.delete(p.job);
-    else dictJobs.set(p.job, p);
-    renderDictionaries();
+    const bar = bars.get(p.job);
+    if (p.phase === 'done' || p.phase === 'error') {
+      dictJobs.delete(p.job);
+      renderDictionaries();
+    } else {
+      dictJobs.set(p.job, p);
+      // Write into the bar already on screen; only draw the list again when
+      // there is no bar yet — that is, when this job's row is new.
+      if (bar) paintProgress(bar, p);
+      else renderDictionaries();
+    }
   }
 
   const { what, pct } = progressOf(p);
@@ -506,7 +552,7 @@ window.settings.onDictProgress((p) => {
     $('dictstatus').textContent = 'failed: ' + p.message;
   } else if (p.phase === 'done') {
     $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
-  } else if (p.job === IMPORT) {
+  } else if (isImport(p.job)) {
     // An import has no row of its own — the dictionary is not in the list
     // until it lands — so its progress belongs beside the button that started
     // it, which is where this line sits.

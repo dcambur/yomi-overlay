@@ -14,7 +14,9 @@ contextBridge.exposeInMainWorld('settings', {
   dictCatalogue: () => ipcRenderer.invoke('dict:catalogue'),
   dictInstalled: () => ipcRenderer.invoke('dict:installed'),
   dictDownload: (id) => ipcRenderer.invoke('dict:download', id),
-  dictImport: () => ipcRenderer.invoke('dict:import'),
+  // The window names the job so its progress can be told apart from another
+  // import queued behind it.
+  dictImport: (job) => ipcRenderer.invoke('dict:import', job),
   dictRemove: (file) => ipcRenderer.invoke('dict:remove', file),
   onDictProgress: (fn) => ipcRenderer.on('dict:progress', (_e, p) => fn(p)),
 });

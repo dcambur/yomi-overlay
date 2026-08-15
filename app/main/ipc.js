@@ -160,7 +160,7 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     });
   });
 
-  ipcMain.handle('dict:import', async () => {
+  ipcMain.handle('dict:import', async (_e, job) => {
     const picked = await dialog.showOpenDialog({
       title: 'Import a Yomitan dictionary',
       filters: [{ name: 'Yomitan dictionary', extensions: ['zip'] }],
@@ -168,8 +168,9 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     });
     if (picked.canceled || !picked.filePaths.length) return { ok: false, cancelled: true };
     // The dialog is opened BEFORE queueing, because it needs the user now; the
-    // copying and the rebuild are what wait their turn.
-    return enqueue('import', async (report) => {
+    // copying and the rebuild are what wait their turn. The window names the
+    // job, so two imports asked for in a row are two jobs and not one.
+    return enqueue(isStr(job, 64) ? job : 'import:1', async (report) => {
       const added = [];
       for (const file of picked.filePaths) {
         try { added.push(dictionaries.importFile(file).file); }
