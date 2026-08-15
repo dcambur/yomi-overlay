@@ -5,16 +5,19 @@
 // belongs to. Each was a block inside a 343-line function; none of the logic
 // changed.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Re-flowed page: a recognised line corresponds to one source column.
-func mapReflowedStrip(_ lines: [RecognizedLine],
-                      reflow rf: (image: CGImage, rows: [[Cell]], cell: Int, pad: Int),
-                      image: CGImage, subject: CGImage,
-                      geometry g: Geometry) -> [Line] {
+func mapReflowedStrip(
+    _ lines: [RecognizedLine],
+    reflow rf: (image: CGImage, rows: [[Cell]], cell: Int, pad: Int),
+    image: CGImage, subject: CGImage,
+    geometry g: Geometry
+) -> [Line] {
     let r = g.region
-    let W = Double(image.width), H = Double(image.height)
+    let W = Double(image.width)
+    let H = Double(image.height)
     var out: [Line] = []
     // Order strip rows top-to-bottom so row index matches column index.
     // The recognizer often splits one strip row into several lines. They
@@ -33,8 +36,9 @@ func mapReflowedStrip(_ lines: [RecognizedLine],
     // coverage was already 77%.
     var byRow: [Int: [(Int, String)]] = [:]
     for l in lines {
-        let row = min(max(0, Int((l.box.midY * Double(subject.height)) / rowH)),
-                      rf.rows.count - 1)
+        let row = min(
+            max(0, Int((l.box.midY * Double(subject.height)) / rowH)),
+            rf.rows.count - 1)
         for c in l.chars {
             if c.ch.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let midX = c.box.midX * stripW
@@ -54,13 +58,16 @@ func mapReflowedStrip(_ lines: [RecognizedLine],
         for (cellIdx, ch) in placedGlyphs {
             let c = cells[cellIdx].rect
             // Cell pixels -> normalised -> screen -> window-local.
-            let nx = Double(c.minX) / W, ny = Double(c.minY) / H
-            let nw = Double(c.width) / W, nh = Double(c.height) / H
+            let nx = Double(c.minX) / W
+            let ny = Double(c.minY) / H
+            let nw = Double(c.width) / W
+            let nh = Double(c.height) / H
             line.chars.append(
-                CharBox(ch: ch,
-                        x: r.minX + nx * r.width - g.window.minX,
-                        y: r.minY + ny * r.height - g.window.minY,
-                        w: nw * r.width, h: nh * r.height))
+                CharBox(
+                    ch: ch,
+                    x: r.minX + nx * r.width - g.window.minX,
+                    y: r.minY + ny * r.height - g.window.minY,
+                    w: nw * r.width, h: nh * r.height))
         }
         if !line.chars.isEmpty { out.append(line) }
     }
@@ -69,9 +76,11 @@ func mapReflowedStrip(_ lines: [RecognizedLine],
 
 /// An ordinary flat read: per-line orientation, per-character rectangles, and
 /// the right-to-left re-sort a native vertical read needs.
-func mapFlatLines(_ lines: [RecognizedLine], subject: CGImage,
-                  geometry: Geometry?, vertical: Bool, mergedFrom: Int,
-                  fromLiveText: Bool, session: RecognitionSession) -> [Line] {
+func mapFlatLines(
+    _ lines: [RecognizedLine], subject: CGImage,
+    geometry: Geometry?, vertical: Bool, mergedFrom: Int,
+    fromLiveText: Bool, session: RecognitionSession
+) -> [Line] {
     // Column x for reading order, from the CHARACTER quads: LT's vertical
     // line boxes are unreliable (adjacent kakuyomu columns came back swapped
     // when sorted by line midX; the char quads are the ones placing at 89%).
@@ -87,9 +96,11 @@ func mapFlatLines(_ lines: [RecognizedLine], subject: CGImage,
         // Line.box stays bottom-left normalized: order() sorts with it. Its
         // midX is pinned to the char-quad column x so order()'s vertical sort
         // agrees with the pre-sort below (LT line boxes alone misorder).
-        var line = Line(text: t,
-                        box: CGRect(x: colX(l) - l.box.width / 2, y: 1 - l.box.maxY,
-                                    width: l.box.width, height: l.box.height))
+        var line = Line(
+            text: t,
+            box: CGRect(
+                x: colX(l) - l.box.width / 2, y: 1 - l.box.maxY,
+                width: l.box.width, height: l.box.height))
 
         // Per-line orientation. A forced/rotated vertical read is columns by
         // definition, as is anything the mixed-content merge appended. Any
@@ -103,7 +114,8 @@ func mapFlatLines(_ lines: [RecognizedLine], subject: CGImage,
             line.vertical = true
         } else if fromLiveText {
             if l.chars.count >= 2 {
-                let sw = Double(subject.width), sh = Double(subject.height)
+                let sw = Double(subject.width)
+                let sh = Double(subject.height)
                 let xs = l.chars.map { $0.box.midX * sw }
                 let ys = l.chars.map { $0.box.midY * sh }
                 line.vertical = (ys.max()! - ys.min()!) > (xs.max()! - xs.min()!)
@@ -147,15 +159,18 @@ func mapFlatLines(_ lines: [RecognizedLine], subject: CGImage,
 
 /// Attach erased-band ruby as reading hints to the line directly below each
 /// band.
-func attachHints(_ result: inout [Line], hints hintBands: [(rect: CGRect, text: String)],
-                 subject: CGImage, geometry: Geometry?) {
+func attachHints(
+    _ result: inout [Line], hints hintBands: [(rect: CGRect, text: String)],
+    subject: CGImage, geometry: Geometry?
+) {
     // Attach erased-band ruby as reading hints to the line directly below
     // each band.
     if !hintBands.isEmpty, let g = geometry {
         let r = g.region
         let H = Double(subject.height)
         for hb in hintBands {
-            let bandBottom = Double(hb.rect.maxY) / H * r.height
+            let bandBottom =
+                Double(hb.rect.maxY) / H * r.height
                 + r.minY - g.window.minY
             let bandH = Double(hb.rect.height) / H * r.height
             var best = -1
@@ -165,7 +180,10 @@ func attachHints(_ result: inout [Line], hints hintBands: [(rect: CGRect, text: 
                 // The base line's quads may overlap the erased band (engines
                 // box generously); allow up to one band height of overlap.
                 let d = top - bandBottom
-                if d > -bandH, d < bestD { bestD = d; best = i }
+                if d > -bandH, d < bestD {
+                    bestD = d
+                    best = i
+                }
             }
             if best >= 0, bestD < bandH * 2.5 {
                 result[best].hint = (result[best].hint ?? "") + hb.text

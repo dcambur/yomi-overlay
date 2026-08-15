@@ -164,10 +164,10 @@ test('a child that ignores SIGTERM is escalated to SIGKILL', async () => {
   await until(() => lines.length === 1, 'the stub to start');
   child.stop();
   assert.strictEqual(p.killed || p.exitCode !== null || p.signalCode !== null, true,
-    'SIGTERM was never even sent');
+                     'SIGTERM was never even sent');
   // The escalation timer is 1500ms in production; just prove the child dies.
   await until(() => p.exitCode !== null || p.signalCode !== null,
-    'the stubborn child to actually die', 4000);
+              'the stubborn child to actually die', 4000);
 });
 
 // ---- watchdog --------------------------------------------------------------
@@ -181,7 +181,7 @@ test('silence while still running trips the watchdog', async () => {
   child.start();
   const first = child.proc;
   await until(() => child.proc && child.proc !== first,
-    'the watchdog to restart a silent child', 3000);
+              'the watchdog to restart a silent child', 3000);
   child.stop();
   assert.ok(notes.some(m => /no output/.test(m)),
     `watchdog restarted without saying why: ${JSON.stringify(notes)}`);

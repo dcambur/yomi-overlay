@@ -1,7 +1,7 @@
 // Every flag the tool accepts, and how it is parsed.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 struct Options {
     var vertical = false
@@ -89,31 +89,32 @@ func parseArgs() -> Options {
             o.cellsDump = true
         case "--out", "-o": o.outPath = it.next()
         case "--help", "-h":
-            print("""
-            yomi — OCR one target window, nothing else
+            print(
+                """
+                yomi — OCR one target window, nothing else
 
-              --list          list matching windows and exit
-              --list-all      list every capturable window as JSON and exit
-              --events        stream global modifier/click events as NDJSON
-              --modifier NAME shift|control|option|command (default shift)
-              --dump PATH     write the captured frame to a PNG (diagnostics)
-              --image PATH    recognize a PNG from disk instead of capturing
-              --assume-horizontal  debug: pre-commit horizontal orientation
-                              (exercises the committed-horizontal paths headlessly)
-              --engine NAME   auto|vision|livetext (default auto)
-              --votes N       re-OCR a static page up to N times and majority-
-                              vote per character (default 3; 0/1 disables)
-              --vote-every N  vote on every Nth unchanged pass (default 2)
-              --check-permission  report Screen Recording status as JSON
-              --bundle ID     target an app by bundle id (repeatable)
-              --window ID     target one specific window id
-              --frame, -f     print the target window's bounds and exit
-              --vertical, -v  vertical (tategaki) reading order
-              --watch, -w     re-capture continuously
-              --interval N    seconds between captures in watch mode (default 1.5)
-              --json, -j      emit NDJSON with per-character boxes
-              --out PATH, -o  write text to PATH (default: stdout)
-            """)
+                  --list          list matching windows and exit
+                  --list-all      list every capturable window as JSON and exit
+                  --events        stream global modifier/click events as NDJSON
+                  --modifier NAME shift|control|option|command (default shift)
+                  --dump PATH     write the captured frame to a PNG (diagnostics)
+                  --image PATH    recognize a PNG from disk instead of capturing
+                  --assume-horizontal  debug: pre-commit horizontal orientation
+                                  (exercises the committed-horizontal paths headlessly)
+                  --engine NAME   auto|vision|livetext (default auto)
+                  --votes N       re-OCR a static page up to N times and majority-
+                                  vote per character (default 3; 0/1 disables)
+                  --vote-every N  vote on every Nth unchanged pass (default 2)
+                  --check-permission  report Screen Recording status as JSON
+                  --bundle ID     target an app by bundle id (repeatable)
+                  --window ID     target one specific window id
+                  --frame, -f     print the target window's bounds and exit
+                  --vertical, -v  vertical (tategaki) reading order
+                  --watch, -w     re-capture continuously
+                  --interval N    seconds between captures in watch mode (default 1.5)
+                  --json, -j      emit NDJSON with per-character boxes
+                  --out PATH, -o  write text to PATH (default: stdout)
+                """)
             exit(0)
         default:
             FileHandle.standardError.write("unknown argument: \(a)\n".data(using: .utf8)!)

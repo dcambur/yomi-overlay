@@ -1,0 +1,368 @@
+/* The settings window.
+ *
+ * Split out of settings.html so the markup reads as markup, and so the page
+ * can carry the same strict CSP the overlay does: with nothing inline,
+ * style-src and script-src are both 'self' and neither needs 'unsafe-inline'.
+ *
+ * Every colour is a token in the palette below and nothing further down names
+ * one directly. The palette was seven hex values repeated across thirty rules,
+ * which is how a theme ends up with four almost-identical greys — the tokens
+ * are named for the ROLE so a new rule reaches for the meaning, not a shade.
+ *
+ * Sections follow the window top to bottom: chrome, then one per tab, then the
+ * controls they share.
+ */
+
+/* --- palette --------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #1b1a1f;              /* the window itself */
+  --surface: #211f27;         /* a row or card on it */
+  --surface-tab: #26242c;     /* the selected tab */
+  --surface-control: #2d2a34; /* a button, a select */
+  --surface-selected: #2b2720;/* the chosen target window */
+
+  --line: #33313a;            /* every divider and card edge */
+  --line-control: #3d3a45;
+  --line-hover: #6f6754;
+
+  --text: #e8e4dc;
+  --text-button: #d9d3c8;     /* a button's own label */
+  --text-soft: #b9b2a1;       /* secondary lines inside a row */
+  --text-muted: #8d8778;      /* hints, units, status */
+  --text-tab: #9c958a;        /* an unselected tab */
+  --text-faint: #6f6857;      /* sizes, percentages, sub-labels */
+
+  --accent: #c8a76a;          /* selection, focus, the primary button */
+  --accent-bright: #d8b46a;   /* the progress fill, against a dark track */
+  --on-accent: #241f16;       /* text ON the accent */
+
+  --live: #4caf50;            /* visible on this Space */
+  --away: #c9a24b;            /* running, but not here */
+  --idle: #4a4750;
+}
+
+* { box-sizing: border-box; }
+
+/* --- window chrome --------------------------------------------------------- */
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  margin: 0;
+  font: 13px/1.45 -apple-system, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  flex: 0 0 auto;
+  padding: 12px 16px 0;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+main {
+  flex: 1 1 auto;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+}
+
+footer .grow { flex: 1 1 auto; }
+
+#status {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* --- tabs and panels ------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  color: var(--text-tab);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab.on {
+  border-color: var(--line);
+  background: var(--surface-tab);
+  color: var(--text);
+}
+
+.panel { display: none; }
+.panel.on { display: block; }
+
+/* A row that does not apply to the current choice. A class rather than
+   element.style.display, so the page keeps no inline styles at runtime
+   either. */
+.hidden { display: none; }
+
+/* --- explanatory text ------------------------------------------------------ */
+
+.hint {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+/* For a hint or a row that needs air above it. One value, where the markup
+   used to carry style="margin-top:10px" in one place and 8px in another. */
+.gap { margin-top: 10px; }
+
+/* The two coloured bullets in the window-picker hint. */
+.legend.live { color: var(--live); }
+.legend.away { color: var(--away); }
+
+/* --- target window --------------------------------------------------------- */
+
+.win {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.win:hover { border-color: var(--line-hover); }
+
+.win.sel {
+  border-color: var(--accent);
+  background: var(--surface-selected);
+}
+
+.win .app { font-weight: 600; }
+
+.win .title {
+  overflow: hidden;
+  max-width: 340px;
+  color: var(--text-soft);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.win .meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.win .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* One window of a multi-window app, indented under it. */
+.subwin {
+  margin-left: 24px;
+  padding: 5px 9px;
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+
+.dot.live { background: var(--live); }
+/* Running but not on the active Space (fullscreen on another desktop, hidden,
+   minimized) — still a perfectly good target. */
+.dot.away { background: var(--away); }
+
+/* --- dictionaries ---------------------------------------------------------- */
+
+/* The heading above each group: what we can fetch, what you imported. */
+.group-head { margin: 12px 0 6px; }
+
+.dict {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* Installed but unchecked: still listed, not consulted. */
+.dict.off { opacity: .45; }
+
+/* Reorder on the left, what it is in the middle, the one action on the right —
+   so the eye lands on the name and the buttons stay in a column however long
+   the titles get. */
+.dict .move {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dict .move button {
+  min-width: 20px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 13px;
+}
+
+.dict .grow {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.dict .grow .app { font-size: 12px; }
+
+.dict .grow .title {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* Progress sits with the button that started it, so it is obvious WHICH
+   dictionary is working when a list of them is on screen. */
+.dict .prog {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.dict .prog .pct {
+  color: var(--text-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.dict .prog .bar {
+  overflow: hidden;
+  width: 96px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.dict .prog .fill {
+  display: block;
+  height: 100%;
+  background: var(--accent-bright);
+  transition: width .15s linear;
+}
+
+/* A step whose size is not knowable in advance — an unmeasured download, a
+   step that reports no total. It moves without claiming a percentage. */
+.dict .prog .fill.indeterminate {
+  width: 35%;
+  animation: slide 1.1s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+
+/* --- controls -------------------------------------------------------------- */
+
+/* A labelled setting: name on the left, control after it. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.row > span:first-child {
+  flex: 0 0 110px;
+  color: var(--text-soft);
+}
+
+.row .unit {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+button {
+  padding: 2px 7px;
+  border: 1px solid var(--line-control);
+  border-radius: 5px;
+  background: var(--surface-control);
+  color: var(--text-button);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  opacity: .3;
+  cursor: default;
+}
+
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* Wins over button:hover, which would otherwise put accent text on accent. */
+.primary:hover { color: var(--on-accent) !important; }
+
+select,
+input[type=number] {
+  padding: 3px 6px;
+  border: 1px solid var(--line-control);
+  border-radius: 5px;
+  background: var(--surface-control);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+input[type=number] { width: 80px; }
+
+input[type=checkbox] { accent-color: var(--accent); }
+
+/* An archive that is on disk and not in the index. Its row has no checkbox and
+   no priority, because there is nothing to enable or to order — without a word
+   for it that reads as a bug rather than a state. */
+.dict.orphan { border-color: rgba(200,167,106,0.35); }
+.dict.orphan .title { color: var(--accent); }

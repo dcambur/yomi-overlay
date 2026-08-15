@@ -76,14 +76,12 @@ function knownDictionaries() {
     const names = Array.isArray(list)
       ? list.filter(n => typeof n === 'string' && n.trim())
       : [];
-    if (names.length) return names.map(name => ({ name, enabled: true }));
+    return names.map(name => ({ name, enabled: true }));
   } catch { /* no index has been built on this machine yet */ }
-  // Nothing installed means nothing to list. Falling back to the built-in
-  // names here would show a fresh install nine dictionaries it does not have —
-  // and the app now ships with none at all. An install predating the manifest
-  // is unaffected: its own config.json already carries the list, and load()
-  // only ADDS names that are missing from it.
-  return [];
+  // null, not []: "there is no manifest" and "the manifest is empty" mean
+  // different things. The first must leave a pre-manifest install's own list
+  // alone; the second means every dictionary really has been removed.
+  return null;
 }
 
 function load() {
@@ -91,11 +89,20 @@ function load() {
   const known = knownDictionaries();
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    // Merge so dictionaries added in a later build still appear.
-    const have = new Set((raw.dictionaries || []).map(d => d.name));
-    const merged = [...(raw.dictionaries || [])];
-    for (const d of known) {
-      if (!have.has(d.name)) merged.push({ ...d });
+    // The saved list carries the user's order and which are switched off. The
+    // manifest says what the index actually holds. Keep the first, bounded by
+    // the second: dictionaries added since appear, and a dictionary that has
+    // been REMOVED stops being listed — it used to sit in the priority list
+    // for ever, still reorderable, answering nothing.
+    const saved = raw.dictionaries || [];
+    let merged;
+    if (known === null) {
+      merged = [...saved];              // no manifest: nothing to bound it by
+    } else {
+      const inIndex = new Set(known.map(d => d.name));
+      const have = new Set(saved.map(d => d.name));
+      merged = saved.filter(d => inIndex.has(d.name));
+      for (const d of known) if (!have.has(d.name)) merged.push({ ...d });
     }
     // Merge trigger too: a config written before this setting existed has no
     // `trigger` key, and spreading `raw` over DEFAULTS would leave it undefined
@@ -103,7 +110,7 @@ function load() {
     cached = { ...DEFAULTS, ...raw, dictionaries: merged,
                trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) } };
   } catch {
-    cached = { ...JSON.parse(JSON.stringify(DEFAULTS)), dictionaries: known };
+    cached = { ...JSON.parse(JSON.stringify(DEFAULTS)), dictionaries: known || [] };
   }
   return cached;
 }

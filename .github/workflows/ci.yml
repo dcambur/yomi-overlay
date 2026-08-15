@@ -19,37 +19,52 @@ permissions:
 jobs:
   # Everything that needs neither macOS nor the ~600 MB of generated data.
   checks:
-    name: syntax, unit tests, conventions
+    name: lint, unit tests, conventions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        with: { node-version: '22' }
+        with: { node-version: '22', cache: npm }
 
-      - name: Syntax
-        run: |
-          set -e
-          find app tools test -name '*.js' -not -path '*/node_modules/*' \
-            -exec node --check {} \;
-          find . -name '*.sh' -not -path '*/node_modules/*' \
-            -exec bash -n {} \;
-          python3 -m py_compile $(find tools test -name '*.py')
+      # Dev tooling only — eslint. The app itself still ships zero runtime
+      # dependencies; see package.json.
+      - name: Install tooling
+        run: npm ci
+
+      - name: Lint
+        # The SAME script the pre-commit hook runs, so "it passed locally" and
+        # "it passes on the runner" cannot mean different things. Swift is
+        # skipped here and checked in the macOS job below, which is where a
+        # swift-format exists.
+        run: tools/lint.sh
 
       - name: Unit tests
-        # lookup.test.js needs data/index.db (~370 MB, generated, gitignored),
-        # so it is skipped here and runs locally. The suites listed below need
-        # nothing but node.
-        run: node --test test/unit/child.test.js test/unit/config.test.js
+        # Every node suite, not a chosen two. They used to need dictionaries
+        # from data/ — gitignored, and mostly commercial — so all the
+        # interesting ones were left out here and quietly skipped when anyone
+        # else ran them. They now generate the archives they need
+        # (test/unit/fixtures/), so the runner checks what a laptop checks.
+        # Not test/unit/run.sh: its renderer suite needs Electron and a display.
+        run: node --test test/unit/*.test.js
 
-      - name: Conventions
-        run: tools/check-conventions.sh
-
+      # Installs its own shellcheck, which the runner does not ship — so this
+      # is the one check tools/lint.sh cannot make here (it skips shellcheck
+      # when the binary is absent, and says so).
       - uses: ludeeus/action-shellcheck@master
         with:
           severity: warning
-          ignore_paths: app/node_modules
+          # Both of them: the root one arrived with the lint tooling, and ajv
+          # ships shell scripts of its own that we are not going to fix.
+          ignore_paths: node_modules app/node_modules
 
-  # The Swift helper only compiles on macOS, and compiling it is the check.
+  # The Swift helper only compiles on macOS, and compiling it IS the type check
+  # — there is no separate one to run.
+  #
+  # Formatting is deliberately NOT checked here. swift-format ships with Xcode,
+  # and this runner's copy breaks lines differently from the one on a laptop —
+  # measured: LiveTextEngine.swift:153, clean locally, two errors here. A gate
+  # that fails on which Xcode you happen to have is one nobody can act on, so
+  # swift-format runs in the pre-commit hook instead (tools/lint.sh swift).
   swift:
     name: build yomi
     runs-on: macos-latest

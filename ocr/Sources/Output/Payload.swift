@@ -1,8 +1,8 @@
 // The NDJSON contract with the overlay. stdout is data; stderr is
 // diagnostics.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// True when a string can go into JSON exactly as it is.
 ///
@@ -51,7 +51,8 @@ func coversJSON(frame f: CGRect) -> String {
     let items = lastOccluders.compactMap { r -> String? in
         let hit = r.intersection(f)
         guard !hit.isNull, hit.width > 1, hit.height > 1 else { return nil }
-        let pos = "\"x\":\(Int((hit.minX - f.minX).rounded(.down))),"
+        let pos =
+            "\"x\":\(Int((hit.minX - f.minX).rounded(.down))),"
             + "\"y\":\(Int((hit.minY - f.minY).rounded(.down)))"
         let size = "\"w\":\(Int(hit.width.rounded(.up))),\"h\":\(Int(hit.height.rounded(.up)))"
         return "{" + pos + "," + size + "}"
@@ -71,7 +72,8 @@ func emitIdle(json: Bool) {
 /// The every-pass "still here, nothing new" line. Carries the frame origin and
 /// the cover regions, because both move while the recognised text does not.
 func heartbeatJSON(frame f: CGRect) -> String {
-    let frameJson = "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
+    let frameJson =
+        "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
         + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))}"
     return "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),\"unchanged\":true}"
 }
@@ -79,15 +81,20 @@ func heartbeatJSON(frame f: CGRect) -> String {
 /// The watch payload. `vote` counts the passes behind this text (1 = single
 /// read); the renderer uses it to update voted corrections in place. `f` per
 /// char is the voting confidence, present only after a vote.
-func buildPayload(_ lines: [Line], frame f: CGRect, window w: CGRect,
-                  vertical: Bool, vote: Int, engine: String) -> String {
+func buildPayload(
+    _ lines: [Line], frame f: CGRect, window w: CGRect,
+    vertical: Bool, vote: Int, engine: String
+) -> String {
     // Long interpolations split into locals: the type-checker has timed out
     // on big concatenations twice before.
-    let frameJson = "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
+    let frameJson =
+        "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
         + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))}"
-    let windowJson = "{\"x\":\(Int(w.origin.x)),\"y\":\(Int(w.origin.y)),"
+    let windowJson =
+        "{\"x\":\(Int(w.origin.x)),\"y\":\(Int(w.origin.y)),"
         + "\"width\":\(Int(w.width)),\"height\":\(Int(w.height))}"
-    let head = "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
+    let head =
+        "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
         + "\"window\":\(windowJson),"
     let meta = "\"vertical\":\(vertical),\"engine\":\"\(engine)\",\"vote\":\(vote),"
 
@@ -143,7 +150,8 @@ func emit(_ text: String, to path: String?) {
     }
     // Atomic replace so the web page never reads a half-written file.
     if (try? FileManager.default.replaceItemAt(
-        URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))) == nil {
+        URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))) == nil
+    {
         try? FileManager.default.removeItem(atPath: tmp)
         try? text.write(toFile: path, atomically: true, encoding: .utf8)
     }

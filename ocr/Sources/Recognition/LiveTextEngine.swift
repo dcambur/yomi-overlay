@@ -1,8 +1,8 @@
 // The private VisionKit binding.
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 
 // MARK: - Live Text (private VisionKit path)
 //
@@ -28,13 +28,18 @@ enum LiveText {
     // does not link. dlopen once, then look the classes up.
     private static let analyzerClass: AnyClass? = {
         if let c = NSClassFromString("VKCImageAnalyzer") { return c }
-        dlopen("/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore",
-               RTLD_NOW)
+        dlopen(
+            "/System/Library/PrivateFrameworks/VisionKitCore.framework/VisionKitCore",
+            RTLD_NOW)
         return NSClassFromString("VKCImageAnalyzer")
     }()
-    private static let requestClass: AnyClass? = NSClassFromString("VKCImageAnalyzerRequest") != nil
+    private static let requestClass: AnyClass? =
+        NSClassFromString("VKCImageAnalyzerRequest") != nil
         ? NSClassFromString("VKCImageAnalyzerRequest")
-        : { _ = analyzerClass; return NSClassFromString("VKCImageAnalyzerRequest") }()
+        : {
+            _ = analyzerClass
+            return NSClassFromString("VKCImageAnalyzerRequest")
+        }()
 
     private static var consecutiveFailures = 0
     private static var broken = false
@@ -64,12 +69,17 @@ enum LiveText {
         guard let quad = msg(obj, "quad") else { return .zero }
         let sel = NSSelectorFromString("boundingBox")
         guard let cls: AnyClass = object_getClass(quad),
-              let imp = class_getMethodImplementation(cls, sel) else { return .zero }
+            let imp = class_getMethodImplementation(cls, sel)
+        else { return .zero }
         typealias RectFn = @convention(c) (AnyObject, Selector) -> CGRect
         return unsafeBitCast(imp, to: RectFn.self)(quad, sel)
     }
 
-    private enum Outcome { case ok([RecognizedLine]); case error; case timeout }
+    private enum Outcome {
+        case ok([RecognizedLine])
+        case error
+        case timeout
+    }
 
     /// One analysis pass over `image`. nil = the engine failed this pass and
     /// the caller must fall back to Vision.
@@ -85,35 +95,46 @@ enum LiveText {
     /// one shape that frees the main thread to drain while VisionKit works.
     static func analyze(_ image: CGImage) async -> [RecognizedLine]? {
         guard usable,
-              let anaCls: AnyObject = analyzerClass,
-              let reqCls: AnyObject = requestClass else { return nil }
+            let anaCls: AnyObject = analyzerClass,
+            let reqCls: AnyObject = requestClass
+        else { return nil }
 
-        let nsImage = NSImage(cgImage: image,
-                              size: NSSize(width: image.width, height: image.height))
+        let nsImage = NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height))
 
         // [[VKCImageAnalyzerRequest alloc] initWithImage:requestType:1]
         // (1 = VKAnalysisTypeText). The scalar argument rules out perform();
         // call the IMP directly.
         guard let reqAlloc = performAlloc(reqCls) else {
-            failed("alloc failed"); return nil
+            failed("alloc failed")
+            return nil
         }
         let initSel = NSSelectorFromString("initWithImage:requestType:")
         guard let reqInstCls: AnyClass = object_getClass(reqAlloc),
-              let initImp = class_getMethodImplementation(reqInstCls, initSel) else {
-            failed("initWithImage:requestType: missing"); return nil
+            let initImp = class_getMethodImplementation(reqInstCls, initSel)
+        else {
+            failed("initWithImage:requestType: missing")
+            return nil
         }
         typealias InitFn = @convention(c) (AnyObject, Selector, AnyObject, Int) -> AnyObject?
-        guard let request = unsafeBitCast(initImp, to: InitFn.self)(
-                  reqAlloc, initSel, nsImage, 1) else {
-            failed("request init returned nil"); return nil
+        guard
+            let request = unsafeBitCast(initImp, to: InitFn.self)(
+                reqAlloc, initSel, nsImage, 1)
+        else {
+            failed("request init returned nil")
+            return nil
         }
         // Same language hint as the Vision path.
-        _ = request.perform(NSSelectorFromString("setLocales:"),
-                            with: ["ja-JP", "en-US"] as NSArray)
+        _ = request.perform(
+            NSSelectorFromString("setLocales:"),
+            with: ["ja-JP", "en-US"] as NSArray)
 
         guard let anaAlloc = performAlloc(anaCls),
-              let analyzer = msg(anaAlloc, "init") else {
-            failed("analyzer init failed"); return nil
+            let analyzer = msg(anaAlloc, "init")
+        else {
+            failed("analyzer init failed")
+            return nil
         }
 
         // processRequest:progressHandler:completionHandler: — block shapes
@@ -121,19 +142,23 @@ enum LiveText {
         // completion (analysis, error).
         let procSel = NSSelectorFromString("processRequest:progressHandler:completionHandler:")
         guard let anaInstCls: AnyClass = object_getClass(analyzer),
-              let procImp = class_getMethodImplementation(anaInstCls, procSel) else {
-            failed("processRequest selector missing"); return nil
+            let procImp = class_getMethodImplementation(anaInstCls, procSel)
+        else {
+            failed("processRequest selector missing")
+            return nil
         }
         typealias ProgressBlk = @convention(block) (Double) -> Void
         typealias CompleteBlk = @convention(block) (AnyObject?, AnyObject?) -> Void
-        typealias ProcFn = @convention(c)
-            (AnyObject, Selector, AnyObject, @escaping ProgressBlk, @escaping CompleteBlk) -> Void
+        typealias ProcFn =
+            @convention(c)
+        (AnyObject, Selector, AnyObject, @escaping ProgressBlk, @escaping CompleteBlk) -> Void
 
         // Resume-once guard shared by the completion and the watchdog.
         let lock = NSLock()
         var resumed = false
         func firstResume() -> Bool {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             if resumed { return false }
             resumed = true
             return true
@@ -203,10 +228,13 @@ enum LiveText {
                         let w = box.width / CGFloat(n)
                         for (i, ch) in s.enumerated() {
                             if String(ch).trimmingCharacters(in: .whitespaces).isEmpty { continue }
-                            chars.append(RecognizedChar(ch: String(ch),
-                                              box: CGRect(x: box.minX + CGFloat(i) * w,
-                                                          y: box.minY,
-                                                          width: w, height: box.height)))
+                            chars.append(
+                                RecognizedChar(
+                                    ch: String(ch),
+                                    box: CGRect(
+                                        x: box.minX + CGFloat(i) * w,
+                                        y: box.minY,
+                                        width: w, height: box.height)))
                         }
                     }
                 }

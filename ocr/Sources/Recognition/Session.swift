@@ -11,8 +11,8 @@
 // and recognize() reports back what shape the flat read came out as, and both
 // have to be visible to the caller afterwards.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 final class RecognitionSession {
     /// Which way the page's text runs. Sticky across passes: probing both
@@ -41,9 +41,11 @@ final class RecognitionSession {
     /// which is why it is readable but not writable from outside.
     private(set) var lastLoggedEngine = ""
 
-    init(orientation: Orientation = .unknown,
-         engineMode: EngineMode = .auto,
-         debugDumpPath: String? = nil) {
+    init(
+        orientation: Orientation = .unknown,
+        engineMode: EngineMode = .auto,
+        debugDumpPath: String? = nil
+    ) {
         self.orientation = orientation
         self.engineMode = engineMode
         self.debugDumpPath = debugDumpPath
@@ -51,9 +53,10 @@ final class RecognitionSession {
 
     /// The session a command runs with.
     convenience init(_ opts: Options) {
-        self.init(orientation: opts.assumeHorizontal ? .horizontal : .unknown,
-                  engineMode: opts.engine,
-                  debugDumpPath: opts.dumpPath)
+        self.init(
+            orientation: opts.assumeHorizontal ? .horizontal : .unknown,
+            engineMode: opts.engine,
+            debugDumpPath: opts.dumpPath)
     }
 
     /// Write a diagnostic the first time, and again only when it changes.

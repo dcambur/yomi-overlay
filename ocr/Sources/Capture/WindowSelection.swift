@@ -1,9 +1,9 @@
 // Which window the user is actually looking at, and how much of it they
 // can see. ARCHITECTURE section 2 and 3 live here.
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 import ScreenCaptureKit
 
 // Default target when none is specified. Any window can be targeted instead —
@@ -95,7 +95,8 @@ func onScreenSignature(_ infos: [[String: Any]]) -> UInt64 {
 /// unchanged, a fresh enumeration otherwise.
 func sharedContent(matching sig: UInt64) async throws -> SCShareableContent {
     if let c = cachedContent, sig == cachedContentSig,
-       Date().timeIntervalSince(cachedContentAt) < contentMaxAge {
+        Date().timeIntervalSince(cachedContentAt) < contentMaxAge
+    {
         lastContentWasCached = true
         return c
     }
@@ -176,8 +177,9 @@ func chooseWindow() async throws -> TargetWindow? {
     // whatever the user is actually looking at is by definition what the
     // window server is compositing, and anything else is not capturable
     // anyway (no pixels on an inactive Space).
-    let infos = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+    let infos =
+        CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
         as? [[String: Any]] ?? []
     var rank: [CGWindowID: Int] = [:]
     // Frames from the same list, not from SCWindow: the enumeration behind
@@ -192,7 +194,10 @@ func chooseWindow() async throws -> TargetWindow? {
 
     let content = try await sharedContent(matching: onScreenSignature(infos))
     let windows = content.windows.filter(target.matches)
-    guard !windows.isEmpty else { lastOccluders = []; return nil }
+    guard !windows.isEmpty else {
+        lastOccluders = []
+        return nil
+    }
 
     // Second guard, for the parked-window case: the window server moves a
     // window belonging to another Space outside the desktop (x of -1459 and
@@ -211,18 +216,22 @@ func chooseWindow() async throws -> TargetWindow? {
     let live: [TargetWindow] = windows.compactMap { w in
         // Skip tiny helper/utility windows; the reader window is the big one.
         guard rank[w.windowID] != nil, let f = frames[w.windowID],
-              f.width > 200, f.height > 200,
-              visibleFraction(of: w.windowID, frame: f, in: infos, rank: rank) >= 0.5
+            f.width > 200, f.height > 200,
+            visibleFraction(of: w.windowID, frame: f, in: infos, rank: rank) >= 0.5
         else { return nil }
         return TargetWindow(window: w, frame: f, content: content)
     }
     guard let chosen = live.min(by: { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max })
-    else { lastOccluders = []; return nil }
+    else {
+        lastOccluders = []
+        return nil
+    }
     // Partial cover is the common case — a chat window over half the reader.
     // The consumer needs the regions themselves, not just the verdict, so it
     // can refuse lookups on glyphs that are behind another window.
-    lastOccluders = occluders(of: chosen.windowID, frame: chosen.frame,
-                              in: infos, rank: rank)
+    lastOccluders = occluders(
+        of: chosen.windowID, frame: chosen.frame,
+        in: infos, rank: rank)
     return chosen
 }
 
@@ -237,8 +246,10 @@ var lastContentWasCached = false
 /// Sampled on a grid rather than by rect subtraction — overlapping occluders
 /// double-count in an area sum, and 400 point tests are exact enough for a
 /// threshold at a cost that does not matter.
-func visibleFraction(of id: CGWindowID, frame f: CGRect,
-                     in infos: [[String: Any]], rank: [CGWindowID: Int]) -> CGFloat {
+func visibleFraction(
+    of id: CGWindowID, frame f: CGRect,
+    in infos: [[String: Any]], rank: [CGWindowID: Int]
+) -> CGFloat {
     let displays = displayFrames()
     guard f.width > 0, f.height > 0, !displays.isEmpty else { return 1 }
     let covered = occluders(of: id, frame: f, in: infos, rank: rank)
@@ -280,15 +291,18 @@ func displayFrames() -> [CGRect] {
 ///
 /// Deliberately app-agnostic, like the selection above it: whatever the window
 /// server composites in front of the reader is what the user is looking at.
-func occluders(of id: CGWindowID, frame: CGRect,
-               in infos: [[String: Any]], rank: [CGWindowID: Int]) -> [CGRect] {
+func occluders(
+    of id: CGWindowID, frame: CGRect,
+    in infos: [[String: Any]], rank: [CGWindowID: Int]
+) -> [CGRect] {
     guard let mine = rank[id] else { return [] }
     var out: [CGRect] = []
     // The list is front to back, so everything ahead of the target is on top.
     for info in infos.prefix(mine) {
         guard (info[kCGWindowLayer as String] as? Int) == 0,
-              ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.05,
-              let r = windowRect(info) else { continue }
+            ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0.05,
+            let r = windowRect(info)
+        else { continue }
         let hit = r.intersection(frame)
         if !hit.isNull, hit.width > 1, hit.height > 1 { out.append(hit) }
     }
@@ -305,17 +319,20 @@ func occluders(of id: CGWindowID, frame: CGRect,
 /// Waiting for the next capture meant riding along for a whole pass —
 /// measured 0.7s, and up to 1.3s when the pass includes an OCR read.
 func stillVisible(_ id: CGWindowID) -> Bool {
-    let infos = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+    let infos =
+        CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
         as? [[String: Any]] ?? []
     var rank: [CGWindowID: Int] = [:]
     for (i, info) in infos.enumerated() {
         if let n = info[kCGWindowNumber as String] as? Int { rank[CGWindowID(n)] = i }
     }
     // Off the active Space entirely: the window server stops listing it.
-    guard let info = infos.first(where: {
-        ($0[kCGWindowNumber as String] as? Int).map(CGWindowID.init) == id
-    }), let frame = windowRect(info) else { return false }
+    guard
+        let info = infos.first(where: {
+            ($0[kCGWindowNumber as String] as? Int).map(CGWindowID.init) == id
+        }), let frame = windowRect(info)
+    else { return false }
     return visibleFraction(of: id, frame: frame, in: infos, rank: rank) >= 0.5
 }
 
@@ -324,11 +341,12 @@ func stillVisible(_ id: CGWindowID) -> Bool {
 /// dictionary to [String: CGFloat] silently yields nil and drops every window.
 func windowRect(_ info: [String: Any]) -> CGRect? {
     guard let b = info[kCGWindowBounds as String] as? [String: Any],
-          let x = (b["X"] as? NSNumber)?.doubleValue,
-          let y = (b["Y"] as? NSNumber)?.doubleValue,
-          let w = (b["Width"] as? NSNumber)?.doubleValue,
-          let h = (b["Height"] as? NSNumber)?.doubleValue,
-          w > 0, h > 0 else { return nil }
+        let x = (b["X"] as? NSNumber)?.doubleValue,
+        let y = (b["Y"] as? NSNumber)?.doubleValue,
+        let w = (b["Width"] as? NSNumber)?.doubleValue,
+        let h = (b["Height"] as? NSNumber)?.doubleValue,
+        w > 0, h > 0
+    else { return nil }
     return CGRect(x: x, y: y, width: w, height: h)
 }
 
@@ -348,7 +366,8 @@ func isTargetFrontmost() -> Bool {
     // against that set would reject every non-Kindle pinned window and gate off
     // the fullscreen fallback entirely — resolve the window's real owner instead.
     if let wid = target.windowID {
-        let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, wid)
+        let info =
+            CGWindowListCopyWindowInfo(.optionIncludingWindow, wid)
             as? [[String: Any]] ?? []
         guard let owner = info.first?[kCGWindowOwnerPID as String] as? pid_t else {
             return false

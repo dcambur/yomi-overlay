@@ -17,7 +17,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const DICTS = path.join(ROOT, 'data', 'dicts');
+const mk = require('./fixtures/make-dictionary.js');
 
 process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-prune-'));
 const dictionaries = require(path.join(ROOT, 'app/main/dictionaries.js'));
@@ -26,12 +26,18 @@ const { build } = require(path.join(ROOT, 'app/main/index-builder.js'));
 assert.ok(dictionaries.DICTS_DIR.startsWith(process.env.YOMI_USER_DIR),
           `refusing to run: would write to ${dictionaries.DICTS_DIR}`);
 
-// Two term dictionaries and a frequency list, so the comparison covers a
-// removal that leaves neighbours behind and a freq source that must survive.
-const PICKS = ['gram-donna.zip', 'KANJIDIC_english.zip',
-               'JPDB_v2.2_Frequency_Kana_2024-10-13.zip']
-  .filter((n) => fs.existsSync(path.join(DICTS, n)));
-const DROP = 'gram-donna.zip';
+// A term dictionary to remove, another to leave behind, a kanji dictionary and
+// a frequency list — so the comparison covers a removal with neighbours either
+// side of it and a freq source that must survive untouched.
+const SRC = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-src-'));
+// Big enough that its rows span many database pages: reclaiming space is only
+// observable when there is a page's worth to reclaim.
+mk.termDictionary(path.join(SRC, 'drop.zip'), { title: 'Drop', entries: 3000 });
+mk.termDictionary(path.join(SRC, 'keep.zip'), { title: 'Keep', entries: 10 });
+mk.kanjiDictionary(path.join(SRC, 'kanji.zip'), { title: 'Kanji' });
+mk.freqDictionary(path.join(SRC, 'freq_x.zip'), { title: 'Freq' });
+const PICKS = ['drop.zip', 'keep.zip', 'kanji.zip', 'freq_x.zip'];
+const DROP = 'drop.zip';
 
 /** Everything that defines an index's answers, as comparable rows. */
 function snapshot(file) {
@@ -47,17 +53,16 @@ function snapshot(file) {
   return out;
 }
 
-test('pruning a dictionary equals never having built it', {
-  skip: PICKS.length >= 2 && PICKS.includes(DROP) ? false : 'needs sample dictionaries',
-}, async (t) => {
+test('pruning a dictionary equals never having built it', async (t) => {
   const tmp = process.env.YOMI_USER_DIR;
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  t.after(() => { fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(SRC, { recursive: true, force: true }); });
 
   // The index we expect to end up with: built from everything except DROP.
   const refDir = path.join(tmp, 'ref');
   fs.mkdirSync(refDir, { recursive: true });
   for (const n of PICKS) {
-    if (n !== DROP) fs.copyFileSync(path.join(DICTS, n), path.join(refDir, n));
+    if (n !== DROP) fs.copyFileSync(path.join(SRC, n), path.join(refDir, n));
   }
   const refDb = path.join(tmp, 'ref.db');
   build(refDir, refDb);
@@ -65,7 +70,7 @@ test('pruning a dictionary equals never having built it', {
   // The index we actually have: built from everything, then pruned.
   fs.mkdirSync(dictionaries.DICTS_DIR, { recursive: true });
   for (const n of PICKS) {
-    fs.copyFileSync(path.join(DICTS, n), path.join(dictionaries.DICTS_DIR, n));
+    fs.copyFileSync(path.join(SRC, n), path.join(dictionaries.DICTS_DIR, n));
   }
   build(dictionaries.DICTS_DIR, dictionaries.INDEX_PATH);
 
@@ -109,5 +114,30 @@ test('pruning a dictionary equals never having built it', {
     const labels = dictionaries.writeManifest();
     assert.ok(!labels.includes(label), `${label} is gone from the manifest`);
     assert.ok(labels.length > 0, 'the others are still there');
+  });
+
+  await t.test('the pages the dictionary used are given back', () => {
+    // Deleting rows frees pages inside the file without shrinking it, so an
+    // index that has had a dictionary taken out keeps the size it had with the
+    // dictionary in. Free pages rather than bytes on disk: it is the same fact
+    // without depending on the page size or on when SQLite decides to truncate.
+    const db = new DatabaseSync(dictionaries.INDEX_PATH, { readOnly: true });
+    const free = db.prepare('PRAGMA freelist_count').get();
+    db.close();
+    assert.strictEqual(Object.values(free)[0], 0, 'nothing left unreclaimed');
+  });
+
+  await t.test('removing the last dictionary leaves no index behind', () => {
+    for (const d of dictionaries.installed()) {
+      dictionaries.remove(d.file);
+      dictionaries.prune(d.label);
+    }
+    // An index of nothing is not a smaller index: it is 448 MB of pages that
+    // answer no lookup, and the app treats a missing index as "none yet",
+    // which is the state the user is actually in.
+    assert.ok(!fs.existsSync(dictionaries.INDEX_PATH),
+              'the empty index was deleted, not left at full size');
+    assert.deepStrictEqual(dictionaries.writeManifest(), [],
+                           'and nothing is listed as installed');
   });
 });

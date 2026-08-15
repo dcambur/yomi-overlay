@@ -1,0 +1,11 @@
+{
+  "name": "yomi-overlay-tooling",
+  "private": true,
+  "description": "Dev tooling for the repository. The app itself is app/package.json and ships no runtime dependencies.",
+  "scripts": {
+    "lint": "tools/lint.sh"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5"
+  }
+}

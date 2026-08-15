@@ -197,7 +197,9 @@ module.exports = {
   trackTarget,
   setInteractive,
   reset,
-  send: (channel, ...a) => { if (win && !win.isDestroyed()) win.webContents.send(channel, ...a); },
+  send: (channel, ...a) => {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, ...a);
+  },
   get window() { return win; },
   isVisible: () => !!win && !win.isDestroyed() && win.isVisible(),
   bounds: () => (win ? win.getBounds() : null),

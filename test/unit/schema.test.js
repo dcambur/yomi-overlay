@@ -7,8 +7,11 @@
 // storage saving is worth — so lookup.js reads either, and this asks the same
 // question of both and requires the same answer.
 //
-// Skips unless both shapes are available: the old one is whatever is in data/,
-// the new one is built here from a small dictionary.
+// Both indexes are built here, from dictionaries generated for the purpose: the
+// old one by running the old builder's own loaders (fixtures/legacy-index.js),
+// the new one by app/main/index-builder.js. Nothing is read from data/, so the
+// compatibility guarantee is checked on a runner and in a fresh clone rather
+// than only on a machine that happens to have an old index lying around.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -18,41 +21,59 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const OLD_DB = path.join(ROOT, 'data', 'index.db');
-const DICTS = path.join(ROOT, 'data', 'dicts');
-const SAMPLE = 'gram-dojg.zip';
+
+// Point the app's data directory at a scratch one BEFORE anything reads it:
+// lookup.js shows only the dictionaries settings has enabled, so it needs a
+// config that has heard of this test's dictionary. Set here rather than inside
+// the test because paths.js resolves it when it is first required.
+const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-home-'));
+process.env.YOMI_USER_DIR = HOME;
+
+const mk = require('./fixtures/make-dictionary.js');
+const legacy = require('./fixtures/legacy-index.js');
+const SAMPLE = 'sample.zip';
+const LABEL = 'Sample';
 
 function schemaOf(file) {
   const db = new DatabaseSync(file, { readOnly: true });
   const n = db.prepare(
-    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'"
+    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'",
   ).get().n;
   db.close();
   return n > 0 ? 'structured' : 'flat';
 }
 
-const haveOld = fs.existsSync(OLD_DB);
-const haveDicts = fs.existsSync(path.join(DICTS, SAMPLE));
-
 test('lookup reads both index schemas', {
-  skip: haveOld && haveDicts ? false : 'needs data/index.db and data/dicts/',
+  // The old shape can only be produced by the old builder, which is Python.
+  skip: legacy.available() ? false : 'no python3 to build an old-shape index',
 }, async (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-schema-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  fs.copyFileSync(path.join(DICTS, SAMPLE), path.join(dicts, SAMPLE));
+  fs.writeFileSync(path.join(HOME, 'dictionaries.json'), JSON.stringify([LABEL]));
+  fs.writeFileSync(path.join(HOME, 'config.json'),
+                   JSON.stringify({ dictionaries: [{ name: LABEL, enabled: true }] }));
+  // Plain glossaries: the one shape both builders store the same way, so a
+  // difference in the answer is a difference in the SCHEMA, not the content.
+  mk.termDictionary(path.join(dicts, SAMPLE),
+                    { title: LABEL, entries: 8, shape: 'plain' });
+  const OLD_DB = path.join(tmp, 'old.db');
+  legacy.build(dicts, OLD_DB, { [SAMPLE]: LABEL });
   const newDb = path.join(tmp, 'index.db');
   require(path.join(ROOT, 'app/main/index-builder.js')).build(dicts, newDb);
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  t.after(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(HOME, { recursive: true, force: true });
+  });
 
   await t.test('the two fixtures really are different shapes', () => {
-    assert.strictEqual(schemaOf(OLD_DB), 'flat', 'data/index.db is the old shape');
+    assert.strictEqual(schemaOf(OLD_DB), 'flat', 'the Python one is the old shape');
     assert.strictEqual(schemaOf(newDb), 'structured', 'the built one is the new shape');
   });
 
-  // A word DOJG defines, so it is present in the small built index; the old
-  // full index has it too.
-  const WORD = ['あ', 'げ', 'る'];
+  // A headword the fixture defines, as the deinflector hands it over: one
+  // character per element.
+  const WORD = Array.from('語3');
 
   await t.test('an old index still answers', () => {
     const lookup = require(path.join(ROOT, 'app/main/lookup.js'));

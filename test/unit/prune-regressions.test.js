@@ -13,7 +13,12 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const DICTS = path.join(ROOT, 'data', 'dicts');
+const mk = require('./fixtures/make-dictionary.js');
+const DICTS = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-src-'));
+mk.termDictionary(path.join(DICTS, 'terms.zip'), { title: 'Terms', entries: 12 });
+mk.kanjiDictionary(path.join(DICTS, 'kanji.zip'), { title: 'Kanji' });
+const PITCH_ENTRIES = 40;
+mk.pitchDictionary(path.join(DICTS, 'pitch_y.zip'), { title: 'Pitch', entries: PITCH_ENTRIES });
 
 process.env.YOMI_USER_DIR = process.env.YOMI_USER_DIR
   || fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-reg-'));
@@ -23,7 +28,6 @@ const { build } = require(path.join(ROOT, 'app/main/index-builder.js'));
 assert.ok(!dictionaries.INDEX_PATH.startsWith(ROOT),
           `refusing to run: index path is ${dictionaries.INDEX_PATH}`);
 
-const have = (n) => fs.existsSync(path.join(DICTS, n));
 
 test('an index built before the dict columns is not silently mangled', () => {
   // The shape the previous commit produced: structured glossaries, but no way
@@ -62,13 +66,12 @@ test('an index built before the dict columns is not silently mangled', () => {
 });
 
 test('the manifest derived from the database matches build order', {
-  skip: have('gram-donna.zip') && have('KANJIDIC_english.zip')
-    ? false : 'needs sample dictionaries',
+  skip: false,
 }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-man-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  for (const n of ['gram-donna.zip', 'KANJIDIC_english.zip']) {
+  for (const n of ['terms.zip', 'kanji.zip']) {
     fs.copyFileSync(path.join(DICTS, n), path.join(dicts, n));
   }
   // build() writes the manifest from the order it loaded dictionaries in, and
@@ -88,16 +91,18 @@ test('the manifest derived from the database matches build order', {
 });
 
 test('pitch rows still load after the column was added', {
-  skip: have('pitch-nhk.zip') ? false : 'no pitch dictionary',
+  skip: false,
 }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-pitch-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  fs.copyFileSync(path.join(DICTS, 'pitch-nhk.zip'), path.join(dicts, 'pitch-nhk.zip'));
+  fs.copyFileSync(path.join(DICTS, 'pitch_y.zip'), path.join(dicts, 'pitch_y.zip'));
   const out = path.join(tmp, 'index.db');
   const r = build(dicts, out);
-  assert.ok(r.counts['pitch-nhk.zip'] > 1000,
-            `pitch records loaded (${r.counts['pitch-nhk.zip']})`);
+  // Exactly what the fixture holds: the regression this guards was pitch rows
+  // silently loading as zero once `dict` was added, so an exact count says more
+  // than a threshold.
+  assert.strictEqual(r.counts['pitch_y.zip'], PITCH_ENTRIES, 'every pitch record loaded');
 
   const db = new DatabaseSync(out, { readOnly: true });
   const row = db.prepare('SELECT term, reading, position, dict FROM pitch LIMIT 1').get();
@@ -108,12 +113,12 @@ test('pitch rows still load after the column was added', {
 });
 
 test('lookup still opens an index that has the new columns', {
-  skip: have('gram-donna.zip') ? false : 'needs a sample dictionary',
+  skip: false,
 }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-look-'));
   const dicts = path.join(tmp, 'dicts');
   fs.mkdirSync(dicts);
-  fs.copyFileSync(path.join(DICTS, 'gram-donna.zip'), path.join(dicts, 'gram-donna.zip'));
+  fs.copyFileSync(path.join(DICTS, 'terms.zip'), path.join(dicts, 'terms.zip'));
   const out = path.join(tmp, 'index.db');
   build(dicts, out);
 

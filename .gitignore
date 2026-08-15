@@ -17,6 +17,7 @@ __pycache__/
 data/
 bin/
 
+node_modules/
 app/node_modules/
 test/node_modules/
 

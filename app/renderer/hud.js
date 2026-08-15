@@ -3,12 +3,12 @@
 (() => {
   const hud = document.getElementById('hud');
 
-function showHud(msg, ms = 2600) {
-  hud.innerHTML = msg;
-  hud.classList.add('show');
-  clearTimeout(showHud._t);
-  showHud._t = setTimeout(() => hud.classList.remove('show'), ms);
-}
+  function showHud(msg, ms = 2600) {
+    hud.innerHTML = msg;
+    hud.classList.add('show');
+    clearTimeout(showHud._t);
+    showHud._t = setTimeout(() => hud.classList.remove('show'), ms);
+  }
 
   window.hud = {
     element: hud,

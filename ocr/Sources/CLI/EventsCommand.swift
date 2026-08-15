@@ -2,9 +2,9 @@
 // capture or recognition; it exists because the overlay panel cannot
 // see these events itself.
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 
 /// Streams global Shift presses and clicks as NDJSON.
 ///
@@ -19,9 +19,9 @@ func streamEvents(modifier: String) {
     let flag: NSEvent.ModifierFlags
     switch modifier {
     case "control", "ctrl": flag = .control
-    case "option", "alt":   flag = .option
-    case "command", "cmd":  flag = .command
-    default:                flag = .shift
+    case "option", "alt": flag = .option
+    case "command", "cmd": flag = .command
+    default: flag = .shift
     }
     var wasDown = false
 

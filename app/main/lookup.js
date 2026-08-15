@@ -32,7 +32,14 @@ let transformer = null;
 let orderCache = null;
 function refreshOrder() {
   const list = cfg.enabledDictionaries();
-  orderCache = { list, index: new Map(list.map((n, i) => [n, i])) };
+  // Everything settings has an opinion about, enabled or not. A name it has
+  // never heard of is a different thing from one that was switched off, and
+  // conflating them hid data: the frequency filter added below reads this, and
+  // an index built before frequency sources reached the manifest has JPDB in
+  // it and not in the config — so every frequency chip silently vanished until
+  // the next rebuild.
+  const known = new Set((cfg.load().dictionaries || []).map((d) => d.name));
+  orderCache = { list, known, index: new Map(list.map((n, i) => [n, i])) };
   return orderCache;
 }
 function rank(d) {
@@ -41,7 +48,11 @@ function rank(d) {
   return i === undefined ? o.list.length : i;
 }
 function visible(d) {
-  return (orderCache || refreshOrder()).index.has(d);
+  const o = orderCache || refreshOrder();
+  // Switched off means hidden. Never heard of means shown: a dictionary the
+  // config does not list yet is one the settings window has not caught up
+  // with, and showing it is the honest degradation.
+  return o.index.has(d) || !o.known.has(d);
 }
 
 /** Drop the handle so the next open() sees a newly imported index. */
@@ -68,7 +79,7 @@ function open(at) {
     // their words stopped working because the app updated is the worse
     // failure — so both are read, and which one this is is asked once.
     structured = db.prepare(
-      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'"
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='glosses'",
     ).get().n > 0;
     // No LIMIT here. A SQL limit is applied before the visibility filter and
     // before ranking, so it silently starves whole dictionaries: 「こう」has 313
@@ -79,13 +90,25 @@ function open(at) {
       ? 'SELECT t.reading, g.blob AS gloss, t.dict, t.score FROM terms t'
         + ' JOIN glosses g ON g.id = t.gloss WHERE t.key = ?'
       : 'SELECT reading, gloss, dict, score FROM terms WHERE key = ?');
-    qKanji = db.prepare('SELECT on_yomi, kun_yomi, meanings FROM kanji WHERE char = ?');
+    // `dict` too, WHEN the index has it: the row itself says which dictionary
+    // answered, so the fallback works for any kanji dictionary rather than one
+    // named KANJIDIC. An index built by the Python builder has no such column,
+    // and asking for it there threw inside open() — which failed the whole
+    // index, not just its kanji, and is exactly the "your words stopped
+    // working because the app updated" failure the two schemas exist to avoid.
+    const kanjiHasDict = db.prepare('PRAGMA table_info(kanji)').all()
+      .some((c) => c.name === 'dict');
+    qKanji = db.prepare(kanjiHasDict
+      ? 'SELECT on_yomi, kun_yomi, meanings, dict FROM kanji WHERE char = ?'
+      : "SELECT on_yomi, kun_yomi, meanings, 'KANJIDIC' AS dict FROM kanji"
+        + ' WHERE char = ?');
     qPitch = db.prepare('SELECT reading, position FROM pitch WHERE term = ? LIMIT 4');
     qFreq = db.prepare('SELECT source, value FROM freq WHERE term = ?');
     return true;
   } catch (e) {
     console.error('lookup: cannot open index.db —', e.message);
-    console.error('add a dictionary from the settings window (\u8aad -> Settings -> Dictionaries)');
+    console.error('add a dictionary from the settings window'
+                  + ' (\u8aad -> Settings -> Dictionaries)');
     return false;
   }
 }
@@ -106,17 +129,22 @@ async function initTransformer() {
  * the surface itself first, then Yomitan's derived forms.
  */
 function deinflect(surface) {
-  if (!transformer) return [surface];
+  if (!transformer) return [{ text: surface, route: [] }];
   const seen = new Set();
   const out = [];
   for (const r of transformer.transform(surface)) {
     if (seen.has(r.text)) continue;
     seen.add(r.text);
-    out.push({ text: r.text, steps: r.trace ? r.trace.length : 0 });
+    // The trace names each step it took ("-た", "polite", "potential"). It is
+    // kept, not just counted: how a word on the page reaches its dictionary
+    // form is the thing a learner is trying to see, and the transformer is
+    // the only place that knows.
+    const route = (r.trace || []).map(t => t.transform).filter(Boolean);
+    out.push({ text: r.text, route, steps: route.length });
   }
   // Fewest transformations first — the least tortured reading is usually right.
   out.sort((a, b) => a.steps - b.steps);
-  return out.map(o => o.text);
+  return out;
 }
 
 /**
@@ -141,12 +169,19 @@ function buildEntries(rows, hint) {
     } catch { g = [String(r.gloss)]; }
     // Drop entries that are just a reading fragment with no real content.
     if (g.length === 1 && g[0].length <= 2 && g[0] === r.reading) continue;
-    entries.push({ reading: r.reading, dict: r.dict, glosses: g });
+    entries.push({ reading: r.reading, dict: r.dict, glosses: g,
+                   score: typeof r.score === 'number' ? r.score : 0 });
     if (typeof r.score === 'number') score = Math.max(score, r.score);
   }
   if (!entries.length) return null;
 
-  entries.sort((a, b) => rank(a.dict) - rank(b.dict));
+  // Dictionary order first, then the dictionary's own score. The score is the
+  // popularity marker a Yomitan term bank carries — JMdict's news/ichi/spec
+  // tags become a positive number — and ignoring it is why 神 led with しん
+  // (score 0) instead of かみ (score 200): the tie fell through to rowid
+  // order. Yomitan sorts on it too (translator.js, dictionaryOrder then
+  // score desc).
+  entries.sort((a, b) => rank(a.dict) - rank(b.dict) || b.score - a.score);
 
   // Furigana hint (Phase 4): the page itself printed this word's reading
   // beside it. Prefer entries whose reading it contains — the ruby beside
@@ -210,7 +245,7 @@ function lookup(input, maxLen = 12, hint = null) {
 
     const cands = deinflect(surface);
     for (let ci = 0; ci < cands.length; ci++) {
-      const cand = cands[ci];
+      const { text: cand, route } = cands[ci];
       if (seenTerm.has(cand)) continue;   // found via a longer source already
       const rows = qTerm.all(cand);
       if (!rows.length) continue;
@@ -219,12 +254,20 @@ function lookup(input, maxLen = 12, hint = null) {
       seenTerm.add(cand);
 
       const pitch = qPitch.all(cand).map(p => ({ reading: p.reading, position: p.position }));
-      const freq = qFreq.all(cand).map(f => ({ source: f.source, value: f.value }));
-      freq.sort((a, b) => a.value - b.value);
+      const freq = qFreq.all(cand)
+        .map(f => ({ source: f.source, value: f.value }))
+        .filter(f => visible(f.source));
+      // Settings order first, then the rank itself. A frequency list is a
+      // dictionary like any other in the priority list, and if its position
+      // there changed nothing the arrows beside it would be a lie — the popup
+      // shows two chips, so which two is exactly what the order decides.
+      freq.sort((a, b) => rank(a.source) - rank(b.source) || a.value - b.value);
 
       groups.push({
         surface,
         base: cand !== surface ? cand : null,
+        // How the surface form was reached, outermost step first.
+        route: cand !== surface ? route : [],
         // Counted in glyphs, so the caller can highlight exactly this many spans.
         matchLength: len,
         entries: built.entries,
@@ -253,7 +296,13 @@ function lookup(input, maxLen = 12, hint = null) {
   // No word matched — fall back to the single kanji. Index the glyph array, not
   // the raw string: text[0] would hand a lone surrogate half to the query.
   const ch = glyphs[0].normalize('NFKC');
-  const k = visible('KANJIDIC') ? qKanji.get(ch) : null;
+  // Whatever kanji dictionary holds the character, checked for visibility by
+  // its own name. This used to be gated on the literal label "KANJIDIC", so a
+  // reader who installed any other kanji dictionary got no fallback at all —
+  // the index-builder recognises one by its kanji_bank files, and nothing else
+  // should need to recognise it by name.
+  const row = qKanji.get(ch);
+  const k = row && visible(row.dict) ? row : null;
   if (k) {
     let meanings;
     try { meanings = JSON.parse(k.meanings); } catch { meanings = []; }
@@ -264,7 +313,7 @@ function lookup(input, maxLen = 12, hint = null) {
         // dictionary does, instead of one undifferentiated slash-run.
         reading: [k.on_yomi, k.kun_yomi].filter(Boolean).join(' / '),
         on: k.on_yomi || '', kun: k.kun_yomi || '',
-        dict: 'KANJIDIC',
+        dict: k.dict || 'kanji',
         glosses: meanings.slice(0, 5),
       }],
       pitch: [], freq: [],

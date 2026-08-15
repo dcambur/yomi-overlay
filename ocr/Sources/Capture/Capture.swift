@@ -5,9 +5,9 @@
 // display, another app, or the desktop. If no target window is found the tool
 // exits non-zero rather than falling back to anything broader.
 
-import Foundation
-import CoreGraphics
 import AppKit
+import CoreGraphics
+import Foundation
 import ScreenCaptureKit
 
 // Turning a chosen window into pixels plus truthful geometry.
@@ -71,8 +71,9 @@ func contentExtent(_ image: CGImage, scale: CGFloat) -> CGSize? {
     let bpp = max(1, image.bitsPerPixel / 8)
     guard bpp >= 4 else { return nil }
 
-    var maxX = 0, maxY = 0
-    let step = 8      // coarse: a few thousand samples, not eleven million
+    var maxX = 0
+    var maxY = 0
+    let step = 8  // coarse: a few thousand samples, not eleven million
     for y in stride(from: 0, to: image.height, by: step) {
         let row = y * bpr
         for x in stride(from: 0, to: image.width, by: step) {
@@ -86,8 +87,9 @@ func contentExtent(_ image: CGImage, scale: CGFloat) -> CGSize? {
     }
     guard maxX > 0, maxY > 0 else { return nil }
     // The sample grid can miss up to `step` pixels of the trailing edge.
-    return CGSize(width: CGFloat(min(maxX + step, image.width)) / scale,
-                  height: CGFloat(min(maxY + step, image.height)) / scale)
+    return CGSize(
+        width: CGFloat(min(maxX + step, image.width)) / scale,
+        height: CGFloat(min(maxY + step, image.height)) / scale)
 }
 
 /// Races the capture against a deadline. SCScreenshotManager can stall
@@ -160,8 +162,10 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
     // learn the same thing twice.
     let content = target.content
     let frame = target.frame
-    guard let display = content.displays.first(where: { $0.frame.intersects(frame) })
-            ?? content.displays.first else {
+    guard
+        let display = content.displays.first(where: { $0.frame.intersects(frame) })
+            ?? content.displays.first
+    else {
         throw CaptureError.noDisplay
     }
 
@@ -177,8 +181,9 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
     do {
         let others = content.windows.filter { $0.windowID != window.windowID }
         let filter = SCContentFilter(display: display, excludingWindows: others)
-        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
-                      display: display)
+        return finish(
+            try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
+            display: display)
     } catch {
         // Some fullscreen Spaces refuse the display filter (-3811). Including
         // just this window behaves the same way for coordinates: content at the
@@ -190,11 +195,13 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
         // into a frame the window no longer has).
         let fresh = try await refreshedContent()
         let w = fresh.windows.first { $0.windowID == window.windowID } ?? window
-        let d = fresh.displays.first(where: { $0.frame.intersects(frame) })
+        let d =
+            fresh.displays.first(where: { $0.frame.intersects(frame) })
             ?? fresh.displays.first ?? display
         let filter = SCContentFilter(display: d, including: [w])
-        return finish(try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
-                      display: d)
+        return finish(
+            try await shoot(filter), scale: CGFloat(filter.pointPixelScale),
+            display: d)
     }
 }
 

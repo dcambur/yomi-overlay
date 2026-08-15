@@ -70,7 +70,8 @@ window.overlay.onCovers(list => {
   const run = glyphLayer.current;
   if (!placement.covers.length || !popupView.visible() || !run || !run.length) return;
   const r = run[0].getBoundingClientRect();
-  if (placement.isCovered(placement.toFrame(r.left + r.width / 2, r.top + r.height / 2))) dismiss();
+  const mid = placement.toFrame(r.left + r.width / 2, r.top + r.height / 2);
+  if (placement.isCovered(mid)) dismiss();
 });
 
 // The overlay is leaving the screen (target gone, or idle): the popup goes
@@ -107,6 +108,11 @@ function applyPayload(payload) {
 const DISMISS_PX = 90;
 let pinned = false;
 let lookupSeq = 0;              // discards out-of-order lookup replies
+// The word the popup is currently showing, so pointing along the same word does
+// not re-query. It was never declared: every assignment created a property on
+// window instead, which works in a classic script and would have thrown the
+// moment this file was made strict or turned into a module.
+let lastKey = '';
 let interactiveState = false;   // mirrors main; avoids an IPC call per mousemove
 
 // Trigger settings, replaced by main on load and whenever settings are saved.
@@ -166,7 +172,7 @@ window.overlay.onTrigger(ev => {
   doLookup(ev.x, ev.y);
 });
 
-document.addEventListener('mousemove', async e => {
+document.addEventListener('mousemove', (e) => {
   const visible = popupView.visible();
 
   if (visible) {
@@ -246,7 +252,7 @@ async function doLookup(px, py) {
   // its kana (Phase 4).
   if (el.dataset.ruby) return;
 
-  const li = +el.dataset.li, ci = +el.dataset.ci;
+  const li = Number(el.dataset.li), ci = Number(el.dataset.ci);
   const line = glyphLayer.lineAt(li);
   if (!line) return;
 
@@ -292,7 +298,7 @@ async function doLookup(px, py) {
     if (cs.length) {
       const x0 = Math.min(...cs.map(c => c.x)), y0 = Math.min(...cs.map(c => c.y));
       const x1 = Math.max(...cs.map(c => c.x + c.w)), y1 = Math.max(...cs.map(c => c.y + c.h));
-      const conf = Math.min(...cs.map(c => c.f !== undefined ? +c.f : 1));
+      const conf = Math.min(...cs.map(c => c.f !== undefined ? Number(c.f) : 1));
       window.overlay.tier2({ x: x0 - 2, y: y0 - 2, w: x1 - x0 + 4, h: y1 - y0 + 4,
                              text: res.surface, conf });
     }

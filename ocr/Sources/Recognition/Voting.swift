@@ -1,7 +1,7 @@
 // Majority vote across re-reads of a static page.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Temporal voting (INTEGRATION.md Phase 2)
 
@@ -18,30 +18,40 @@ import CoreGraphics
 /// never by string index — the same rule the strip mapping was paid for.
 func voteLines(_ passes: [[Line]]) -> [Line] {
     guard passes.count > 1, let base = passes.first else { return passes.first ?? [] }
-    struct BKey: Hashable { let x: Int; let y: Int }
+    struct BKey: Hashable {
+        let x: Int
+        let y: Int
+    }
     let cell = 32.0
     var grids: [[BKey: [CharBox]]] = []
     for pass in passes {
         var g: [BKey: [CharBox]] = [:]
         for l in pass {
             for c in l.chars {
-                let k = BKey(x: Int((c.x + c.w / 2) / cell),
-                             y: Int((c.y + c.h / 2) / cell))
+                let k = BKey(
+                    x: Int((c.x + c.w / 2) / cell),
+                    y: Int((c.y + c.h / 2) / cell))
                 g[k, default: []].append(c)
             }
         }
         grids.append(g)
     }
-    func nearest(_ g: [BKey: [CharBox]], _ cx: Double, _ cy: Double,
-                 _ tol: Double) -> CharBox? {
-        let bx = Int(cx / cell), by = Int(cy / cell)
+    func nearest(
+        _ g: [BKey: [CharBox]], _ cx: Double, _ cy: Double,
+        _ tol: Double
+    ) -> CharBox? {
+        let bx = Int(cx / cell)
+        let by = Int(cy / cell)
         var best: CharBox? = nil
         var bestD = tol
         for dx in -1...1 {
             for dy in -1...1 {
                 for c in g[BKey(x: bx + dx, y: by + dy)] ?? [] {
                     let d = max(abs(c.x + c.w / 2 - cx), abs(c.y + c.h / 2 - cy))
-                    if d < bestD { bestD = d; best = c }
+                    if d < bestD {
+                        bestD = d
+                        best = c
+                    }
                 }
             }
         }
@@ -51,7 +61,8 @@ func voteLines(_ passes: [[Line]]) -> [Line] {
     return base.map { line in
         var out = line
         out.chars = line.chars.map { c in
-            let cx = c.x + c.w / 2, cy = c.y + c.h / 2
+            let cx = c.x + c.w / 2
+            let cy = c.y + c.h / 2
             let tol = max(6.0, 0.5 * max(c.w, c.h))
             var votes: [String: Int] = [:]
             for g in grids {

@@ -6,17 +6,21 @@
 const fs = require('fs');
 
 const LOG = '/tmp/yomi-overlay.log';
+/** Append, or carry on without a log — never take the app down over one. */
+function write(line) {
+  try { fs.appendFileSync(LOG, line); } catch { /* /tmp full, or read-only */ }
+}
+
 function logf(...a) {
-  const line = `[${new Date().toISOString()}] ${a.join(' ')}\n`;
-  try { require('fs').appendFileSync(LOG, line); } catch {}
+  write(`[${new Date().toISOString()}] ${a.join(' ')}\n`);
   console.log(...a);
 }
 console.log = ((orig) => (...a) => {
-  try { require('fs').appendFileSync(LOG, a.join(' ') + '\n'); } catch {}
+  write(a.join(' ') + '\n');
   orig(...a);
 })(console.log);
 console.error = ((orig) => (...a) => {
-  try { require('fs').appendFileSync(LOG, 'ERR ' + a.join(' ') + '\n'); } catch {}
+  write('ERR ' + a.join(' ') + '\n');
   orig(...a);
 })(console.error);
 process.on('uncaughtException', e => logf('UNCAUGHT', e && e.stack || e));

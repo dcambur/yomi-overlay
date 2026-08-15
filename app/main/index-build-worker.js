@@ -12,12 +12,21 @@
 const { build } = require('./index-builder.js');
 
 process.on('message', (msg) => {
-  if (!msg || msg.type !== 'build') return;
+  if (!msg) return;
+  const report = (p) => process.send({ type: 'progress', ...p });
   try {
-    const result = build(msg.dictsDir, msg.outPath, (p) => {
-      process.send({ type: 'progress', ...p });
-    });
-    process.send({ type: 'done', result });
+    if (msg.type === 'build') {
+      process.send({ type: 'done', result: build(msg.dictsDir, msg.outPath, report) });
+    } else if (msg.type === 'prune') {
+      // Deleting a dictionary's rows is seconds rather than the ~80 a rebuild
+      // takes, but seconds of a frozen overlay is still a frozen overlay — and
+      // a progress message cannot be painted by a main process that is busy
+      // sending it.
+      const { prune } = require('./dictionaries.js');
+      process.send({ type: 'done', result: prune(msg.label, report) });
+    } else {
+      return;
+    }
   } catch (e) {
     process.send({ type: 'error', message: e && e.message ? e.message : String(e) });
   }

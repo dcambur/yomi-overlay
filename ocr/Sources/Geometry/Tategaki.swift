@@ -1,8 +1,8 @@
 // Vertical text: column and cell detection, the reflow strip, and
 // re-anchoring native-vertical reads onto measured cells.
 
-import Foundation
 import CoreGraphics
+import Foundation
 
 // MARK: - Tategaki reflow
 //
@@ -41,7 +41,8 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
     for (cx0, cx1) in colRuns {
         let width = cx1 - cx0 + 1
         if width < 2 { continue }
-        let px0 = cx0 * step, px1 = min((cx1 + 1) * step - 1, f.w - 1)
+        let px0 = cx0 * step
+        let px1 = min((cx1 + 1) * step - 1, f.w - 1)
         let em = Double(px1 - px0 + 1)
         var rowInk = [Int](repeating: 0, count: f.h)
         for y in 0..<f.h {
@@ -65,8 +66,9 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
         var merged: [(Int, Int)] = []
         for r in raw {
             if let last = merged.last,
-               Double(r.1 - last.0 + 1) <= em * 1.15,
-               Double(r.0 - last.1 - 1) < em * 0.45 {
+                Double(r.1 - last.0 + 1) <= em * 1.15,
+                Double(r.0 - last.1 - 1) < em * 0.45
+            {
                 merged[merged.count - 1] = (last.0, r.1)
             } else {
                 merged.append(r)
@@ -74,7 +76,7 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
         }
         // 3. Runs much taller than the em are touching glyphs (dense pitch):
         //    split back on em boundaries.
-        var spans: [(Double, Double)] = []   // (y0, height) in pixels
+        var spans: [(Double, Double)] = []  // (y0, height) in pixels
         for (a, b) in merged {
             let hgt = Double(b - a + 1)
             let n = max(1, Int((hgt / em).rounded()))
@@ -89,7 +91,8 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
         //    half of each neighboring gap so cells never overlap.
         var cells: [Cell] = []
         for (i, s) in spans.enumerated() {
-            var top = s.0, hgt = s.1
+            var top = s.0
+            var hgt = s.1
             if hgt < em * 0.85 {
                 let mid = top + hgt / 2
                 let want = em * 0.9
@@ -100,8 +103,10 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
                 top = max(minTop, mid - want / 2)
                 hgt = min(maxBot, mid + want / 2) - top
             }
-            cells.append(Cell(rect: CGRect(
-                x: Double(px0), y: top, width: em, height: hgt)))
+            cells.append(
+                Cell(
+                    rect: CGRect(
+                        x: Double(px0), y: top, width: em, height: hgt)))
         }
         if !cells.isEmpty { columns.append(cells) }
     }
@@ -111,8 +116,11 @@ func tategakiCells(_ image: CGImage) -> [[Cell]] {
 
 /// Paint cells into a horizontal strip: one row per column, cells left to right.
 /// Returns the strip plus, for each row, the source cells in order.
-func reflowStrip(_ image: CGImage, columns: [[Cell]])
-        -> (image: CGImage, rows: [[Cell]], cell: Int, pad: Int)? {
+func reflowStrip(
+    _ image: CGImage, columns: [[Cell]]
+)
+    -> (image: CGImage, rows: [[Cell]], cell: Int, pad: Int)?
+{
     guard !columns.isEmpty else { return nil }
     let cell = Int(columns.flatMap { $0 }.map(\.rect.width).max() ?? 0)
     guard cell > 2 else { return nil }
@@ -121,11 +129,12 @@ func reflowStrip(_ image: CGImage, columns: [[Cell]])
     let stripW = widest * (cell + pad) + pad
     let stripH = columns.count * (cell + pad) + pad
     guard stripW > 0, stripH > 0, stripW < 20000, stripH < 20000,
-          let space = image.colorSpace,
-          let ctx = CGContext(data: nil, width: stripW, height: stripH,
-                              bitsPerComponent: image.bitsPerComponent,
-                              bytesPerRow: 0, space: space,
-                              bitmapInfo: image.bitmapInfo.rawValue)
+        let space = image.colorSpace,
+        let ctx = CGContext(
+            data: nil, width: stripW, height: stripH,
+            bitsPerComponent: image.bitsPerComponent,
+            bytesPerRow: 0, space: space,
+            bitmapInfo: image.bitmapInfo.rawValue)
     else { return nil }
     ctx.setFillColor(CGColor(gray: 1, alpha: 1))
     ctx.fill(CGRect(x: 0, y: 0, width: stripW, height: stripH))
@@ -161,22 +170,29 @@ func reflowStrip(_ image: CGImage, columns: [[Cell]])
 /// cell count. Any mismatch keeps the quads: degrade, don't guess.
 func reanchorVerticalChars(_ lines: inout [Line], image: CGImage, geometry: Geometry) {
     let r = geometry.region
-    let W = Double(image.width), H = Double(image.height)
+    let W = Double(image.width)
+    let H = Double(image.height)
     guard r.width > 0, r.height > 0 else { return }
     let columns = tategakiCells(image)
     guard !columns.isEmpty else { return }
     func toWin(_ rect: CGRect) -> CGRect {
-        CGRect(x: rect.minX / W * r.width + r.minX - geometry.window.minX,
-               y: rect.minY / H * r.height + r.minY - geometry.window.minY,
-               width: rect.width / W * r.width,
-               height: rect.height / H * r.height)
+        CGRect(
+            x: rect.minX / W * r.width + r.minX - geometry.window.minX,
+            y: rect.minY / H * r.height + r.minY - geometry.window.minY,
+            width: rect.width / W * r.width,
+            height: rect.height / H * r.height)
     }
-    struct ColRef { let x0: Double; let x1: Double; let cells: [CGRect] }
+    struct ColRef {
+        let x0: Double
+        let x1: Double
+        let cells: [CGRect]
+    }
     let cols: [ColRef] = columns.map { col in
         let rects = col.map { toWin($0.rect) }.sorted { $0.minY < $1.minY }
-        return ColRef(x0: Double(rects.map(\.minX).min() ?? 0),
-                      x1: Double(rects.map(\.maxX).max() ?? 0),
-                      cells: rects)
+        return ColRef(
+            x0: Double(rects.map(\.minX).min() ?? 0),
+            x1: Double(rects.map(\.maxX).max() ?? 0),
+            cells: rects)
     }
     var byCol: [Int: [Int]] = [:]
     for li in lines.indices {
@@ -211,14 +227,18 @@ func reanchorVerticalChars(_ lines: inout [Line], image: CGImage, geometry: Geom
                 var bestH = Double.infinity
                 for i in 0..<(cells.count - 1) {
                     let h = Double(cells[i + 1].maxY - cells[i].minY)
-                    if h < bestH { bestH = h; best = i }
+                    if h < bestH {
+                        bestH = h
+                        best = i
+                    }
                 }
                 guard best >= 0, bestH <= em * 1.15 else { break }
                 let merged = cells[best].union(cells[best + 1])
                 cells.replaceSubrange(best...(best + 1), with: [merged])
             } else {
                 guard let tall = cells.indices.max(by: { cells[$0].height < cells[$1].height }),
-                      Double(cells[tall].height) >= em * 1.4 else { break }
+                    Double(cells[tall].height) >= em * 1.4
+                else { break }
                 let c = cells[tall]
                 let top = CGRect(x: c.minX, y: c.minY, width: c.width, height: c.height / 2)
                 let bot = CGRect(x: c.minX, y: c.midY, width: c.width, height: c.height / 2)

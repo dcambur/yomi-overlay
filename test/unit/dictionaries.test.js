@@ -13,8 +13,11 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '../..');
-const DICTS = path.join(ROOT, 'data', 'dicts');
-const SAMPLE = 'gram-donna.zip';
+const mk = require('./fixtures/make-dictionary.js');
+const SAMPLE = 'sample.zip';
+// Somewhere to build fixtures that is not the dictionaries folder under test.
+const SRC = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-src-'));
+mk.termDictionary(path.join(SRC, SAMPLE), { title: 'Sample', entries: 12 });
 
 // USER_DIR is `data/` in a checkout, and this suite removes dictionaries and
 // rebuilds indexes. Setting $HOME does NOT redirect it — that mistake deleted a
@@ -30,7 +33,6 @@ assert.ok(dictionaries.DICTS_DIR.startsWith(SCRATCH),
 assert.ok(!dictionaries.INDEX_PATH.startsWith(ROOT),
           `refusing to run: index path is inside the checkout (${dictionaries.INDEX_PATH})`);
 
-const haveSample = fs.existsSync(path.join(DICTS, SAMPLE));
 
 test('dictionary catalogue', () => {
   const list = dictionaries.catalogue();
@@ -48,11 +50,11 @@ test('dictionary catalogue', () => {
   }
 });
 
-test('importing', { skip: haveSample ? false : 'no sample dictionary' }, async (t) => {
+test('importing', async (t) => {
   t.after(() => fs.rmSync(dictionaries.DICTS_DIR, { recursive: true, force: true }));
 
   await t.test('a real dictionary is accepted and listed', () => {
-    const r = dictionaries.importFile(path.join(DICTS, SAMPLE));
+    const r = dictionaries.importFile(path.join(SRC, SAMPLE));
     assert.strictEqual(r.file, SAMPLE);
     assert.strictEqual(r.kind, 'term');
     const have = dictionaries.installed();
@@ -84,8 +86,34 @@ test('importing', { skip: haveSample ? false : 'no sample dictionary' }, async (
     fs.rmSync(outside);
   });
 
+  await t.test('the same dictionary imported twice stays one dictionary', () => {
+    // Under the same name it simply overwrites. Under a DIFFERENT name it used
+    // to install alongside itself: two archives, two labels in the popup, and
+    // every sense shown twice.
+    const copy = path.join(os.tmpdir(), 'copy-' + Date.now() + '.zip');
+    fs.copyFileSync(path.join(SRC, SAMPLE), copy);
+    const r = dictionaries.importFile(copy);
+    assert.deepStrictEqual(r.replaced, [SAMPLE], 'replaced the copy already here');
+    const have = dictionaries.installed();
+    assert.strictEqual(have.length, 1, 'still one archive');
+    assert.strictEqual(have[0].file, path.basename(copy), 'the newer import won');
+    fs.rmSync(copy);
+
+    // Put it back under its usual name for the tests that follow.
+    dictionaries.importFile(path.join(SRC, SAMPLE));
+    assert.strictEqual(dictionaries.installed().length, 1);
+  });
+
+  await t.test('a dictionary with no title of its own is left alone', () => {
+    // dropDuplicates matches on the archive's own name; with nothing to match
+    // on it must not delete something at random.
+    const before = dictionaries.installed().map((d) => d.file);
+    assert.deepStrictEqual(dictionaries.dropDuplicates('', 'whatever.zip'), []);
+    assert.deepStrictEqual(dictionaries.installed().map((d) => d.file), before);
+  });
+
   await t.test('remove takes it out again', () => {
-    dictionaries.remove(SAMPLE);
+    for (const d of dictionaries.installed()) dictionaries.remove(d.file);
     assert.strictEqual(dictionaries.installed().length, 0);
   });
 
@@ -96,9 +124,9 @@ test('importing', { skip: haveSample ? false : 'no sample dictionary' }, async (
   });
 
   await t.test('rebuilding indexes what was imported', () => {
-    dictionaries.importFile(path.join(DICTS, SAMPLE));
+    dictionaries.importFile(path.join(SRC, SAMPLE));
     const r = dictionaries.rebuild();
-    assert.ok(r.labels.includes('どんなとき'), 'labelled by the builder');
+    assert.ok(r.labels.includes('Sample'), 'labelled by the builder');
     assert.ok(r.rows > 0 && r.keys > 0, 'has content');
     assert.ok(fs.existsSync(dictionaries.INDEX_PATH), 'index written');
   });

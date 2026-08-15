@@ -54,16 +54,27 @@
     /* 13px gothic. Mincho's thin strokes are genuinely hard to read at 11px,
        and gloss text is the thing you actually read — Mincho is reserved for
        the headword, where the size carries it. */
-    font-size: 13px; line-height: 1.5;
+    font-size: 14px; line-height: 1.55;
     box-shadow: 0 10px 34px rgba(0,0,0,0.5);
     z-index: 10;
   }
   #popup::-webkit-scrollbar { width: 5px; }
   #popup::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 3px; }
 
-  /* One card per headword group. Every group is equal rank — same headword
+  /* --- the card ---------------------------------------------------------
+     One card per headword group. Every group is equal rank — same headword
      size, same surface; priority is carried by order alone (longest match
-     first), so the eye separates groups by card edges, not by type scale. */
+     first), so the eye separates groups by card edges, not by type scale.
+
+     Three tiers of attention, and they are carried by SIZE and BRIGHTNESS
+     only, never by another box:
+
+       1  headword, reading, pitch, first gloss   18/14px, #f2efe8 / #e9e6df
+       2  definitions, deinflection, frequency    13px,    #c6c1b4
+       3  examples, tags, cross-references, names 11-12px, #8d8778 / #6f6857
+
+     Eleven dictionaries answer at once. Everything below is about making that
+     legible rather than a wall. */
   #popup .card {
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.07);
@@ -72,63 +83,311 @@
   }
   #popup .card + .card { margin-top: 6px; }
 
-  #popup .term {
-    font-size: 17px; font-family: "Hiragino Mincho ProN", serif;
-    font-weight: 600;
-    margin-bottom: 0; line-height: 1.3;
+  /* The headword line: word, reading with its accent, how common — one row.
+     Frequency answers a yes/no question and does not deserve a row of its own.
+     Sticky, because in a 380px tray scrolled deep into 三省堂 the reader
+     otherwise loses which word and which reading they are inside. */
+  #popup .hd {
+    position: sticky; top: -1px; z-index: 1;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px;
+    margin: -8px -10px 0; padding: 8px 10px 4px;
+    background: linear-gradient(rgba(22,21,28,0.98), rgba(22,21,28,0.92));
+    border-radius: 6px 6px 0 0;
   }
-  #popup .hdr-rd { margin-top: 2px; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+  #popup .term {
+    font-size: 18px; font-family: "Hiragino Mincho ProN", serif;
+    font-weight: 600; color: #f2efe8;
+    line-height: 1.3;
+  }
+  #popup .hd .chips { margin-left: auto; }
 
   /* Pitch accent, Yomitan-style: one span per mora, high morae carry an
      overline, and the mora before the downstep also carries a falling right
      edge. Heiban gets a rising left edge on mora 2 and no fall. */
-  .pitch { font-size: 13px; color: #d3b072; letter-spacing: .02em; }
-  .pitch .m { padding: 1px 0; border-top: 1px solid transparent; }
+  .pitch { font-size: 15px; color: #d3b072; }
+  .pitch .m {
+    display: inline-block; padding: 0 1px;
+    border-top: 1.5px solid transparent;
+  }
   .pitch .m.hi { border-top-color: #d3b072; }
-  .pitch .m.fall { border-right: 1px solid #d3b072; padding-right: 1px; }
+  /* The downstep is the END of the overline, drawn as a short drop off its
+     right edge — not a full-height rule between two characters, which at this
+     size read as a text cursor sitting inside the word. */
+  .pitch .m.fall {
+    position: relative; margin-right: 2px;
+  }
+  .pitch .m.fall::after {
+    content: ""; position: absolute; right: -1px; top: -1.5px;
+    width: 1.5px; height: 5px; background: #d3b072;
+  }
   .pitch-num { color: #8d8778; font-size: 10.5px; }
 
-  #popup .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
-  .chip {
-    display: inline-block; font-size: 10px; letter-spacing: .03em;
-    color: #9d9484; border: 1px solid rgba(255,255,255,0.14);
-    padding: 0 4px; border-radius: 3px; line-height: 1.6;
+  /* How the form on the page reaches the form in the dictionary. One line,
+     always: it is confirmation, not content. */
+  #popup .route {
+    font-size: 11.5px; color: #8d8778; margin: 2px 0 0;
+    font-family: -apple-system, system-ui, sans-serif;
   }
-  .chip.base { color: #a8c6a0; border-color: rgba(140,190,130,0.35); }
-  .chip.freq { color: #8d95a8; border-color: rgba(140,150,190,0.3); }
+  #popup .route .ja { font-family: "Hiragino Mincho ProN", serif; }
+  #popup .route .arr { color: #6f6857; margin: 0 4px; }
+  #popup .route .steps { color: #6f6857; margin-left: 5px; }
 
-  #popup .ent { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.07); }
-  #popup .ent-hd { display: flex; align-items: baseline; gap: 6px; }
-  /* Source chip, tinted by dictionary kind — bilingual, monolingual, grammar,
-     names, kanji — so the eye can pick the entry type before reading it. */
-  .src {
-    display: inline-block; font-size: 10px; letter-spacing: .04em;
-    padding: 0 4px; border-radius: 3px; border: 1px solid;
+  /* --- chips ------------------------------------------------------------
+     Borderless. The 神 card carries thirty-odd labels; bordered, they read as
+     a rash of tiny boxes and compete with the definitions. Colour alone is
+     enough to tell a source from a part of speech. */
+  #popup .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip, .src {
+    display: inline-block; font-size: 9.5px; letter-spacing: .03em;
+    color: #9d9484; background: rgba(255,255,255,0.06);
+    padding: 0 4px; border-radius: 3px; line-height: 1.7;
     flex: 0 0 auto;
   }
-  .src.bi    { color: #8fb8d8; border-color: rgba(120,170,220,0.4); }
-  .src.mono  { color: #a8c6a0; border-color: rgba(140,190,130,0.4); }
-  .src.gram  { color: #c2a3d0; border-color: rgba(180,140,210,0.4); }
-  .src.name  { color: #9d9484; border-color: rgba(255,255,255,0.14); }
-  .src.kanji { color: #d8a889; border-color: rgba(220,150,110,0.4); }
+  .chip.freq { color: #8d95a8; }
+  .src.bi    { color: #8fb8d8; }
+  .src.mono  { color: #a8c6a0; }
+  .src.gram  { color: #c2a3d0; }
+  .src.name  { color: #9d9484; }
+  .src.kanji { color: #d8a889; }
+
+  /* --- one dictionary's answer -------------------------------------------
+     A 2px spine in the kind's colour, instead of a rule between every pair of
+     entries. Scrolling past eleven dictionaries, the spine says which stratum
+     you are in without reading a chip; four hairlines in a row said nothing
+     and looked like a venetian blind. */
+  #popup .ent {
+    margin-top: 6px; padding-left: 7px;
+    border-left: 2px solid rgba(255,255,255,0.12);
+  }
+  #popup .ent.bi    { border-left-color: rgba(120,170,220,0.45); }
+  #popup .ent.mono  { border-left-color: rgba(140,190,130,0.45); }
+  #popup .ent.gram  { border-left-color: rgba(180,140,210,0.45); }
+  #popup .ent.kanji { border-left-color: rgba(220,150,110,0.45); }
+  #popup .ent.name  { border-left-color: rgba(255,255,255,0.10); }
+  /* Same dictionary kind, next entry: no rule, just the gap. */
+  #popup .ent-hd { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
   #popup .ent .rd { color: #d3b072; font-size: 12px; }
 
-  /* Bilingual senses: bulleted English list, markers dimmed so the text
-     carries the row. */
-  #popup .gl { margin: 3px 0 0 0; padding-left: 15px; }
+  /* The reading a run of entries belongs to. Inside a card the reading is the
+     real divider — 神 is かみ and しん and じん, and every dictionary answers
+     for each — so it heads the run rather than being repeated per entry. */
+  #popup .rgroup {
+    margin: 8px 0 1px; color: #d3b072; font-size: 13px;
+    border-top: 1px solid rgba(255,255,255,0.07); padding-top: 6px;
+  }
+  #popup .card > .rgroup:first-of-type { border-top: none; margin-top: 5px; }
+
+  /* Proper names: a reference list, not a definition. One dim line at the
+     foot, whatever the reader looked up. */
+  #popup .names {
+    margin-top: 7px; font-size: 11.5px; color: #8d8778;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  #popup .names-label {
+    color: #6f6857; font-size: 9.5px; margin-right: 5px;
+    font-family: -apple-system, sans-serif;
+  }
+
+  /* --- glossaries --------------------------------------------------------
+     Bilingual senses: bulleted English list, markers dimmed so the text
+     carries the row. Full brightness — this is the fastest confirmation of
+     what a word means, even for a reader who wants the Japanese definition. */
+  #popup .gl { margin: 3px 0 0 0; padding-left: 15px; color: #e9e6df; }
   #popup .gl li { margin: 2px 0; }
   #popup .gl li::marker { color: #6f6857; }
-  /* Monolingual / grammar senses carry their own ①❶ numbering — no bullets,
-     hanging indent so wrapped lines align under the text, not the number. */
+  /* A gloss that is structured content brings its OWN senses and numbering, so
+     the outer bullet is a second marker for the same thing. */
+  #popup .gl.sc { list-style: none; padding-left: 0; }
+  /* Monolingual and grammar bodies: one step down in size and brightness.
+     Present, skippable, and no longer competing with the English gloss. */
+  #popup .ent.mono .gl, #popup .ent.gram .gl { font-size: 13px; color: #c6c1b4; }
   #popup .gl.plain { list-style: none; padding-left: 2px; }
-  #popup .gl.plain li { padding-left: 14px; text-indent: -14px; margin: 2.5px 0; }
-  /* Usage examples quoted in the sense line (「━政治」) render dimmer. */
+  #popup .gl.plain li { margin: 2.5px 0; }
+  /* The hanging indent belongs ONLY to a line that starts with a sense marker.
+     Applied to every line, it pushed unmarked prose in by 14px and pulled its
+     first line back out, so a wrapped line and a new sense began at the same
+     x — which is most of 実用, 旺文社 and the grammar dictionary. */
+  #popup .gl.plain li.numbered { padding-left: 15px; text-indent: -15px; }
+  /* Usage examples quoted inside a sense line (「━政治」) render dimmer. */
   #popup .ex { color: #97907f; }
+
+  /* --- prose dictionaries, read line by line -----------------------------
+     Same vocabulary as the structured ones, recovered from the shape of each
+     line: a bracketed heading, a quotation, a numbered sense, a ｜-separated
+     table row, a 「label：」 prefix. See plainLines() in popup.js. */
+  #popup .ln { margin: 2px 0; }
+  /* A section heading — 日本語文法辞典's [解説] [意味] [例文] [接続], which
+     used to be body text indistinguishable from the paragraph under it. */
+  #popup .ln.head {
+    margin: 7px 0 2px; color: #d8b46a; font-size: 11px; font-weight: 600;
+    letter-spacing: .04em; font-family: -apple-system, system-ui, sans-serif;
+  }
+  #popup .ln:first-child.head { margin-top: 1px; }
+  /* A sense marker earns the hanging indent; unmarked prose does not, and
+     giving it one pushed every wrapped line in and pulled the first one out. */
+  #popup .ln.numbered { padding-left: 15px; text-indent: -15px; }
+  /* A ｜-separated row. The grammar dictionary's 接続 tables were a wall of
+     pipes; two columns is what they are. */
+  #popup .ln.row {
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    gap: 0 8px; font-size: 12px; color: #8d8778;
+    padding: 2px 0 2px 7px; border-left: 1px solid rgba(255,255,255,0.08);
+  }
+  /* The pattern leads, its explanation follows underneath and dimmer. Two
+     columns is the honest shape of the data and the wrong shape for a 430px
+     tray: every English cell wrapped to four lines beside a two-word pattern. */
+  #popup .ln.row span:first-child { color: #d8d3c8; font-size: 12.5px; }
+  #popup .ln.row + .ln.row {
+    margin-top: 0; border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  /* 「読み方：」 and friends: a label introducing the rest of its line. */
+  #popup .ln-label {
+    color: #6f6857; font-size: 9.5px; letter-spacing: .04em; margin-right: 5px;
+    font-family: -apple-system, system-ui, sans-serif;
+  }
+
   /* Kanji readings: labelled 音 / 訓 rows. */
-  #popup .kv { margin-top: 2px; }
+  #popup .kv { margin-top: 3px; }
   #popup .kv b {
     color: #d8a889; font-weight: 500; font-size: 10.5px;
-    border: 1px solid rgba(220,150,110,0.35); border-radius: 3px;
-    padding: 0 3px; margin-right: 4px;
+    background: rgba(220,150,110,0.12); border-radius: 3px;
+    padding: 0 4px; margin-right: 5px;
   }
-  #popup .ja { font-family: "Hiragino Mincho ProN", serif; white-space: pre-wrap; }
+  #popup .ja { font-family: "Hiragino Mincho ProN", serif; }
+  /* Japanese dictionaries put their senses on separate LINES inside one
+     string, and structured content carries those newlines in text nodes.
+     pre-line keeps them and still collapses the incidental spaces that
+     pre-wrap would have turned into ragged indents. */
+  #popup .gl li, #popup [data-role] { white-space: pre-line; }
+
+  /* --- structured content, in ONE vocabulary -----------------------------
+     The index keeps each glossary's structure (ARCHITECTURE §8), and
+     structured.js translates every dictionary's own node names into the
+     `data-role` values below — Jitendex's `content="sense"`, 三省堂's
+     `name="語釈"` and 明鏡's `meikyo` all arrive here as the same thing.
+
+     The first version of this section was written against Jitendex's names
+     alone, so every rule in it fired for one dictionary out of eleven and the
+     monolinguals rendered as undifferentiated prose: examples, notes and
+     cross-references all looking exactly like definitions. Style ROLES, never
+     one dictionary's spelling of a role. */
+
+  /* Sense numbering, wherever it comes from: a marker set by the dictionary
+     as list-style-type, or a number node it ships inline. */
+  #popup [data-role] ul, #popup [data-role] ol,
+  #popup ul[data-role], #popup ol[data-role] { margin: 0; padding-left: 1.5em; }
+  #popup [data-role] li::marker { color: #6f6857; }
+  #popup [data-role="sense"] { padding-left: .25em; margin: 1px 0; }
+  #popup [data-role="sense-num"] { color: #b9b2a1; margin-right: .3em; }
+  #popup [data-role="sense-group"] { list-style: none; padding-left: 0; }
+
+  /* A top-level division (三省堂's 一 二 三) is the biggest boundary inside an
+     entry and used to render as the smallest, dimmest thing on it.
+     The colour goes on its MARKER, not on the division: 大語義 wraps the senses
+     it divides, so colouring the container turned every sense under it gold —
+     one dictionary's definitions in a different colour from its neighbours'. */
+  #popup [data-role="division"] { display: block; margin: 6px 0 1px; }
+  #popup [data-role="division"] > .sc-label:first-child,
+  #popup [data-role="division"] > :first-child > .sc-label:first-child {
+    color: #d8b46a; font-size: 12px; font-weight: 600; margin-right: 5px;
+  }
+
+  /* One sense's translations read as one line — "spirit; psyche" — not a
+     column of squares. Yomitan's compact layout, with a semicolon because that
+     is how the dictionaries themselves punctuate a sense. */
+  #popup ul[data-role="glossary"] { display: inline; padding-left: 0; }
+  #popup [data-role="glossary"] > li { display: inline; }
+  #popup [data-role="glossary"] > li:not(:first-child)::before {
+    content: "; "; color: #8d8778;
+  }
+
+  /* An example and its translation, in their own tray: what the word looks
+     like in a sentence is the second thing a reader wants, and it must not be
+     mistaken for the definition — which is exactly what happened in every
+     monolingual, where 用例 was styled identically to 語釈. */
+  /* An example, from a dictionary that marked one up and from a dictionary
+     that only quoted one on its own line. Same rule for both, deliberately:
+     the reader is looking at eleven dictionaries and they must not each have
+     their own idea of what an example looks like. */
+  #popup [data-role="example"], #popup .ln.ex {
+    margin: 2px 0 2px .2em; padding-left: .6em;
+    border-left: 2px solid rgba(200,167,106,0.22);
+    font-size: 12.5px; color: #b9b2a1;
+  }
+  #popup .ln.ex .ex { color: inherit; }
+  /* A run of example lines is ONE example block, not a stack of bordered
+     strips: a dictionary that writes the Japanese and its translation on
+     consecutive lines means them to be read together. */
+  #popup .ln.ex + .ln.ex { margin-top: 0; padding-top: 1px; }
+  /* A tray is for an example that carries its TRANSLATION — two lines that
+     belong together, and worth a surface of their own. A monolingual puts one
+     「…」 under every sense; boxing each of those turned an entry into a
+     column of grey rectangles. */
+  #popup [data-role="example"]:has([data-role="example-en"]) {
+    margin: 4px 0 3px; padding: 3px 7px; border-radius: 3px;
+    background: rgba(255,255,255,0.045);
+  }
+  #popup [data-role="example-ja"] { line-height: 1.9; color: #d8d3c8; }
+  #popup [data-role="example-en"] { font-size: 11.5px; color: #8d8778; }
+  #popup [data-role="keyword"] { color: #e2c98d; }
+
+  /* Part of speech, register, field of use. */
+  #popup [data-role="tag"] {
+    display: inline-block; font-size: 10px; line-height: 1.6;
+    color: #9d9484; background: rgba(255,255,255,0.06);
+    border-radius: 3px; padding: 0 4px; margin: 1px 4px 1px 0;
+  }
+
+  /* A note about the sense, and its label. The label used to take a whole line
+     to say "Note" at the same weight as the definition under it. */
+  #popup [data-role="note"], #popup [data-role="note-label"] {
+    font-size: 12px; color: #9d9484;
+  }
+  #popup [data-role="note-label"] {
+    color: #6f6857; font-size: 9.5px; letter-spacing: .04em;
+    margin-right: 5px; font-family: -apple-system, sans-serif;
+  }
+
+  /* A cross-reference points AWAY from this word. It is reference material,
+     and its glossary is another word's — rendered at full weight it produced
+     a second ① inside an entry that already had one. */
+  #popup [data-role="xref"] { font-size: 11.5px; color: #8d8778; }
+  #popup [data-role="xref-label"] {
+    color: #6f6857; font-size: 10px; margin-right: 4px;
+    font-family: -apple-system, sans-serif;
+  }
+  #popup [data-role="xref"] [data-role="glossary"] > li:not(:first-child)::before {
+    content: ", ";
+  }
+
+  /* Furigana: the monolinguals ship it as a superscript span rather than real
+     ruby, and it broke across lines away from the word it reads for. */
+  #popup [data-role="furigana"] {
+    font-size: .72em; color: #b9b2a1;
+    vertical-align: baseline; white-space: nowrap;
+  }
+  #popup ruby rt { font-size: 0.5em; color: #b9b2a1; }
+  /* A word-division hint, which the dictionary draws as a hairline image. */
+  #popup [data-role="wordsep"]::before { content: "\2009"; }
+
+  /* 三省堂 ranks its core vocabulary with ＊ and ＊＊. Meaningful, but glued to
+     the headword it read as stray markdown. */
+  #popup [data-role="core"] {
+    color: #d3b072; font-size: 9px; vertical-align: super;
+    margin-right: 3px; letter-spacing: -1px;
+  }
+
+  /* Spelling-variant tables, licence footers and the captions of images we do
+     not show: about the ENTRY, not about the word. The old index dropped them
+     too (build-index.py's JM_SKIP), and a tray this size is the wrong place to
+     bring them back — the variants table renders as a grid of empty cells,
+     since its priority marks are images. */
+  #popup [data-role="meta"] { display: none; }
+
+  /* One example per sense. A dictionary app can afford twenty; に carries that
+     many, and in a tray this size they bury the senses they illustrate. */
+  #popup [data-role="example"] ~ [data-role="example"] { display: none; }
+
+  /* A marker whose image we cannot draw, rendered as its own label. */
+  #popup .sc-label { color: #9d9484; font-size: 11px; margin-right: 3px; }

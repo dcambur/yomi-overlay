@@ -65,11 +65,28 @@ EOF
 fi
 
 # --- 2. Node dependencies -----------------------------------------------------
+# Two manifests, on purpose: app/ is Electron, which the app needs to run, and
+# the root one is dev tooling (eslint), which only the checks need. Neither is
+# a RUNTIME dependency — the app ships none.
 if [ -d "$APP_DIR/node_modules/electron" ]; then
   step "npm dependencies present — skipping"
 else
   step "Installing npm dependencies"
   ( cd "$APP_DIR" && npm install )
+fi
+if [ -d "$PROJECT_ROOT/node_modules/eslint" ]; then
+  step "lint tooling present — skipping"
+else
+  step "Installing lint tooling"
+  ( cd "$PROJECT_ROOT" && npm install )
+fi
+
+# --- 2b. Git hooks ------------------------------------------------------------
+# Points git at tools/hooks/, which is tracked, so the pre-commit check is
+# reviewed and versioned like the rest. Same script CI runs.
+if git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  git -C "$PROJECT_ROOT" config core.hooksPath tools/hooks
+  step "pre-commit hook installed (tools/hooks/)"
 fi
 
 # --- 3. Dictionaries ----------------------------------------------------------

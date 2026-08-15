@@ -54,8 +54,8 @@ function createTier2({ ocrChild }) {
     if (!sidecar) return;
     logf('[tier2] stopping sidecar (' + why + ')');
     const p = sidecar; sidecar = null; sidecarReady = false;
-    try { p.stdin.end(); } catch {}
-    setTimeout(() => { try { p.kill(); } catch {} }, 2000);
+    try { p.stdin.end(); } catch { /* already closed */ }
+    setTimeout(() => { try { p.kill(); } catch { /* already exited */ } }, 2000);
   }
 
   function pokeSidecarIdle() {
@@ -147,7 +147,8 @@ function createTier2({ ocrChild }) {
     if (now - lastTier2At < 400) return;   // hover spam guard
     lastTier2At = now;
     const id = ++tier2Seq;
-    tier2Pending.set(id, { text: String(req.text || ''), conf: +req.conf || 1, t0: now });
+    tier2Pending.set(id,
+                     { text: String(req.text || ''), conf: Number(req.conf) || 1, t0: now });
     // Frame-relative points, the same space the payload's char boxes use.
     const r = [req.x, req.y, req.w, req.h].map(v => Math.round(v)).join(' ');
     if (!ocrChild.write(`crop ${id} ${r} /tmp/yomi-t2-${id}.png\n`)) {

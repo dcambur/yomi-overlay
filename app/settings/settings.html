@@ -2,93 +2,12 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<!-- Nothing in this page is inline — no <style>, no <script>, no style="" —
+     so the settings window can run under the same policy as the overlay:
+     'self' for both, and 'unsafe-inline' for neither. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
 <title>Overlay Settings</title>
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; height: 100vh; display: flex; flex-direction: column;
-    font: 13px/1.45 -apple-system, system-ui, sans-serif;
-    background: #1b1a1f; color: #e8e4dc;
-  }
-  header {
-    padding: 12px 16px 0; flex: 0 0 auto;
-  }
-  h1 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #33313a; }
-  .tab {
-    padding: 6px 12px; cursor: pointer; font-size: 12px;
-    border: 1px solid transparent; border-bottom: none;
-    border-radius: 6px 6px 0 0; color: #9c958a;
-  }
-  .tab.on { background: #26242c; border-color: #33313a; color: #e8e4dc; }
-  main { flex: 1 1 auto; overflow-y: auto; padding: 14px 16px; }
-  .panel { display: none; }
-  .panel.on { display: block; }
-
-  .hint { color: #8d8778; font-size: 11.5px; margin: 0 0 10px; }
-
-  /* --- window picker --- */
-  .win {
-    display: flex; align-items: center; gap: 10px;
-    padding: 7px 9px; border: 1px solid #33313a; border-radius: 6px;
-    margin-bottom: 6px; cursor: pointer; background: #211f27;
-  }
-  .win:hover { border-color: #6f6754; }
-  .win.sel { border-color: #c8a76a; background: #2b2720; }
-  .win .app { font-weight: 600; }
-  .win .meta { color: #8d8778; font-size: 11px; }
-  .win .title {
-    color: #b9b2a1; font-size: 11.5px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px;
-  }
-  .win .grow { flex: 1 1 auto; min-width: 0; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: #4a4750; flex: 0 0 auto; }
-  .dot.live { background: #4caf50; }
-  /* Running but not on the active Space (fullscreen on another desktop,
-     hidden, minimized) — still a perfectly good target. */
-  .dot.away { background: #c9a24b; }
-  .subwin { margin-left: 24px; padding: 5px 9px; }
-
-  /* --- dictionaries --- */
-  .dict {
-    display: flex; align-items: center; gap: 9px;
-    padding: 6px 9px; border: 1px solid #33313a; border-radius: 6px;
-    margin-bottom: 5px; background: #211f27;
-  }
-  .dict.off { opacity: .45; }
-  .dict .name { flex: 1 1 auto; }
-  .dict .ord { color: #6f6857; font-size: 11px; width: 18px; text-align: right; }
-  button {
-    font: inherit; font-size: 11px; color: #d9d3c8; background: #2d2a34;
-    border: 1px solid #3d3a45; border-radius: 5px; padding: 2px 7px; cursor: pointer;
-  }
-  button:hover:not(:disabled) { border-color: #c8a76a; color: #c8a76a; }
-  button:disabled { opacity: .3; cursor: default; }
-  input[type=checkbox] { accent-color: #c8a76a; }
-  .row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 7px 9px; border: 1px solid #33313a; border-radius: 6px;
-    margin-bottom: 6px; background: #211f27;
-  }
-  .row > span:first-child { flex: 0 0 110px; color: #b9b2a1; }
-  .row .unit { color: #8d8778; font-size: 11px; }
-  select, input[type=number] {
-    font: inherit; font-size: 12px; color: #e8e4dc; background: #2d2a34;
-    border: 1px solid #3d3a45; border-radius: 5px; padding: 3px 6px;
-  }
-  input[type=number] { width: 80px; }
-
-  footer {
-    flex: 0 0 auto; padding: 10px 16px; border-top: 1px solid #33313a;
-    display: flex; align-items: center; gap: 10px;
-  }
-  footer .grow { flex: 1 1 auto; }
-  #status { color: #8d8778; font-size: 11.5px; }
-  .primary { background: #c8a76a; color: #241f16; border-color: #c8a76a; font-weight: 600; }
-  .primary:hover { color: #241f16 !important; }
-</style>
+<link rel="stylesheet" href="settings.css">
 </head>
 <body>
   <header>
@@ -106,8 +25,8 @@
         Pick the app to attach the overlay to — Kindle, a browser showing
         BOOK☆WALKER, a manga reader, anything. Clicking an app follows
         whichever window it shows; expand a multi-window app to pin one
-        window. <span style="color:#4caf50">●</span> visible on this Space
-        &nbsp;<span style="color:#c9a24b">●</span> running on another Space or
+        window. <span class="legend live">●</span> visible on this Space
+        &nbsp;<span class="legend away">●</span> running on another Space or
         hidden (still targetable). The list refreshes itself.
       </p>
       <div id="winlist"></div>
@@ -115,8 +34,9 @@
 
     <div class="panel" id="p-trigger">
       <p class="hint">
-        How a lookup fires. Shift matches Yomitan/10ten muscle memory but
-        collides with shift-click and some IME candidate selection.
+        How a lookup fires — <b>applies as you change it</b>. Shift matches
+        Yomitan/10ten muscle memory but collides with shift-click and some IME
+        candidate selection.
       </p>
       <label class="row"><span>Trigger</span>
         <select id="mode">
@@ -133,9 +53,10 @@
         </select>
       </label>
       <label class="row" id="row-delay"><span>Hover delay</span>
-        <input id="delay" type="number" min="50" max="2000" step="50"> <span class="unit">ms</span>
+        <input id="delay" type="number" min="50" max="2000" step="50">
+        <span class="unit">ms</span>
       </label>
-      <p class="hint" style="margin-top:10px">
+      <p class="hint gap">
         Without Accessibility permission the key only registers while the mouse
         is moving; hover mode works either way.
       </p>
@@ -143,19 +64,14 @@
 
     <div class="panel" id="p-dicts">
       <p class="hint">
-        Uncheck to hide a dictionary. Order here is the order senses appear in
-        the popup.
+        The order below is the order senses appear in the popup; uncheck to
+        hide one. <b>Changes here apply as you make them</b> — no button.
+        The listed dictionaries are freely licensed and download here; anything
+        you own already (三省堂, 明鏡, DOJG) is a Yomitan <code>.zip</code> you
+        import.
       </p>
       <div id="dictlist"></div>
-
-      <p class="hint" style="margin-top:14px">
-        Add a dictionary. The recommended ones are freely licensed and download
-        here; anything you own already — 三省堂, 明鏡, DOJG — import as a
-        Yomitan <code>.zip</code>.
-      </p>
-      <div id="catalogue"></div>
-      <div id="installed"></div>
-      <div class="row" style="margin-top:8px">
+      <div class="row gap">
         <button id="import">Import a .zip you own…</button>
         <span id="dictstatus" class="unit"></span>
       </div>
@@ -166,294 +82,9 @@
     <span id="status"></span>
     <span class="grow"></span>
     <button id="close">Close</button>
-    <button id="save" class="primary">Save &amp; apply</button>
+    <button id="save" class="primary">Watch this window</button>
   </footer>
 
-<script>
-let config = null;
-let windows = [];
-let selected = null;
-
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s).replace(/[&<>"]/g, c =>
-  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-
-for (const t of document.querySelectorAll('.tab')) {
-  t.onclick = () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
-    $('p-window').classList.toggle('on', t.dataset.tab === 'window');
-    $('p-dicts').classList.toggle('on', t.dataset.tab === 'dicts');
-    $('p-trigger').classList.toggle('on', t.dataset.tab === 'trigger');
-  };
-}
-
-async function init() {
-  config = await window.settings.getConfig();
-  selected = { ...(config.target || {}) };
-  renderTrigger();
-  renderDicts();
-  await refreshDictionarySources();
-  await refreshWindows();
-}
-
-let expanded = new Set();   // bundles the user opened to pin a window
-let lastWinJson = '';
-
-async function refreshWindows(auto) {
-  if (!auto) $('status').textContent = 'scanning windows…';
-  const ws = await window.settings.listWindows();
-  // Auto-refresh must not flicker the list (or eat a click mid-render):
-  // re-render only when something actually changed.
-  const j = JSON.stringify(ws);
-  if (auto && j === lastWinJson) return;
-  lastWinJson = j;
-  windows = ws;
-  renderWindows();
-  if (!auto) $('status').textContent = windows.length + ' windows';
-}
-
-function renderWindows() {
-  const host = $('winlist');
-  host.innerHTML = '';
-  // One row per APP (multiple windows collapse); expand to pin one window.
-  const groups = new Map();
-  for (const w of windows) {
-    if (!groups.has(w.bundle)) groups.set(w.bundle, []);
-    groups.get(w.bundle).push(w);
-  }
-  for (const [bundle, ws] of groups) {
-    // A pinned window keeps its app expanded so the pin stays visible.
-    if (selected.windowId && ws.some(w => w.id === selected.windowId)) {
-      expanded.add(bundle);
-    }
-    // Liveness per app: green if any window is on the ACTIVE Space; amber if
-    // the app is running but parked elsewhere (fullscreen on another
-    // desktop, hidden) — the window server cannot see other Spaces'
-    // visibility, so "gray = dead" was simply wrong for those targets.
-    const anyLive = ws.some(w => w.onScreen);
-    const biggest = ws.reduce((a, b) => a.width * a.height >= b.width * b.height ? a : b);
-    const el = document.createElement('div');
-    el.className = 'win';
-    if (selected.bundle === bundle && !selected.windowId) el.classList.add('sel');
-    const sub = ws.length === 1
-      ? (ws[0].title || '(untitled)')
-      : ws.length + ' windows — click to '
-        + (expanded.has(bundle) ? 'collapse' : 'expand');
-    el.innerHTML =
-      `<span class="dot ${anyLive ? 'live' : 'away'}" title="${anyLive
-        ? 'visible on this Space' : 'running — on another Space or hidden'}"></span>` +
-      `<span class="grow">` +
-        `<div class="app">${esc(ws[0].app)}</div>` +
-        `<div class="title">${esc(sub)}</div>` +
-      `</span>` +
-      `<span class="meta">${biggest.width}×${biggest.height}</span>`;
-    el.onclick = () => {
-      selected = { bundle, windowId: null, label: ws[0].app };
-      // Toggle. Clicking an expanded app used to re-add it to the set, so once
-      // opened it could never be closed.
-      if (ws.length > 1) {
-        if (expanded.has(bundle)) expanded.delete(bundle);
-        else expanded.add(bundle);
-      }
-      renderWindows();
-      $('status').textContent = 'target: ' + ws[0].app + ' (any window)';
-    };
-    host.appendChild(el);
-
-    if (ws.length > 1 && expanded.has(bundle)) {
-      for (const w of ws) {
-        const s = document.createElement('div');
-        s.className = 'win subwin';
-        if (selected.windowId === w.id) s.classList.add('sel');
-        s.innerHTML =
-          `<span class="dot ${w.onScreen ? 'live' : 'away'}"></span>` +
-          `<span class="grow"><div class="title">${esc(w.title || '(untitled)')}</div></span>` +
-          `<span class="meta">${w.width}×${w.height}</span>`;
-        s.onclick = (ev) => {
-          ev.stopPropagation();
-          selected = { bundle, windowId: w.id,
-                       label: ws[0].app + ' — ' + (w.title || 'window') };
-          renderWindows();
-          $('status').textContent = 'target: ' + selected.label + ' (pinned window)';
-        };
-        host.appendChild(s);
-      }
-    }
-  }
-}
-
-function renderTrigger() {
-  const t = config.trigger || { modifier: 'shift', mode: 'hold', hoverDelayMs: 250 };
-  $('mode').value = t.mode || 'hold';
-  $('modifier').value = t.modifier || 'shift';
-  $('delay').value = t.hoverDelayMs ?? 250;
-  syncTriggerRows();
-}
-
-/** Only show the setting that applies to the chosen mode. */
-function syncTriggerRows() {
-  const hover = $('mode').value === 'hover';
-  $('row-mod').style.display = hover ? 'none' : '';
-  $('row-delay').style.display = hover ? '' : 'none';
-}
-
-function currentTrigger() {
-  return {
-    mode: $('mode').value,
-    modifier: $('modifier').value,
-    hoverDelayMs: Math.min(2000, Math.max(50, parseInt($('delay').value, 10) || 250)),
-  };
-}
-
-// --- adding and removing dictionaries --------------------------------------
-// Every action here ends in a rebuild of the index, which the main process runs
-// in a forked worker; progress arrives on dict:progress. The buttons stay
-// disabled for the duration because a second rebuild while one is running would
-// race for the same file.
-let dictBusy = false;
-
-function setDictBusy(on, text) {
-  dictBusy = on;
-  $('dictstatus').textContent = text || '';
-  for (const b of document.querySelectorAll('#catalogue button, #installed button, #import')) {
-    b.disabled = on;
-  }
-}
-
-async function refreshDictionarySources() {
-  const [cat, have] = await Promise.all([
-    window.settings.dictCatalogue(), window.settings.dictInstalled(),
-  ]);
-
-  const c = $('catalogue');
-  c.innerHTML = '';
-  for (const d of cat) {
-    const el = document.createElement('div');
-    el.className = 'dict';
-    el.innerHTML = `<span class="grow"><div class="app">${esc(d.name)}</div>`
-      + `<div class="title">${esc(d.detail)}</div></span>`;
-    const b = document.createElement('button');
-    b.textContent = d.installed ? 'Installed' : 'Download';
-    b.disabled = d.installed;
-    b.onclick = async () => {
-      if (dictBusy) return;
-      setDictBusy(true, 'starting…');
-      const r = await window.settings.dictDownload(d.id);
-      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
-      await refreshDictionarySources();
-      config = await window.settings.getConfig();
-      renderDicts();
-    };
-    el.appendChild(b);
-    c.appendChild(el);
-  }
-
-  const h = $('installed');
-  h.innerHTML = have.length
-    ? '<p class="hint" style="margin-top:10px">Installed</p>' : '';
-  for (const d of have) {
-    const el = document.createElement('div');
-    el.className = 'dict';
-    const mb = (d.size / 1048576).toFixed(1);
-    const b = document.createElement('button');
-    b.textContent = 'Remove';
-    b.style.marginRight = '10px';
-    // Before the label, not after it: the action belongs at the edge the eye
-    // starts from, and a right-aligned button drifted away from long titles.
-    el.appendChild(b);
-    const text = document.createElement('span');
-    text.className = 'grow';
-    text.innerHTML = `<div class="app">${esc(d.name)}</div>`
-      + `<div class="title">${esc(d.kind || 'unreadable')} · ${mb} MB</div>`;
-    el.appendChild(text);
-    b.onclick = async () => {
-      if (dictBusy) return;
-      setDictBusy(true, 'removing…');
-      const r = await window.settings.dictRemove(d.file);
-      setDictBusy(false, r.ok ? '' : ('failed: ' + r.error));
-      await refreshDictionarySources();
-      config = await window.settings.getConfig();
-      renderDicts();
-    };
-    h.appendChild(el);
-  }
-}
-
-$('import').onclick = async () => {
-  if (dictBusy) return;
-  setDictBusy(true, 'reading…');
-  const r = await window.settings.dictImport();
-  setDictBusy(false, r.ok ? '' : (r.cancelled ? '' : 'failed: ' + r.error));
-  await refreshDictionarySources();
-  config = await window.settings.getConfig();
-  renderDicts();
-};
-
-window.settings.onDictProgress((p) => {
-  if (p.phase === 'downloading') {
-    const mb = (p.got / 1048576).toFixed(1);
-    const of = p.total ? ' / ' + (p.total / 1048576).toFixed(1) : '';
-    $('dictstatus').textContent = `downloading ${p.name} ${mb}${of} MB`;
-  } else if (p.phase === 'indexing') {
-    const pct = p.total ? ` — ${Math.round(100 * ((p.done || 0) + 1) / p.total)}%` : '';
-    const at = p.total ? ` (${(p.done || 0) + 1}/${p.total})` : '';
-    $('dictstatus').textContent = `indexing ${p.name || ''}${at}${pct}`;
-  } else if (p.phase === 'pruning') {
-    const pct = p.total ? ` — ${Math.round(100 * (p.done || 0) / p.total)}%` : '';
-    $('dictstatus').textContent = `removing: ${p.step}${pct}`;
-  } else if (p.phase === 'done') {
-    $('dictstatus').textContent = 'ready — ' + (p.labels || []).join(', ');
-  } else if (p.phase === 'error') {
-    $('dictstatus').textContent = 'failed: ' + p.message;
-  }
-});
-
-function renderDicts() {
-  const host = $('dictlist');
-  host.innerHTML = '';
-  config.dictionaries.forEach((d, i) => {
-    const el = document.createElement('div');
-    el.className = 'dict' + (d.enabled ? '' : ' off');
-    el.innerHTML =
-      `<span class="ord">${i + 1}</span>` +
-      `<input type="checkbox" ${d.enabled ? 'checked' : ''}>` +
-      `<span class="name">${esc(d.name)}</span>` +
-      `<button class="up" ${i === 0 ? 'disabled' : ''}>↑</button>` +
-      `<button class="dn" ${i === config.dictionaries.length - 1 ? 'disabled' : ''}>↓</button>`;
-    el.querySelector('input').onchange = (e) => {
-      d.enabled = e.target.checked;
-      renderDicts();
-    };
-    el.querySelector('.up').onclick = () => {
-      [config.dictionaries[i - 1], config.dictionaries[i]] =
-        [config.dictionaries[i], config.dictionaries[i - 1]];
-      renderDicts();
-    };
-    el.querySelector('.dn').onclick = () => {
-      [config.dictionaries[i + 1], config.dictionaries[i]] =
-        [config.dictionaries[i], config.dictionaries[i + 1]];
-      renderDicts();
-    };
-    host.appendChild(el);
-  });
-}
-
-$('mode').onchange = syncTriggerRows;
-// The list tracks reality on its own — no manual refresh. 2s is far below
-// human window-shuffling speed and the scan is ~50ms of CGWindowList.
-setInterval(() => { refreshWindows(true).catch(() => {}); }, 2000);
-$('close').onclick = () => window.settings.close();
-$('save').onclick = async () => {
-  $('status').textContent = 'applying…';
-  await window.settings.saveConfig({
-    target: selected,
-    dictionaries: config.dictionaries,
-    trigger: currentTrigger(),
-  });
-  $('status').textContent = 'saved — overlay restarted';
-};
-
-init();
-</script>
+<script src="settings.js"></script>
 </body>
 </html>

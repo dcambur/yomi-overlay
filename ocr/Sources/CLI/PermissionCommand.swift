@@ -1,7 +1,7 @@
 // --check-permission: report Screen Recording status and exit.
 
-import Foundation
 import CoreGraphics
+import Foundation
 import ScreenCaptureKit
 
 /// Reports whether Screen Recording has been granted.

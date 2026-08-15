@@ -5,7 +5,7 @@
 // Screen Recording nothing works at all, while without Accessibility the
 // global trigger silently never fires and the log stays clean.
 
-const { app, dialog, shell, systemPreferences } = require('electron');
+const { dialog, shell, systemPreferences } = require('electron');
 const { execFileSync } = require('child_process');
 const { OCR_BIN: YOMI_BIN } = require('../paths.js');
 
@@ -38,11 +38,9 @@ function reportSpawnFailure(what, err) {
 }
 
 
-
 // the failure is invisible: SCShareableContent stalls, then errors to a log the
 // user never sees. Check once at startup and say so plainly.
 function checkPermission() {
-  const { execFileSync } = require('child_process');
   try {
     const out = execFileSync(YOMI_BIN, ['--check-permission'], { timeout: 5000 });
     hasScreenRecording = JSON.parse(out.toString()).screenRecording === true;

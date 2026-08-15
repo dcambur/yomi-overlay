@@ -31,6 +31,7 @@ const INDEX_PATH = path.join(USER_DIR, 'index.db');
 const CATALOGUE = [
   {
     id: 'jitendex',
+    label: 'Jitendex',
     file: 'jitendex-yomitan.zip',
     name: 'Jitendex',
     detail: 'Japanese to English. The one to start with.',
@@ -38,6 +39,7 @@ const CATALOGUE = [
   },
   {
     id: 'jmnedict',
+    label: 'Names',
     file: 'JMnedict.zip',
     name: 'JMnedict',
     detail: 'Names of people, places and organisations.',
@@ -45,6 +47,7 @@ const CATALOGUE = [
   },
   {
     id: 'kanjidic',
+    label: 'KANJIDIC',
     file: 'KANJIDIC_english.zip',
     name: 'KANJIDIC',
     detail: 'Readings and meanings for individual kanji.',
@@ -52,6 +55,7 @@ const CATALOGUE = [
   },
   {
     id: 'jpdb',
+    label: 'JPDB',
     file: 'JPDB_frequency.zip',
     name: 'JPDB frequency',
     detail: 'How common a word is. Orders senses in the popup.',
@@ -68,6 +72,7 @@ const CATALOGUE = [
   },
   {
     id: 'bccwj',
+    label: 'BCCWJ',
     file: 'BCCWJ_frequency.zip',
     name: 'BCCWJ frequency',
     detail: 'A second frequency source, from a balanced corpus.',
@@ -112,10 +117,20 @@ function installed() {
     .sort()
     .map((file) => {
       const info = classify(path.join(DICTS_DIR, file));
-      const cat = CATALOGUE.find((c) => c.file === file);
+      const label = labelOf(file, info.kind, info.title);
+      const cat = CATALOGUE.find((c) => c.label === label);
       return {
         file,
-        name: cat ? cat.name : (info.title || file.replace(/\.zip$/i, '')),
+        // The name the INDEX uses. Everything that has to line up — the
+        // priority list, the manifest, removing the right rows — lines up on
+        // this and not on the filename or the archive's own title. Keying the
+        // settings list on the title instead showed 明鏡 twice: once as 明鏡
+        // from the manifest and once as 明鏡国語辞典　第二版 from the archive.
+        label,
+        name: cat ? cat.name : label,
+        // What the archive calls itself: how two files are recognised as the
+        // same dictionary whatever they were named on disk.
+        title: info.title || '',
         kind: info.kind,
         size: fs.statSync(path.join(DICTS_DIR, file)).size,
       };
@@ -124,9 +139,12 @@ function installed() {
 
 /** The catalogue, marked up with what is already here. */
 function catalogue() {
-  const have = new Set(installed().map((d) => d.file));
+  // By label, not by filename: these are fetched under whatever name the
+  // upstream release uses, and a frequency list carries its version in it.
+  const have = new Set(installed().map((d) => d.label));
   return CATALOGUE.map((c) => ({
-    id: c.id, name: c.name, detail: c.detail, file: c.file, installed: have.has(c.file),
+    id: c.id, name: c.name, detail: c.detail, file: c.file, label: c.label,
+    installed: have.has(c.label),
   }));
 }
 
@@ -171,17 +189,69 @@ async function download(id, onProgress = () => {}) {
     throw new Error(`${entry.name}: downloaded file is not a Yomitan dictionary`);
   }
   fs.renameSync(part, dest);
-  return { file: entry.file, kind: info.kind, size: got };
+  // The same dictionary may already be here under whatever name it was
+  // imported as; the download is the one that stays.
+  const replaced = dropDuplicates(info.title, entry.file);
+  return { file: entry.file, kind: info.kind, size: got, replaced };
+}
+
+/**
+ * Drop an already-installed copy of the same dictionary under another name.
+ *
+ * A Yomitan archive names itself in index.json, and that is its identity —
+ * importing `jitendex.zip` when `jitendex-yomitan.zip` is already here is the
+ * same dictionary twice, not two dictionaries. Left alone it is indexed twice
+ * under two labels and every sense appears twice in the popup. Importing a
+ * newer build of something you already have is the common case, so replacing
+ * is what someone means.
+ *
+ * Matched on title only, never on filename: the file it is being imported from
+ * is usually named nothing like the one already installed.
+ */
+function dropDuplicates(title, keepFile) {
+  if (!title) return [];
+  const dropped = [];
+  for (const d of installed()) {
+    if (d.file !== keepFile && d.title && d.title === title) {
+      fs.rmSync(path.join(DICTS_DIR, d.file), { force: true });
+      dropped.push(d.file);
+    }
+  }
+  return dropped;
 }
 
 /** Take a dictionary the user already has. Same validation as a download. */
+/**
+ * Import several archives, and say what happened to each.
+ *
+ * The file picker allows a multi-selection, so this is the normal case, not a
+ * corner: someone points at a folder of downloads and takes the lot. That
+ * makes one of them not being a dictionary the normal case too.
+ *
+ * It does NOT stop at the first bad one. Stopping left the archives already
+ * copied sitting in dicts/ and out of the index — the settings window lists a
+ * row per archive, so they showed up installed, offered a Remove button, and
+ * answered nothing. Every readable archive goes in; the rest are reported by
+ * name so the window can say which.
+ */
+function importFiles(sources) {
+  const added = [];
+  const failed = [];
+  for (const src of sources) {
+    try { added.push(importFile(src)); }
+    catch (e) { failed.push({ file: path.basename(src), error: e.message }); }
+  }
+  return { added, failed };
+}
+
 function importFile(src) {
   const info = classify(src);
   if (!info.kind) throw new Error('not a Yomitan dictionary archive');
   fs.mkdirSync(DICTS_DIR, { recursive: true });
   const file = path.basename(src);
   fs.copyFileSync(src, path.join(DICTS_DIR, file));
-  return { file, kind: info.kind, title: info.title };
+  const replaced = dropDuplicates(info.title, file);
+  return { file, kind: info.kind, title: info.title, replaced };
 }
 
 /** Forget a dictionary. The index still holds it until it is pruned. */
@@ -238,11 +308,21 @@ function prune(label, onProgress = () => {}) {
             + ' (SELECT 1 FROM terms WHERE terms.gloss = glosses.id)');
     db.exec('COMMIT');
 
-    onProgress({ phase: 'pruning', step: 'finishing', done: 2, total: 3 });
+    onProgress({ phase: 'pruning', step: 'reclaiming space', done: 2, total: 3 });
     const left = db.prepare('SELECT COUNT(*) AS n FROM terms').get().n;
-    return { pruned: true, rows: left };
-  } finally {
+    const any = left
+      + db.prepare('SELECT COUNT(*) AS n FROM kanji').get().n
+      + db.prepare('SELECT COUNT(*) AS n FROM pitch').get().n
+      + db.prepare('SELECT COUNT(*) AS n FROM freq').get().n;
+    // Deleting rows does not give the pages back, so an index that has had a
+    // dictionary taken out of it keeps the size it had with the dictionary in
+    // it. Removing everything left a 448 MB file that answered nothing.
+    if (any) db.exec('VACUUM');
     db.close();
+    if (!any) fs.rmSync(INDEX_PATH, { force: true });
+    return { pruned: true, rows: left, emptied: !any };
+  } finally {
+    try { db.close(); } catch { /* closed above on the success path */ }
   }
 }
 
@@ -257,8 +337,12 @@ function writeManifest() {
         'SELECT dict, MIN(rowid) AS first FROM terms GROUP BY dict ORDER BY first').all()) {
         if (r.dict) labels.push(r.dict);
       }
-      for (const r of db.prepare('SELECT DISTINCT dict FROM kanji').all()) {
-        if (r.dict && !labels.includes(r.dict)) labels.push(r.dict);
+      for (const sql of ['SELECT DISTINCT dict FROM kanji',
+                         'SELECT DISTINCT dict FROM pitch',
+                         'SELECT DISTINCT source AS dict FROM freq']) {
+        for (const r of db.prepare(sql).all()) {
+          if (r.dict && !labels.includes(r.dict)) labels.push(r.dict);
+        }
       }
     } finally { db.close(); }
   }
@@ -283,20 +367,17 @@ function rebuild(onProgress = () => {}) {
 }
 
 /**
- * Rebuild without blocking anything.
+ * Run a build or a prune off the main process.
  *
- * The synchronous build is fine for a script and wrong for an app: it takes
- * ~80 seconds on a full set, and the main process is what draws the overlay
- * over whatever the user is reading. Forked as the same binary through
- * ELECTRON_RUN_AS_NODE, so there is no second Node to depend on.
+ * The synchronous versions are fine for a script and wrong for an app. A build
+ * is ~80 seconds on a full set and a prune a few, and the main process is what
+ * draws the overlay over whatever the user is reading — so either one freezes
+ * it, and a progress message cannot be painted by a process that is busy
+ * producing it. Forked as the same binary through ELECTRON_RUN_AS_NODE, so
+ * there is no second Node to depend on.
  */
-function rebuildAsync(onProgress = () => {}) {
+function inWorker(message, onProgress) {
   return new Promise((resolve, reject) => {
-    if (!installed().length) {
-      fs.rmSync(INDEX_PATH, { force: true });
-      resolve({ labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] });
-      return;
-    }
     // require.resolve, not a path built from __dirname: one file knows the
     // layout (CONVENTIONS), and the module system already knows where its own
     // sibling lives.
@@ -313,15 +394,30 @@ function rebuildAsync(onProgress = () => {}) {
     });
     child.on('error', (e) => finish(reject, e));
     child.on('exit', (code) => {
-      finish(reject, new Error(`index builder exited with ${code} before finishing`));
+      finish(reject, new Error(`index worker exited with ${code} before finishing`));
     });
-    child.send({ type: 'build', dictsDir: DICTS_DIR, outPath: INDEX_PATH });
+    child.send(message);
   });
 }
 
+function rebuildAsync(onProgress = () => {}) {
+  if (!installed().length) {
+    fs.rmSync(INDEX_PATH, { force: true });
+    return Promise.resolve(
+      { labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] });
+  }
+  return inWorker({ type: 'build', dictsDir: DICTS_DIR, outPath: INDEX_PATH },
+                  onProgress);
+}
+
+function pruneAsync(label, onProgress = () => {}) {
+  return inWorker({ type: 'prune', label }, onProgress);
+}
+
 module.exports = {
+  importFiles,
   CATALOGUE, catalogue, installed, download, importFile, remove, rebuild,
-  rebuildAsync, prune, labelOf, writeManifest,
+  rebuildAsync, pruneAsync, prune, labelOf, writeManifest, dropDuplicates,
   // Exported so the catalogue can be checked for reachability without
   // downloading gigabytes: every entry must still resolve to a real URL.
   resolveURL,

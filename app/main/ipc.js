@@ -19,6 +19,7 @@ const cfg = require('./config.js');
 const { lookup } = require('./lookup.js');
 const { listWindows } = require('./window-list.js');
 const dictionaries = require('./dictionaries.js');
+const { createQueue } = require('./job-queue.js');
 const lookupModule = require('./lookup.js');
 const { openSettings, closeSettings } = require('./settings-window.js');
 
@@ -56,7 +57,17 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
   // everything else keeps falling through to the target.
   ipcMain.on('set-interactive', (_e, want) => overlayWindow.setInteractive(!!want));
 
-  ipcMain.handle('cfg:get', () => cfg.load());
+  ipcMain.handle('cfg:get', () => {
+    // Re-read first. The index can change without this process doing it — a
+    // rebuild from the command line, a second window, a restore from backup —
+    // and the config's list of dictionaries is bounded by the manifest, so a
+    // cached copy silently drops every dictionary whose label the rebuild
+    // changed. In the settings window that shows up as a row with no checkbox
+    // and no arrows, which looks exactly like a dictionary that failed to
+    // index.
+    cfg.refreshDictionaries();
+    return cfg.load();
+  });
   ipcMain.handle('cfg:windows', () => listWindows());
 
   ipcMain.handle('cfg:save', (_e, next) => {
@@ -81,6 +92,39 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     return cfg.load();
   });
 
+  // How a lookup fires. Like the dictionaries below, this is saved as it
+  // changes rather than behind a button — mode and hover delay are renderer
+  // state and apply the moment they are pushed. The modifier is the one
+  // exception: it is baked into the event monitor's argv, so THAT child (not
+  // the capture child, and not the overlay) is restarted when it changes.
+  ipcMain.handle('cfg:trigger', (_e, next) => {
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      reject('cfg:trigger', 'not an object');
+      return cfg.load();
+    }
+    const before = cfg.trigger();
+    cfg.save({ trigger: next });
+    tray.refresh();
+    overlayWindow.sendTrigger();
+    if (cfg.trigger().modifier !== before.modifier) eventsChild.restart();
+    return cfg.load();
+  });
+
+  // Which dictionaries are on, and in what order. Deliberately NOT cfg:save:
+  // that one restarts the capture and event children, because the target
+  // window and the modifier are baked into their argv. Neither is affected by
+  // a dictionary, and lookup.js re-reads the order on every lookup
+  // (refreshOrder), so writing the file IS the apply — which is what lets the
+  // settings window make these changes live instead of behind a button.
+  ipcMain.handle('cfg:dictionaries', (_e, list) => {
+    if (!Array.isArray(list)) {
+      reject('cfg:dictionaries', 'not an array');
+      return cfg.load();
+    }
+    cfg.save({ dictionaries: list });
+    return cfg.load();
+  });
+
   // --- dictionaries ---------------------------------------------------
   // Adding or removing one changes the index the overlay reads, so every path
   // here ends the same way: rebuild, reopen, and tell the window what the
@@ -88,17 +132,20 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
   const { sendSettings } = require('./settings-window.js');
   const { dialog } = require('electron');
 
-  async function rebuildAndReopen(what) {
-    sendSettings('dict:progress', { phase: 'indexing', name: what });
+  // Dictionary work is serialized: these jobs all write one index. See
+  // job-queue.js for why that cannot be the settings window's job.
+  const enqueue = createQueue((p) => sendSettings('dict:progress', p));
+
+  async function rebuildAndReopen(what, report = () => {}) {
+    report({ phase: 'indexing', name: what });
     const result = await dictionaries.rebuildAsync((p) => {
-      sendSettings('dict:progress', { phase: 'indexing', name: p.name,
-                                      done: p.done, total: p.total });
+      report({ phase: 'indexing', name: p.name, done: p.done, total: p.total });
     });
     // The handle held since startup points at the old file; drop it so the
     // next lookup opens what was just written.
     lookupModule.close();
     cfg.refreshDictionaries();
-    sendSettings('dict:progress', { phase: 'done', labels: result.labels });
+    report({ phase: 'done', labels: result.labels });
     return result;
   }
 
@@ -107,37 +154,48 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
 
   ipcMain.handle('dict:download', async (_e, id) => {
     if (!isStr(id, 64)) return reject('dict:download', 'bad id');
-    try {
-      const got = await dictionaries.download(id, (p) => {
-        sendSettings('dict:progress', { phase: 'downloading', ...p });
-      });
-      await rebuildAndReopen(got.file);
-      return { ok: true, file: got.file };
-    } catch (e) {
-      logf('[dict] download failed: ' + e.message);
-      sendSettings('dict:progress', { phase: 'error', message: e.message });
-      return { ok: false, error: e.message };
-    }
+    const entry = dictionaries.catalogue().find((c) => c.id === id);
+    return enqueue(entry ? entry.label : id, async (report) => {
+      try {
+        const got = await dictionaries.download(id, (p) => {
+          report({ phase: 'downloading', ...p });
+        });
+        await rebuildAndReopen(got.file, report);
+        return { ok: true, file: got.file };
+      } catch (e) {
+        logf('[dict] download failed: ' + e.message);
+        report({ phase: 'error', message: e.message });
+        return { ok: false, error: e.message };
+      }
+    });
   });
 
-  ipcMain.handle('dict:import', async () => {
+  ipcMain.handle('dict:import', async (_e, job) => {
     const picked = await dialog.showOpenDialog({
       title: 'Import a Yomitan dictionary',
       filters: [{ name: 'Yomitan dictionary', extensions: ['zip'] }],
       properties: ['openFile', 'multiSelections'],
     });
     if (picked.canceled || !picked.filePaths.length) return { ok: false, cancelled: true };
-    const added = [];
-    for (const file of picked.filePaths) {
-      try { added.push(dictionaries.importFile(file).file); }
-      catch (e) {
-        logf('[dict] import failed: ' + e.message);
-        sendSettings('dict:progress', { phase: 'error', message: e.message });
-        return { ok: false, error: e.message };
+    // The dialog is opened BEFORE queueing, because it needs the user now; the
+    // copying and the rebuild are what wait their turn. The window names the
+    // job, so two imports asked for in a row are two jobs and not one.
+    return enqueue(isStr(job, 64) ? job : 'import:1', async (report) => {
+      const { added, failed } = dictionaries.importFiles(picked.filePaths);
+      for (const f of failed) logf(`[dict] import failed: ${f.file}: ${f.error}`);
+      // Index whatever DID land, even if something else did not. Returning
+      // early left the archives already copied on disk and out of the index.
+      if (added.length) {
+        await rebuildAndReopen(added.map((a) => a.file).join(', '), report);
       }
-    }
-    await rebuildAndReopen(added.join(', '));
-    return { ok: true, added };
+      if (failed.length) {
+        const names = failed.map((f) => f.file).join(', ');
+        const why = failed[0].error;
+        report({ phase: 'error', message: `${names}: ${why}` });
+        return { ok: added.length > 0, added, failed, error: `${names}: ${why}` };
+      }
+      return { ok: true, added };
+    });
   });
 
   ipcMain.handle('dict:remove', async (_e, file) => {
@@ -147,28 +205,30 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     const entry = dictionaries.installed().find((d) => d.file === file);
     if (!entry) return { ok: false, error: `no such dictionary: ${file}` };
     const label = dictionaries.labelOf(file, entry.kind, entry.name);
-    try { dictionaries.remove(file); }
-    catch (e) { return { ok: false, error: e.message }; }
+    return enqueue(label, async (report) => {
+      try { dictionaries.remove(file); }
+      catch (e) { return { ok: false, error: e.message }; }
 
-    // Delete its rows rather than rebuilding the index around it: ~2.6s
-    // against ~80s. An index built before the dict columns existed cannot be
-    // pruned and falls back to the rebuild.
-    let result;
-    try {
-      result = dictionaries.prune(label, (p) => sendSettings('dict:progress', p));
-    } catch (e) {
-      logf('[dict] prune failed, rebuilding: ' + e.message);
-      result = { pruned: false };
-    }
-    if (!result.pruned) {
-      await rebuildAndReopen(file);
-      return { ok: true, rebuilt: true };
-    }
-    const labels = dictionaries.writeManifest();
-    lookupModule.close();
-    cfg.refreshDictionaries();
-    sendSettings('dict:progress', { phase: 'done', labels });
-    return { ok: true };
+      // Delete its rows rather than rebuilding the index around it: ~2.6s
+      // against ~80s. An index built before the dict columns existed cannot be
+      // pruned and falls back to the rebuild.
+      let result;
+      try {
+        result = await dictionaries.pruneAsync(label, report);
+      } catch (e) {
+        logf('[dict] prune failed, rebuilding: ' + e.message);
+        result = { pruned: false };
+      }
+      if (!result.pruned) {
+        await rebuildAndReopen(file, report);
+        return { ok: true, rebuilt: true };
+      }
+      const labels = dictionaries.writeManifest();
+      lookupModule.close();
+      cfg.refreshDictionaries();
+      report({ phase: 'done', labels });
+      return { ok: true };
+    });
   });
 
   ipcMain.on('cfg:close', () => closeSettings());
