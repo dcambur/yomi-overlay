@@ -171,16 +171,19 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     // copying and the rebuild are what wait their turn. The window names the
     // job, so two imports asked for in a row are two jobs and not one.
     return enqueue(isStr(job, 64) ? job : 'import:1', async (report) => {
-      const added = [];
-      for (const file of picked.filePaths) {
-        try { added.push(dictionaries.importFile(file).file); }
-        catch (e) {
-          logf('[dict] import failed: ' + e.message);
-          report({ phase: 'error', message: e.message });
-          return { ok: false, error: e.message };
-        }
+      const { added, failed } = dictionaries.importFiles(picked.filePaths);
+      for (const f of failed) logf(`[dict] import failed: ${f.file}: ${f.error}`);
+      // Index whatever DID land, even if something else did not. Returning
+      // early left the archives already copied on disk and out of the index.
+      if (added.length) {
+        await rebuildAndReopen(added.map((a) => a.file).join(', '), report);
       }
-      await rebuildAndReopen(added.join(', '), report);
+      if (failed.length) {
+        const names = failed.map((f) => f.file).join(', ');
+        const why = failed[0].error;
+        report({ phase: 'error', message: `${names}: ${why}` });
+        return { ok: added.length > 0, added, failed, error: `${names}: ${why}` };
+      }
       return { ok: true, added };
     });
   });

@@ -221,6 +221,29 @@ function dropDuplicates(title, keepFile) {
 }
 
 /** Take a dictionary the user already has. Same validation as a download. */
+/**
+ * Import several archives, and say what happened to each.
+ *
+ * The file picker allows a multi-selection, so this is the normal case, not a
+ * corner: someone points at a folder of downloads and takes the lot. That
+ * makes one of them not being a dictionary the normal case too.
+ *
+ * It does NOT stop at the first bad one. Stopping left the archives already
+ * copied sitting in dicts/ and out of the index — the settings window lists a
+ * row per archive, so they showed up installed, offered a Remove button, and
+ * answered nothing. Every readable archive goes in; the rest are reported by
+ * name so the window can say which.
+ */
+function importFiles(sources) {
+  const added = [];
+  const failed = [];
+  for (const src of sources) {
+    try { added.push(importFile(src)); }
+    catch (e) { failed.push({ file: path.basename(src), error: e.message }); }
+  }
+  return { added, failed };
+}
+
 function importFile(src) {
   const info = classify(src);
   if (!info.kind) throw new Error('not a Yomitan dictionary archive');
@@ -392,6 +415,7 @@ function pruneAsync(label, onProgress = () => {}) {
 }
 
 module.exports = {
+  importFiles,
   CATALOGUE, catalogue, installed, download, importFile, remove, rebuild,
   rebuildAsync, pruneAsync, prune, labelOf, writeManifest, dropDuplicates,
   // Exported so the catalogue can be checked for reachability without

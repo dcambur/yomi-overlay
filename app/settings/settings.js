@@ -292,8 +292,16 @@ async function dictAction(label, fn) {
   const r = await fn();
   dictJobs.delete(label);
   await refreshDictionaries();
-  $('dictstatus').textContent =
-    r && r.ok === false && !r.cancelled ? 'failed: ' + r.error : '';
+  // An import of several archives can half-succeed: some went in, one was not
+  // a dictionary. Say so, rather than reporting the whole thing as a failure
+  // or silently swallowing the part that did not work.
+  if (r && r.failed && r.failed.length) {
+    $('dictstatus').textContent = `could not read ${r.failed.map((f) => f.file).join(', ')}`;
+  } else if (r && r.ok === false && !r.cancelled) {
+    $('dictstatus').textContent = 'failed: ' + r.error;
+  } else {
+    $('dictstatus').textContent = '';
+  }
 }
 
 /**
