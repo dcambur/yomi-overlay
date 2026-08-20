@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The child entitlements, for every executable inside the bundle that is not the
+  app itself: Electron's GPU/renderer/utility helpers, the Electron Framework,
+  and Contents/MacOS/yomi.
+
+  `inherit` means "take the sandbox of whoever spawned you, and nothing else".
+  It is mutually exclusive with naming permissions of your own — a child that
+  inherits cannot widen the parent's sandbox, which is the entire point.
+
+  yomi is the interesting one. It reaches ScreenCaptureKit and a global event
+  monitor, and it will do so under a sandbox it inherits from the app rather
+  than one of its own. See tools/build-mas.sh.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <key>com.apple.security.inherit</key>
+  <true/>
+</dict>
+</plist>
