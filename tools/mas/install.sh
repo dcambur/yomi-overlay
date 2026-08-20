@@ -12,7 +12,7 @@ set -euo pipefail
 export SIGN_IDENTITY="${SIGN_IDENTITY:-3rd Party Mac Developer Application: Vectorsoft (3EPV7AGLM2)}"
 export TEAM_ID="${TEAM_ID:-3EPV7AGLM2}"
 export BUNDLE_ID="${BUNDLE_ID:-com.dcambur.yomioverlay}"
-export PROVISION="${PROVISION:-$HOME/Downloads/Yomi_Overlay_MAS.provisionprofile}"
+export PROVISION="${PROVISION:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/credentials/Yomi_Overlay_MAS.provisionprofile}"
 export OUT_DIR="${OUT_DIR:-/Applications}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
