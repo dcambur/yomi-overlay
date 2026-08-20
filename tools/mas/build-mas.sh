@@ -13,7 +13,7 @@
 # TCC grants rather than entitlements, so no amount of reading settles it. A
 # self-signed sandboxed build settles it in ten minutes:
 #
-#   tools/build-mas.sh                       # self-signed, sandboxed, LOCAL ONLY
+#   tools/mas/build-mas.sh                       # self-signed, sandboxed, LOCAL ONLY
 #   open "/tmp/mas/Yomi Overlay-mas-arm64/Yomi Overlay.app"
 #   # grant Screen Recording + Accessibility to the NEW bundle, then read
 #   tail -f /tmp/yomi-overlay.log
@@ -27,11 +27,11 @@
 # embedded provisioning profile, neither of which exists yet.
 #
 #   SIGN_IDENTITY="3rd Party Mac Developer Application: NAME (TEAMID)" \
-#     PROVISION=/path/to/profile.provisionprofile tools/build-mas.sh
+#     PROVISION=/path/to/profile.provisionprofile tools/mas/build-mas.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$HERE/paths.sh"
+. "$HERE/../paths.sh"
 
 APP_NAME="Yomi Overlay"
 OUT="${OUT_DIR:-/tmp/mas}"
@@ -42,11 +42,11 @@ APP_VERSION="${APP_VERSION:-0.0.0-dev}"
 # Self-signed by default so the sandbox question can be answered without an
 # Apple Developer account. build-app.sh creates this certificate.
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
-ENTITLEMENTS="$TOOLS_DIR/entitlements.mas.plist"
-INHERIT="$TOOLS_DIR/entitlements.mas.inherit.plist"
+ENTITLEMENTS="$TOOLS_DIR/mas/entitlements.mas.plist"
+INHERIT="$TOOLS_DIR/mas/entitlements.mas.inherit.plist"
 
 echo "==> Building the Swift capture helper"
-"$HERE/../ocr/build.sh" >/dev/null
+"$HERE/../../ocr/build.sh" >/dev/null
 
 echo "==> Packaging (Electron $ELECTRON_VERSION, platform=mas)"
 rm -rf "$OUT"
@@ -72,6 +72,29 @@ for part in main.js paths.js main renderer settings preload assets vendor packag
   [ -e "$APP_DIR/$part" ] && cp -R "$APP_DIR/$part" "$RES/app/"
 done
 rm -rf "$RES/app/shell"
+
+echo "==> Replacing app.asar bootstrap (sandbox must not load external code)"
+# Electron loads from app.asar (bootstrap.js + package.json from shell/).  The
+# development bootstrap resolves a pointer file or hardcoded FALLBACK to the
+# checkout, then requires main.js from there.  Under the App Sandbox that path
+# is EPERM, and even if it weren't, loading code from outside the bundle is an
+# automatic App Store rejection.  So the MAS build replaces the asar with a
+# one-liner that loads straight from the bundled Resources/app copy.
+MAS_SHELL="$OUT/.mas-shell"
+mkdir -p "$MAS_SHELL"
+cat > "$MAS_SHELL/bootstrap.js" << 'BOOTSTRAP'
+// MAS bootstrap — injected by build-mas.sh, replacing the development loader.
+// A sandboxed app must not load code from outside its own bundle: the sandbox
+// blocks it (EPERM) and App Store review rejects it. Everything lives in
+// Contents/Resources/app, placed there by the build script.
+const path = require('path');
+const dir = path.join(process.resourcesPath, 'app');
+process.env.YOMI_OVERLAY_DIR = dir;
+require(path.join(dir, 'main.js'));
+BOOTSTRAP
+cp "$SHELL_DIR/package.json" "$MAS_SHELL/package.json"
+npx --yes @electron/asar pack "$MAS_SHELL" "$RES/app.asar"
+rm -rf "$MAS_SHELL"
 
 echo "==> Copying the helper into Contents/MacOS"
 # Beside the app's own executable, matching paths.js. Nested code in Resources
