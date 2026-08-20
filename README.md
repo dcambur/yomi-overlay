@@ -114,7 +114,9 @@ Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or wi
 
 ## License and credits
 
-GPL-3.0-or-later, see [LICENSE](LICENSE). app/vendor/yomitan/ comes from [yomidevs/yomitan](https://github.com/yomidevs/yomitan) (GPL-3.0), unmodified except for two import paths. Vendoring it means the deinflector uses the real condition-typed transform chains rather than a reimplementation, which is how 信じられている resolves to 信じる. It's also why this project is GPL-3.0.
+GPL-3.0-or-later, see [LICENSE](LICENSE). app/vendor/jp-verbs/ comes from [mistval/jp-verb-deconjugator](https://github.com/mistval/jp-verb-deconjugator) (MIT), verbatim except for one line that lets an adjective count as a finished deinflection — see [app/vendor/jp-verbs/PROVENANCE.md](app/vendor/jp-verbs/PROVENANCE.md). Vendoring it means the deinflector walks a real recursive rule table rather than a reimplementation, which is how 信じられている resolves to 信じる and 高くなかった to 高い.
+
+The deinflector used to be Yomitan's, which is GPL-3.0, and that is why this project is. Nothing copyleft is left in the tree, so the licence is now a choice rather than an obligation — it stays GPL-3.0-or-later until someone decides otherwise.
 
 No dictionary data is redistributed here. Jitendex, JMnedict and KANJIDIC carry their own licenses, and commercial dictionaries are yours to supply.
 

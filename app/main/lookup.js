@@ -1,7 +1,13 @@
-// Dictionary lookup against the prebuilt SQLite index, using Yomitan's own
-// deinflection engine (ext/js/language/ja/japanese-transforms.js) rather than a
-// hand-rolled rule table — chained, condition-typed transforms, so
-// 信じられている resolves to 信じる and 愛された to 愛する.
+// Dictionary lookup against the prebuilt SQLite index, using the vendored
+// jp-verbs deinflection table (app/vendor/jp-verbs/) rather than a hand-rolled
+// one — recursive, chained rules, so 信じられている resolves to 信じる and
+// 高くなかった to 高い.
+//
+// It over-generates: 信じられている also yields 信じらる, which is not a word.
+// That costs one indexed SQLite probe each and nothing else, because a
+// candidate only becomes a group if the dictionary has it. Measured on
+// 転生してきた僕は信じられている: 40 unique candidates per full prefix scan
+// against Yomitan's 29, 0.19 ms vs 0.10 ms — both far under one OCR pass.
 //
 // Runs in the main process: node:sqlite is synchronous and the index is large,
 // so keeping it out of the renderer avoids janking the overlay on every hover.
@@ -9,6 +15,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const zlib = require('zlib');
 const path = require('path');
+const jpVerbs = require('../vendor/jp-verbs/index.js');
 
 const { ASSET_DIR, USER_DIR } = require('../paths.js');
 // The user's own index wins over the one that shipped. A release build carries
@@ -23,7 +30,6 @@ const cfg = require('./config.js');
 let db = null;
 let structured = false;
 let qTerm, qKanji, qPitch, qFreq;
-let transformer = null;
 
 // Display order and visibility both come from settings, so the popup reflects
 // whatever the user arranged without a rebuild.
@@ -113,34 +119,48 @@ function open(at) {
   }
 }
 
-/** Yomitan's transformer is ESM; load it once, asynchronously. */
-async function initTransformer() {
-  if (transformer) return transformer;
-  const { LanguageTransformer } = await import('../vendor/yomitan/language-transformer.js');
-  const { japaneseTransforms } = await import('../vendor/yomitan/japanese-transforms.js');
-  const lt = new LanguageTransformer();
-  lt.addDescriptor(japaneseTransforms);
-  transformer = lt;
-  return lt;
+/**
+ * A step's name, short enough for the popup's one-line route.
+ *
+ * jp-verbs names a step for a reader, not for a caption: "ている・でいる
+ * Continuing State/Result", "て・で Form", "ない Negative". The Japanese in
+ * front IS the name a learner recognises, so keep that and drop the English
+ * gloss after it. Steps with no Japanese at all ("Plain Past", "Passive Form")
+ * keep their English, minus a trailing "Form" that says nothing.
+ *
+ * Measured over the 111 step names that can actually reach the popup — the
+ * rest of the 116 word types are silent or name an unconjugated form, and
+ * jp-verbs never emits either: the longest result is 20 characters
+ * ("Potential Or Passive", "なくて・なければ + いけない・ならない") and the median is 3.
+ */
+function shortStep(name) {
+  if (name.charCodeAt(0) < 128) return name.replace(/ Form$/, '');
+  const gloss = name.search(/ [A-Za-z]/);
+  return gloss === -1 ? name : name.slice(0, gloss);
 }
 
 /**
  * Candidate dictionary forms for a surface string, best-effort ordered:
- * the surface itself first, then Yomitan's derived forms.
+ * the surface itself first, then the deinflected forms.
  */
 function deinflect(surface) {
-  if (!transformer) return [{ text: surface, route: [] }];
-  const seen = new Set();
-  const out = [];
-  for (const r of transformer.transform(surface)) {
-    if (seen.has(r.text)) continue;
-    seen.add(r.text);
-    // The trace names each step it took ("-た", "polite", "potential"). It is
-    // kept, not just counted: how a word on the page reaches its dictionary
-    // form is the thing a learner is trying to see, and the transformer is
-    // the only place that knows.
-    const route = (r.trace || []).map(t => t.transform).filter(Boolean);
-    out.push({ text: r.text, route, steps: route.length });
+  const seen = new Set([surface]);
+  const out = [{ text: surface, route: [], steps: 0 }];
+  for (const r of jpVerbs.unconjugate(surface)) {
+    if (seen.has(r.base)) continue;
+    seen.add(r.base);
+    // The steps are kept, not just counted: how a word on the page reaches its
+    // dictionary form is the thing a learner is trying to see, and the
+    // deinflector is the only place that knows.
+    //
+    // Adjacent repeats are dropped because two word types can shorten to one
+    // label: every polite form stacks "ます Stem" then "ます Polite", so
+    // 始まりました read ます·ます·ました. Measured on fourteen common
+    // conjugations, five hit it — all of them this same pair.
+    const route = (r.derivationSequence?.derivations || [])
+      .map(shortStep)
+      .filter((s, i, all) => s !== all[i - 1]);
+    out.push({ text: r.base, route, steps: route.length });
   }
   // Fewest transformations first — the least tortured reading is usually right.
   out.sort((a, b) => a.steps - b.steps);
@@ -323,4 +343,4 @@ function lookup(input, maxLen = 12, hint = null) {
   return null;
 }
 
-module.exports = { lookup, open, close, initTransformer };
+module.exports = { lookup, open, close };

@@ -30,7 +30,7 @@ app/
   settings/           the settings window
   preload/            the entire trust boundary between renderer and Node
   shell/              the app bundle's ENTIRE contents — see section 6
-  vendor/yomitan/     third-party deinflection tables
+  vendor/jp-verbs/    third-party deinflection tables
 tools/                build scripts, bundle inputs, the path resolvers
 data/  bin/           generated: index.db, dicts, venv, config / compiled helpers
 test/                 unit (unattended) · golden (unattended) · verify (hands-on)

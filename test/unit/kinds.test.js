@@ -10,7 +10,7 @@
 // real — the classification lives in the builder and in lookup.js, and asking
 // them is the only way to know.
 
-const { test, before, after } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
@@ -47,7 +47,6 @@ function indexOf(name, make) {
 
 const WORDS = [['語0', 'ご0'], ['語1', 'ご1']];
 
-before(async () => { await lookup.initTransformer(); });
 after(() => { lookup.close(); fs.rmSync(HOME, { recursive: true, force: true }); });
 
 test('a kanji dictionary that is not KANJIDIC still answers', () => {
