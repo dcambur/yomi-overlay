@@ -1,0 +1,34 @@
+{
+  "name": "jp-verbs",
+  "version": "1.1.0",
+  "description": "Unconjugate conjugated Japanese verbs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "nyc mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mistval/jp-verb-deconjugator.git"
+  },
+  "keywords": [
+    "japanese",
+    "verbs",
+    "jp",
+    "conjugator",
+    "conjugation",
+    "unconjugate",
+    "deconjugate",
+    "unconjugation",
+    "deconjugation"
+  ],
+  "author": "mistval",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mistval/jp-verb-deconjugator/issues"
+  },
+  "homepage": "https://github.com/mistval/jp-verb-deconjugator#readme",
+  "devDependencies": {
+    "mocha": "^10.2.0",
+    "nyc": "^15.1.0"
+  }
+}

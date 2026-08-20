@@ -28,7 +28,7 @@ process.env.YOMI_USER_DIR = HOME;
 
 const mk = require('./fixtures/make-dictionary.js');
 const { build } = require(path.resolve(__dirname, '../../app/main/index-builder.js'));
-const { lookup, open, close, initTransformer } =
+const { lookup, open, close } =
   require(path.resolve(__dirname, '../../app/main/lookup.js'));
 
 const glyphs = (s) => Array.from(s);
@@ -40,12 +40,16 @@ const glyphs = (s) => Array.from(s);
 // common one is written second. A Yomitan term bank's score is its popularity
 // marker, and ignoring it is what put しん above かみ in the popup.
 const COMMON_SCORE = 200;
+// 高い is an i-adjective, which the deinflector reaches by a different family
+// of rules than a verb; 信じる takes three chained steps to reach from
+// 信じられている, which is the case a single-step rule table cannot answer.
 const WORDS = [['見つける', 'みつける'], ['言葉', 'ことば'],
                ['人', 'ひと'], ['日本', 'にほん'], ['日本語', 'にほんご'],
+               ['高い', 'たかい'], ['信じる', 'しんじる'],
                ['神', 'しん', 0], ['神', 'かみ', COMMON_SCORE]];
 const KANJI = ['憑', '人'];
 
-before(async () => {
+before(() => {
   const dicts = path.join(HOME, 'dicts');
   fs.mkdirSync(dicts, { recursive: true });
   mk.termDictionary(path.join(dicts, 'words.zip'),
@@ -61,7 +65,6 @@ before(async () => {
   const db = path.join(HOME, 'index.db');
   build(dicts, db);
   assert.ok(open(db), 'the fixture index did not open');
-  await initTransformer();
 });
 
 after(() => {
@@ -182,4 +185,25 @@ test('a word already in its dictionary form has no route', () => {
   const r = lookup(glyphs('言葉'));
   assert.deepStrictEqual(r.groups[0].route, [], 'nothing to explain');
   assert.strictEqual(r.groups[0].base, null);
+});
+
+test('deinflects an i-adjective, not just a verb', () => {
+  // Adjectives conjugate too, and a reader meets 高くなかった as often as
+  // 見つけた. The popup answered nothing here until the deinflector was
+  // taught to treat an adjective as a finished form.
+  for (const form of ['高くない', '高かった', '高くなかった', '高ければ']) {
+    const r = lookup(glyphs(form));
+    assert.ok(r, `no result for ${form}`);
+    assert.strictEqual(r.base, '高い', `${form} did not reach 高い`);
+  }
+});
+
+test('follows a chain of transformations, not just one step', () => {
+  // 信じる -> 信じられる -> 信じられて -> 信じられている. One rule application
+  // reaches none of it; this is the whole reason for a recursive table.
+  const r = lookup(glyphs('信じられている'));
+  assert.ok(r, 'no result for 信じられている');
+  assert.strictEqual(r.base, '信じる');
+  assert.ok(r.groups[0].route.length >= 2,
+            `every step is named (${JSON.stringify(r.groups[0].route)})`);
 });

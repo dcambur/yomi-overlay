@@ -8,7 +8,7 @@
 // app — windows, tray, dialogs, paths — and kept the imports after the pieces
 // moved into main/, which is how a 40-line entry point reads like a god object.
 const { app, globalShortcut, protocol } = require('electron');
-const { open: openDict, initTransformer } = require('./main/lookup.js');
+const { open: openDict } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { openSettings } = require('./main/settings-window.js');
@@ -182,10 +182,6 @@ app.whenReady().then(() => {
     console.error('no dictionary yet — add one from the menu bar: 読 → Settings → Dictionaries');
     openSettings();
   }
-  // Yomitan's deinflector is ESM — load before the first hover can arrive.
-  initTransformer()
-    .then(() => console.log('deinflector: Yomitan japanese-transforms loaded'))
-    .catch(e => console.error('deinflector failed to load:', e.message));
   tray.build({
     onSettings: openSettings,
     onRestartCapture: () => ocrChild.restart(),

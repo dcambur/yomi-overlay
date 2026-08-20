@@ -11,7 +11,7 @@ yomi (Swift CLI)                Yomi Overlay (Electron)
   Vision OCR (ja-JP)          ──▶      Shift/click → lookup → popup
   per-glyph boxes, NDJSON                      │
   global shift/click monitor                   ▼
-                                       index.db (SQLite) + Yomitan deinflector
+                                       index.db (SQLite) + jp-verbs deinflector
 ```
 
 ## Where things live
@@ -30,7 +30,7 @@ app/
   settings/           the settings window
   preload/            the entire trust boundary between renderer and Node
   shell/              the app bundle's ENTIRE contents — see section 6
-  vendor/yomitan/     third-party deinflection tables
+  vendor/jp-verbs/    third-party deinflection tables
 tools/                build scripts, bundle inputs, the path resolvers
 data/  bin/           generated: index.db, dicts, venv, config / compiled helpers
 test/                 unit (unattended) · golden (unattended) · verify (hands-on)
@@ -45,7 +45,7 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [app/main/overlay-window.js](../app/main/overlay-window.js) | the panel; pinning it to a display and telling the renderer where the target is (§4) |
 | [app/main/tier2.js](../app/main/tier2.js) | the manga-ocr second opinion, shadow mode only |
 | [app/main/ipc.js](../app/main/ipc.js) | every channel the renderer can use, and the validation on it |
-| [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + Yomitan deinflection (main process: `node:sqlite` is sync) |
+| [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + jp-verbs deinflection (main process: `node:sqlite` is sync) |
 | [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |
 | [app/renderer/popup.js](../app/renderer/popup.js) | how a result looks — markup, pitch graphs, placement |
 | [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory (§6) |

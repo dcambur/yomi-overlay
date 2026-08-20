@@ -141,7 +141,7 @@ picture + audio; no popup jank while the card is built.*
 
 - **Pre-segmentation**: run a tokenizer (Vibrato or Lindera — embeddable,
   fast; no Python service) over OCR lines to fix longest-match-first errors
-  at word boundaries; keep the Yomitan deinflector for the chosen span.
+  at word boundaries; keep the deinflector for the chosen span.
 - **Word-status tracking** (known/learning/ignored): local store keyed by
   base form; color the existing glyph spans (they're already positioned —
   coloring is a CSS class). FSRS or simple staged intervals; JPDB sync later.
@@ -177,10 +177,16 @@ known words render dimmed on the glyph layer.*
   to attach to the restructure, and half-applied it is worse than none. The
   hazard is live: `RecognizedLine.box` is normalised **top-left**, `Line.box`
   normalised **bottom-left**, both plain `CGRect`, converted inside one
-  expression in `mapFlatLines` (`y: 1 - l.box.maxY`). Three comments warn;
-  nothing enforces. A scoped first slice touching six files is in
-  [history/REFACTOR-INTEGRATION.md](history/REFACTOR-INTEGRATION.md) step 4b-3.
-  Golden-master covers every one of those conversions.
+  expression in `mapFlatLines` (`y: 1 - l.box.maxY`). Three comments warn
+  (`Mapping.swift:89`, `Engine.swift:30`, `Spaces.swift:12`); nothing enforces.
+  Recommended first slice, self-contained: type only the normalised pair —
+  `NormalizedRect<TopLeft>` and `NormalizedRect<BottomLeft>` — and make `NBox`
+  the sole conversion between them. That is `Engine.swift`, `Model/Line.swift`,
+  `Spaces.swift`, `VisionEngine.swift`, `LiveTextEngine.swift` and
+  `Mapping.swift` — six files, not sixteen — leaving screen and pixel rects
+  alone. Stop there and judge whether the rest earns its cost. Golden-master
+  covers every one of those conversions: they are all on the `--image` path, so
+  a sign error moves glyph boxes and the harness fails loudly.
 - **A smoke test for the four CLI paths golden cannot see** (`--list-all`,
   `--list`, `--frame`, `--check-permission`). Those hold the multi-line string
   literals, which is exactly where a formatting change does silent damage.

@@ -51,7 +51,7 @@ Screen Recording is required for all capture. Without it nothing works, and the 
 
 ## Dictionaries
 
-tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. The commercial monolinguals (三省堂, 明鏡, 旺文社, 実用) and NHK pitch accent are not fetched and not redistributed. If you own them, drop the Yomitan .zip files into data/dicts/ and rebuild:
+tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. Commercial monolingual and pitch-accent dictionaries are neither fetched nor redistributed. If you own one, drop its Yomitan .zip into data/dicts/ and rebuild:
 
 ```bash
 python3 tools/build-index.py
@@ -114,7 +114,7 @@ Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or wi
 
 ## License and credits
 
-GPL-3.0-or-later, see [LICENSE](LICENSE). app/vendor/yomitan/ comes from [yomidevs/yomitan](https://github.com/yomidevs/yomitan) (GPL-3.0), unmodified except for two import paths. Vendoring it means the deinflector uses the real condition-typed transform chains rather than a reimplementation, which is how 信じられている resolves to 信じる. It's also why this project is GPL-3.0.
+MIT, see [LICENSE](LICENSE). app/vendor/jp-verbs/ comes from [mistval/jp-verb-deconjugator](https://github.com/mistval/jp-verb-deconjugator) (MIT), verbatim except for one line that lets an adjective count as a finished deinflection — see [app/vendor/jp-verbs/PROVENANCE.md](app/vendor/jp-verbs/PROVENANCE.md). Vendoring it means the deinflector walks a real recursive rule table rather than a reimplementation, which is how 信じられている resolves to 信じる and 高くなかった to 高い.
 
 No dictionary data is redistributed here. Jitendex, JMnedict and KANJIDIC carry their own licenses, and commercial dictionaries are yours to supply.
 

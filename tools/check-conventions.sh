@@ -47,7 +47,10 @@ if grep 'http-equiv="Content-Security-Policy"' app/renderer/index.html \
 else ok "renderer CSP has no unsafe-inline"; fi
 
 # --- docs point at files that exist ----------------------------------------
-broken=$(cd docs && for f in *.md history/*.md; do
+# */*.md, and skipped when it matches nothing, so a docs/ with no
+# subdirectory left does not report the unexpanded glob as a missing file.
+broken=$(cd docs && for f in *.md */*.md; do
+  [ -e "$f" ] || continue
   grep -oE '\]\((\.\./)*[A-Za-z0-9_][A-Za-z0-9_./@-]*\)' "$f" | sed 's/](//;s/)$//' |
   while read -r l; do d=$(dirname "$f"); [ -e "$d/$l" ] || echo "$f -> $l"; done
 done)
