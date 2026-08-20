@@ -141,7 +141,7 @@ picture + audio; no popup jank while the card is built.*
 
 - **Pre-segmentation**: run a tokenizer (Vibrato or Lindera — embeddable,
   fast; no Python service) over OCR lines to fix longest-match-first errors
-  at word boundaries; keep the Yomitan deinflector for the chosen span.
+  at word boundaries; keep the deinflector for the chosen span.
 - **Word-status tracking** (known/learning/ignored): local store keyed by
   base form; color the existing glyph spans (they're already positioned —
   coloring is a CSS class). FSRS or simple staged intervals; JPDB sync later.

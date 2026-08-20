@@ -14,9 +14,14 @@ before it.
 
 ## Local changes
 
-One line, in `index.js`. Everything else is the published package byte for
-byte, so re-vendoring a new release means re-applying this hunk and nothing
-else:
+Four files the app never loads are not vendored: `index.d.ts`,
+`word_type.d.ts`, `grammar_explanations.d.ts` (there is no TypeScript here)
+and upstream's `README.md` (this file replaces it). `LICENSE` stays — MIT
+requires the notice to travel with the copy.
+
+Of what remains, one line differs, in `index.js`. Everything else is the
+published package byte for byte, so re-vendoring a new release means
+re-applying this hunk and nothing else:
 
 ```diff
    const isDictionaryForm =
