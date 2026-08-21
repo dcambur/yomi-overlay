@@ -98,9 +98,21 @@ const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');
  *  other generated bulk under data/ rather than beside the tracked scripts. */
 const VENV_DIR = path.join(DATA_DIR, '.venv');
 
-/** Compiled helpers. */
+/**
+ * Compiled helpers.
+ *
+ * In a bundle this is `Contents/MacOS`, beside the app's own executable, and
+ * NOT `Contents/Resources`. Resources is for data; an executable parked there
+ * is nested code in a place the App Store's validation does not expect, and it
+ * has to be signed separately wherever it lives. Putting it where macOS already
+ * looks for executables costs nothing and removes the question.
+ *
+ * `process.resourcesPath` is `Contents/Resources`, so its sibling is one level
+ * up. That is the only place in the app that walks out of Resources, which is
+ * why it is written once, here.
+ */
 const BIN_DIR = BUNDLED
-  ? path.join(process.resourcesPath, 'bin')
+  ? path.resolve(process.resourcesPath, '..', 'MacOS')
   : path.join(PROJECT_ROOT, 'bin');
 
 /** The capture helper. Spawn failures here are reported by name in main.js. */

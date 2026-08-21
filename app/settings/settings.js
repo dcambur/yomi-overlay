@@ -512,12 +512,12 @@ function renderDictionaries() {
   const shown = installed.filter((r) => priority(r.label) < Number.MAX_SAFE_INTEGER)
     .map((r) => r.label);
 
-  group(host, 'Installed — asked in this order', installed, shown);
-  group(host, 'Available — freely licensed, downloaded here', available, shown);
+  group(host, 'Installed', installed, shown);
+  group(host, 'Available — freely licensed', available, shown);
   if (!installed.length) {
     const p = document.createElement('p');
     p.className = 'hint';
-    p.textContent = 'No dictionary yet — download one above, or import a .zip you own.';
+    p.textContent = 'No dictionaries installed — download one above or import a .zip.';
     host.appendChild(p);
   }
 }

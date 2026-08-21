@@ -22,21 +22,19 @@
   <main>
     <div class="panel on" id="p-window">
       <p class="hint">
-        Pick the app to attach the overlay to — Kindle, a browser showing
-        BOOK☆WALKER, a manga reader, anything. Clicking an app follows
-        whichever window it shows; expand a multi-window app to pin one
-        window. <span class="legend live">●</span> visible on this Space
-        &nbsp;<span class="legend away">●</span> running on another Space or
-        hidden (still targetable). The list refreshes itself.
+        Pick the app to overlay. Selecting an app follows its frontmost
+        window; expand it to pin a specific window.
+        <span class="legend live">●</span> visible on this Space
+        &nbsp;<span class="legend away">●</span> on another Space or hidden
+        (still targetable). The list refreshes automatically.
       </p>
       <div id="winlist"></div>
     </div>
 
     <div class="panel" id="p-trigger">
       <p class="hint">
-        How a lookup fires — <b>applies as you change it</b>. Shift matches
-        Yomitan/10ten muscle memory but collides with shift-click and some IME
-        candidate selection.
+        How a lookup fires. Changes apply immediately. Note: Shift can
+        conflict with shift-click and some IME candidate selection.
       </p>
       <label class="row"><span>Trigger</span>
         <select id="mode">
@@ -61,23 +59,21 @@
         <span class="unit">illustrations, stroke order, sense marks</span>
       </label>
       <p class="hint gap">
-        Without Accessibility permission the key only registers while the mouse
-        is moving; hover mode works either way. Images are read from the
-        dictionary archives as they are shown — turning them off costs nothing
-        but shows nothing.
+        Without Accessibility permission, the key registers only while the
+        mouse is moving; hover mode is unaffected. Images load from the
+        dictionary archives on demand.
       </p>
     </div>
 
     <div class="panel" id="p-dicts">
       <p class="hint">
-        The order below is the order senses appear in the popup; uncheck to
-        hide one. <b>Changes here apply as you make them</b> — no button.
-        The listed dictionaries are freely licensed and download here; a
-        dictionary you own already is a Yomitan <code>.zip</code> you import.
+        Dictionaries appear in the popup in this order; uncheck to hide one.
+        Changes apply immediately. The listed dictionaries are freely
+        licensed; import your own as a Yomitan <code>.zip</code>.
       </p>
       <div id="dictlist"></div>
       <div class="row gap">
-        <button id="import">Import a .zip you own…</button>
+        <button id="import">Import .zip…</button>
         <span id="dictstatus" class="unit"></span>
       </div>
     </div>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  App Sandbox for the Mac App Store build (tools/build-mas.sh).
+
+  NOT used by build-release.sh. The Developer ID build stays unsandboxed on
+  purpose: it is the one that has to keep working for people downloading a zip,
+  and the sandbox is exactly the variable being tested here.
+
+  Each key below is here because a specific call needs it. Anything that cannot
+  be traced to a call site does not belong in this file — a sandbox is only
+  worth having if it is the smallest one that works.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- app/main/dictionaries.js resolves GitHub release URLs and downloads the
+       freely-licensed dictionaries. Outbound only; the app serves nothing. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- app/main/ipc.js opens a file dialog so a dictionary the user already owns
+       can be imported. Read-only: the app copies the zip into its own container
+       and never writes back to wherever it came from. -->
+  <key>com.apple.security.files.user-selected.read-only</key>
+  <true/>
+
+  <!-- com.apple.security.application-groups is NOT here because it cannot be:
+       its value is "TEAMID.bundle.id" and there is no Team ID yet. Electron's
+       MAS guide lists it as required when signing by hand, and Chromium's
+       helper processes use the shared group container to reach the main
+       process — without it a sandboxed Electron app does not run.
+       build-mas.sh injects it when TEAM_ID is set, and says so loudly when it
+       is not. Do not hardcode a value here; a stale Team ID would fail in a
+       way that looks like a sandbox problem.
+
+       Deliberately absent: com.apple.security.inherit. That one belongs on the
+       CHILD (entitlements.mas.inherit.plist), never here. A sandboxed parent
+       needs no entitlement to exec a binary inside its own bundle; the child
+       simply inherits the sandbox it was spawned from.
+
+       Also absent: any Screen Recording or Accessibility key. Neither is a
+       sandbox entitlement — both are TCC grants the user makes at runtime,
+       which is why they cannot be requested here and why whether they survive
+       sandboxing is the open question this build exists to answer. -->
+</dict>
+</plist>
