@@ -49,7 +49,9 @@ echo "==> Building the Swift capture helper"
 "$HERE/../../ocr/build.sh" >/dev/null
 
 echo "==> Packaging (Electron $ELECTRON_VERSION, platform=mas)"
-rm -rf "$OUT"
+# Clean this build's own products only — OUT may be a directory we don't own.
+rm -rf "$OUT/$APP_NAME-mas-arm64" "$OUT/.mas-shell" "$OUT/entitlements.generated.plist"
+mkdir -p "$OUT"
 # platform=mas, not darwin. The darwin build links private APIs and is rejected
 # on sight; the mas build is the same Electron with those excluded. For this app
 # the exclusions cost nothing measurable — crashReporter and autoUpdater are the

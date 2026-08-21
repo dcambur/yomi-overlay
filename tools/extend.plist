@@ -4,5 +4,7 @@
 <dict>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Yomi Overlay reads the target window's position.</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.reference</string>
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
 </dict>
 </plist>
