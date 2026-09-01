@@ -12,6 +12,6 @@
   "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^43.3.0"
+    "electron": "^44.0.0"
   }
 }
