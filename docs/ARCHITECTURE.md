@@ -161,8 +161,20 @@ Any offset derived from what was *asked for* drifts by exactly the discrepancy.
 Vision is nondeterministic: the same static page recognises as 80 lines one pass
 and 77 the next. Rebuilding per capture yanks spans out from under the cursor.
 
-Rebuild when <85% of lines are shared with **what is actually built**, or when
-geometry moved >3px. `contentSig` must keep describing the DOM: advancing it
+Rebuild when <85% of the text is shared with **what is actually built**, or when
+the median line moved >3px. Text is compared as characters in any order, not as
+line strings, and movement by the median line, not the worst: a re-read of an
+unchanged page under an animated background gets one character wrong on most
+lines and puts one line 20px off. By exact lines and worst line that was a page
+turn and a re-layout — 25 rebuilds in 31 same-page payloads and an open popup
+dismissed twice in 30s with no user action; by characters those reads share
+0.95–1.0 with the page, a real change 0.04–0.09, and the median line stays
+within 2px (measured 2026-09-10). What the median cannot see is a coherent move
+of fewer than half the lines with the text unchanged; those spans stay put until
+the text or the frame changes — accepted, because the coherence test that would
+catch it fired falsely on 68 of 821 same-page pairs.
+
+`contentSig` must keep describing the DOM: advancing it
 while keeping old spans lets drift ratchet — a rotating carousel changes ~10% of
 lines per step, every step stays >85% similar to the *previous* step, and the
 layer ends up describing content several rotations gone.

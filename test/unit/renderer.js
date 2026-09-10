@@ -88,6 +88,27 @@ function voted(p, vote = 2) {
   return q;
 }
 
+/** One line's glyphs displaced: how a re-read of an unchanged page comes back
+ *  (measured 19–21px on one line under an animated background, 2026-09-10). */
+function jittered(p, li = 0, d = 20) {
+  const q = JSON.parse(JSON.stringify(p));
+  for (const c of q.lines[li].chars) { c.x += d; c.y += d; }
+  return q;
+}
+
+/** Every line with one character misread: the same page, and by exact line
+ *  match a different one. */
+function noisy(p) {
+  const q = JSON.parse(JSON.stringify(p));
+  for (const l of q.lines) {
+    if (!l.chars.length) continue;
+    const c = l.chars[l.chars.length >> 1];
+    c.c = c.c === '零' ? '一' : '零';
+    l.text = l.chars.map(x => x.c).join('');
+  }
+  return q;
+}
+
 async function run() {
   const A = load('page-a.json');
   const B = load('page-b.json');
@@ -150,6 +171,20 @@ async function run() {
                           'voted correction did not reach the DOM');
   });
 
+  await test('one line displaced by 20px is jitter, not a re-layout', async () => {
+    send('capture', A); await settle();
+    assert.ok(await markSpan());
+    send('capture', jittered(A)); await settle();
+    assert.ok(await spanSurvived(), 'one noisy line rebuilt the whole layer');
+  });
+
+  await test('one misread character per line is the same page', async () => {
+    send('capture', A); await settle();
+    assert.ok(await markSpan());
+    send('capture', noisy(A)); await settle();
+    assert.ok(await spanSurvived(), 'a noisy re-read was taken for a page turn');
+  });
+
   await test('offset places the layer against the panel position', async () => {
     send('offset', { fx: 300, fy: 200 });
     await settle();
@@ -166,6 +201,25 @@ async function run() {
   await test('dismiss hides the popup', async () => {
     send('dismiss'); await settle();
     assert.strictEqual(await popupShown(), false);
+  });
+
+  await test('two noisy re-reads do not dismiss an open popup', async () => {
+    send('capture', A); await settle();
+    // page-a's glyphs sit at x≈1950, past this window's viewport, and a click
+    // outside the viewport hits nothing. Place the frame so the first glyph
+    // lands at (100,100): the layer is translated by frame − screenX/Y.
+    const c = A.lines[0].chars[0];
+    const [sx, sy] = await js('[window.screenX, window.screenY]');
+    send('offset', { fx: sx + 100 - c.x, fy: sy + 100 - c.y }); await settle();
+    lookupReply = { surface: 'x', matchLength: 1, groups: [], entries: [] };
+    send('trigger', { type: 'click', x: 100 + c.w / 2, y: 100 + c.h / 2 });
+    await settle(120);
+    assert.strictEqual(await popupShown(), true, 'no popup to protect');
+    send('capture', noisy(A)); await settle();
+    send('capture', noisy(A)); await settle();
+    assert.strictEqual(await popupShown(), true,
+                       'popup dismissed by two re-reads of the same page');
+    send('dismiss'); await settle();
   });
 
   await test('a lookup inside a covered region is refused', async () => {

@@ -36,43 +36,86 @@
   let layoutRef = new Map();
   let frameSig = '';
 
-  // Vision jitters glyph boxes by about a pixel between passes, so only a shift
-  // larger than that counts as a real re-layout.
-
+  // Only a shift larger than this counts as a real re-layout.
+  //
+  // The noise it has to clear is per LINE, not per glyph: Vision places a
+  // whole line's box and the glyphs are interpolated inside it, so every
+  // glyph in a line moves together and averaging within a line removes
+  // nothing. Measured 2026-09-10: the worst line moved 19–21px between
+  // re-reads of an unchanged page under an animated background, and 7–8px
+  // between two independent reads of the same static 30px page, while the
+  // median across lines stayed at 0–2px in every run.
   const LAYOUT_EPSILON_PX = 3;
 
   function firstCharOf(line) {
     return line.chars && line.chars.length ? line.chars[0] : null;
   }
 
-  /** Largest first-glyph displacement among lines present in both passes. */
+  /**
+   * Typical first-glyph displacement among lines present in both passes.
+   *
+   * The median, not the max: one line 20px off is how a re-read of an
+   * unchanged page comes back, while a scroll, a zoom or a reflow moves most
+   * lines at once. What the median cannot see is a coherent move of fewer
+   * than half the lines with the text unchanged; those spans stay where they
+   * were until the text or the frame changes. Accepted: a test for that case
+   * ("two lines agree on a >3px vector") fired falsely on 68 of 821 same-page
+   * read pairs — the per-line noise is not independent either.
+   */
   function layoutShift(incoming) {
     if (!layoutRef.size) return 0;
-    let worst = 0;
+    const shifts = [];
     for (const line of incoming) {
       const prev = layoutRef.get(line.text);
       const c = firstCharOf(line);
       if (!prev || !c) continue;
-      worst = Math.max(worst, Math.abs(c.x - prev.x), Math.abs(c.y - prev.y));
+      shifts.push(Math.max(Math.abs(c.x - prev.x), Math.abs(c.y - prev.y)));
     }
-    return worst;
+    if (!shifts.length) return 0;
+    shifts.sort((a, b) => a - b);
+    return shifts[shifts.length >> 1];
+  }
+
+  /**
+   * Fraction of the page's characters two reads have in common, in any order.
+   *
+   * Characters, not whole lines. A re-read of an unchanged page under an
+   * animated background gets one character wrong on most lines, and by exact
+   * line match that is a different page: 20 of 30 same-page reads counted as
+   * page turns and an open popup was dismissed twice in 30s with no user
+   * action (measured 2026-09-10). By characters those reads share 0.95–1.0
+   * with the page they came from; a real change (the page occluded, another
+   * window's text) shares 0.04–0.09. One measure serves every gate below and
+   * the turn confirmation in renderer.js, so they cannot disagree about what
+   * "the same page" is.
+   */
+  function sharedText(a, b) {
+    const count = (texts) => {
+      const m = new Map();
+      let n = 0;
+      for (const t of texts) for (const ch of t) { m.set(ch, (m.get(ch) || 0) + 1); n++; }
+      return [m, n];
+    };
+    const [ma, na] = count(a), [mb, nb] = count(b);
+    if (!na || !nb) return 0;
+    let shared = 0;
+    for (const [ch, k] of ma) shared += Math.min(k, mb.get(ch) || 0);
+    return shared / Math.max(na, nb);
   }
 
   // A payload can look like a page turn while being a transient bad read: an
   // animated image region re-recognises as different garbage each pass
   // (measured: 3→31→15 line swings on game targets, /tmp/yomi-overlay.log
-  // 2026-08-09 20:13), and one such read shares <50% of lines with the DOM.
+  // 2026-08-09 20:13), and one such read shares <50% of the text with the DOM.
   // Dismissing on the first turn-like payload closed the popup mid-read with
-  // no user action. A REAL page turn keeps producing the same new line set,
+  // no user action. A REAL page turn keeps producing the same new text,
   // so dismissal requires two consecutive turn-like payloads that also agree
 
   function isPageTurn(payload) {
     if (!contentSig) return true;
-    const prev = new Set(contentSig.split('\u0001'));
     const now = (payload.lines || []).map(l => l.text);
     if (!now.length) return false;
-    const shared = now.filter(t => prev.has(t)).length;
-    return shared / Math.max(now.length, prev.size) < 0.5;
+    return sharedText(now, contentSig.split('\u0001')) < 0.5;
   }
 
   function apply(payload) {
@@ -134,12 +177,9 @@
     // Vision is not deterministic: the same static page can recognise as 80 lines
     // one pass and 77 the next. A pure equality check would therefore rebuild
     // constantly and yank spans out from under the cursor. Treat a mostly-shared
-    // line set as the same page; a real page turn replaces nearly every line.
+    // text as the same page; a real page turn replaces nearly all of it.
     if (!moved && spans.length && contentSig) {
-      const prev = new Set(contentSig.split('\u0001'));
-      const now = sig.split('\u0001');
-      const shared = now.filter(t => prev.has(t)).length;
-      const similarity = now.length ? shared / Math.max(now.length, prev.size) : 0;
+      const similarity = sharedText(sig.split('\u0001'), contentSig.split('\u0001'));
       // Keep the spans, but do NOT adopt the new signature. contentSig must keep
       // describing what is actually in the DOM: advancing it here lets drift
       // ratchet — a rotating carousel changes ~10% of lines per step, every step
@@ -250,7 +290,7 @@
   }
 
   window.glyphLayer = {
-    apply, isPageTurn, highlight, clearHighlight, reset,
+    apply, isPageTurn, sharedText, highlight, clearHighlight, reset,
     lineAt: (li) => lines[li],
     spanAt: (li, ci) => spanIndex.get(li + ':' + ci),
     get current() { return current; },
