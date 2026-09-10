@@ -63,7 +63,7 @@ The indexer classifies any zip by the banks it contains, so a dictionary you add
 
 Launch from Spotlight. There's no Dock icon (LSUIElement); the 読 item in the menu bar is the way in. It has Settings… (⌘⌥S) for picking the target window and showing/hiding/reordering dictionaries, Restart capture, and Quit.
 
-In the window picker, clicking an app follows whichever window that app is showing. Shift-click to pin one specific window instead.
+In the window picker, clicking an app follows whichever window that app is showing. Shift-click to pin one specific window instead. An app with no bundle id, such as a game run through CrossOver that the Dock shows as `Game.exe`, is listed and followed by that name.
 
 Then read. Hold Shift and point, or click. The popup stays up after you release and closes once you move about 90px clear of it. There's also a hover mode (no modifier, dwell to fire) under Settings → Lookup.
 
