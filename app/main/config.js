@@ -42,7 +42,9 @@ const DEFAULT_TRIGGER = { modifier: 'shift', mode: 'hold', hoverDelayMs: 250 };
 
 const DEFAULTS = {
   // null target => first run, settings window opens so a window can be picked.
-  target: { bundle: 'com.amazon.Lassen', windowId: null, label: 'Amazon Kindle' },
+  // `app` is the target's name, set only for an app that has no bundle id — a
+  // CrossOver .exe is a bare executable — and yomi follows it with --app.
+  target: { bundle: 'com.amazon.Lassen', app: null, windowId: null, label: 'Amazon Kindle' },
   dictionaries: DEFAULT_DICTIONARIES,
   interval: 0.6,
   trigger: DEFAULT_TRIGGER,
@@ -141,8 +143,9 @@ function sanitize(next, current) {
   if (out.target && typeof out.target === 'object') {
     const t = { ...out.target };
     if (typeof t.bundle !== 'string' || !t.bundle) t.bundle = null;
+    if (typeof t.app !== 'string' || !t.app) t.app = null;
     t.windowId = Number.isInteger(t.windowId) && t.windowId > 0 ? t.windowId : null;
-    if (typeof t.label !== 'string') t.label = t.bundle || 'not set';
+    if (typeof t.label !== 'string') t.label = t.bundle || t.app || 'not set';
     out.target = t;
   }
   if (out.trigger && typeof out.trigger === 'object') {
@@ -192,6 +195,7 @@ function targetArgs() {
   const t = load().target || {};
   if (t.windowId) return ['--window', String(t.windowId)];
   if (t.bundle) return ['--bundle', t.bundle];
+  if (t.app) return ['--app', t.app];
   return [];
 }
 

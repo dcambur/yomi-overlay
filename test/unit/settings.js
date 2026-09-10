@@ -23,7 +23,7 @@ let win;
 const consoleMessages = [];
 // What the page saved, per channel, so a test can assert that a change applied
 // itself rather than waiting for the footer button.
-const saved = { trigger: 0, dictionaries: 0, config: 0, view: null };
+const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null };
 
 const results = [];
 async function test(name, fn) {
@@ -52,6 +52,9 @@ const INSTALLED = [
 const WINDOWS = [
   { id: 1, bundle: 'com.apple.Safari', app: 'Safari', title: 'A page',
     width: 1200, height: 800, onScreen: true },
+  // An app with no bundle id, as --list-all reports a CrossOver .exe.
+  { id: 2, bundle: '', app: 'Game.exe', title: 'rig window',
+    width: 900, height: 682, onScreen: true },
 ];
 
 async function run() {
@@ -98,10 +101,23 @@ async function run() {
   await test('the script ran and rendered what the bridge returned', async () => {
     assert.strictEqual(await js("document.querySelectorAll('#dictlist .dict').length"), 2,
                        'one row per dictionary');
-    assert.strictEqual(await js("document.querySelectorAll('#winlist .win').length"), 1,
+    assert.strictEqual(await js("document.querySelectorAll('#winlist .win').length"), 2,
                        'one row per window');
     assert.strictEqual(await js("document.getElementById('modifier').value"), 'shift',
                        'the trigger tab reflects the config');
+  });
+
+  await test('an app with no bundle id can be chosen, and is saved by name', async () => {
+    await js("document.querySelector('[data-tab=\"window\"]').click()");
+    await settle();
+    await js("[...document.querySelectorAll('#winlist .win .app')]"
+             + ".find((e) => e.textContent === 'Game.exe').closest('.win').click()");
+    await settle();
+    await js("document.getElementById('save').click()");
+    await settle();
+    assert.deepStrictEqual(saved.target,
+                           { bundle: null, app: 'Game.exe', windowId: null, label: 'Game.exe' },
+                           'yomi is pointed at the name, since there is no id');
   });
 
   await test('switching tabs shows the panel it names', async () => {
@@ -160,7 +176,9 @@ app.on('window-all-closed', () => {});
 app.whenReady().then(async () => {
   ipcMain.handle('cfg:get', () => CONFIG);
   ipcMain.handle('cfg:windows', () => WINDOWS);
-  ipcMain.handle('cfg:save', () => { saved.config++; return CONFIG; });
+  ipcMain.handle('cfg:save', (_e, v) => {
+    saved.config++; saved.target = v.target; return CONFIG;
+  });
   ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
   ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });

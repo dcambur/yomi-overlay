@@ -20,8 +20,11 @@
 
 let config = null;        // the whole saved config, edited in place until Save
 let windows = [];         // the last window list from the main process
-let selected = null;      // the target being chosen: {bundle, windowId, label}
-const expanded = new Set(); // bundles opened to pin one of their windows
+// The target being chosen: {bundle, app, windowId, label}. `app` is set in
+// place of `bundle` for an app that has no bundle id (a CrossOver .exe is a
+// bare executable); yomi follows it by that name.
+let selected = null;
+const expanded = new Set(); // apps opened to pin one of their windows
 let lastWinJson = '';     // last rendered window list, to suppress no-op redraws
 
 let lastCatalogue = [];   // dictionaries we can fetch
@@ -121,18 +124,27 @@ async function refreshWindows(auto) {
   if (!auto) $('status').textContent = windows.length + ' windows';
 }
 
-/** The windows of one app, grouped under its bundle id. */
-function byBundle(list) {
+/**
+ * How a window's app is named to yomi: by bundle id, or by the name on its
+ * Dock tile when it has none — the same fallback --list-all reports.
+ */
+const identity = (w) =>
+  (w.bundle ? { bundle: w.bundle, app: null } : { bundle: null, app: w.app });
+const keyOf = (t) => t.bundle || t.app;
+
+/** The windows of one app, grouped under its identity. */
+function byApp(list) {
   const groups = new Map();
   for (const w of list) {
-    if (!groups.has(w.bundle)) groups.set(w.bundle, []);
-    groups.get(w.bundle).push(w);
+    const key = keyOf(w);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(w);
   }
   return groups;
 }
 
 /** One app: any of its windows, with the option to expand and pin one. */
-function appRow(bundle, ws) {
+function appRow(key, ws) {
   // Liveness per app: green if any window is on the ACTIVE Space; amber if the
   // app is running but parked elsewhere (fullscreen on another desktop,
   // hidden) — the window server cannot see other Spaces' visibility, so
@@ -141,11 +153,11 @@ function appRow(bundle, ws) {
   const biggest = ws.reduce((a, b) => (a.width * a.height >= b.width * b.height ? a : b));
   const sub = ws.length === 1
     ? (ws[0].title || '(untitled)')
-    : ws.length + ' windows — click to ' + (expanded.has(bundle) ? 'collapse' : 'expand');
+    : ws.length + ' windows — click to ' + (expanded.has(key) ? 'collapse' : 'expand');
 
   const el = document.createElement('div');
   el.className = 'win';
-  if (selected.bundle === bundle && !selected.windowId) el.classList.add('sel');
+  if (keyOf(selected) === key && !selected.windowId) el.classList.add('sel');
   el.innerHTML =
     `<span class="dot ${anyLive ? 'live' : 'away'}" title="${anyLive
       ? 'visible on this Space' : 'running — on another Space or hidden'}"></span>`
@@ -156,12 +168,12 @@ function appRow(bundle, ws) {
     + `<span class="meta">${biggest.width}×${biggest.height}</span>`;
 
   el.onclick = () => {
-    selected = { bundle, windowId: null, label: ws[0].app };
+    selected = { ...identity(ws[0]), windowId: null, label: ws[0].app };
     // Toggle. Clicking an expanded app used to re-add it to the set, so once
     // opened it could never be closed.
     if (ws.length > 1) {
-      if (expanded.has(bundle)) expanded.delete(bundle);
-      else expanded.add(bundle);
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
     }
     renderWindows();
     $('status').textContent = 'target: ' + ws[0].app + ' (any window)';
@@ -170,7 +182,7 @@ function appRow(bundle, ws) {
 }
 
 /** One window of an expanded app, indented under it. */
-function windowRow(bundle, w, appName) {
+function windowRow(w, appName) {
   const el = document.createElement('div');
   el.className = 'win subwin';
   if (selected.windowId === w.id) el.classList.add('sel');
@@ -180,7 +192,8 @@ function windowRow(bundle, w, appName) {
     + `<span class="meta">${w.width}×${w.height}</span>`;
   el.onclick = (ev) => {
     ev.stopPropagation();
-    selected = { bundle, windowId: w.id, label: appName + ' — ' + (w.title || 'window') };
+    const label = appName + ' — ' + (w.title || 'window');
+    selected = { ...identity(w), windowId: w.id, label };
     renderWindows();
     $('status').textContent = 'target: ' + selected.label + ' (pinned window)';
   };
@@ -190,14 +203,14 @@ function windowRow(bundle, w, appName) {
 function renderWindows() {
   const host = $('winlist');
   host.innerHTML = '';
-  for (const [bundle, ws] of byBundle(windows)) {
+  for (const [key, ws] of byApp(windows)) {
     // A pinned window keeps its app expanded so the pin stays visible.
     if (selected.windowId && ws.some((w) => w.id === selected.windowId)) {
-      expanded.add(bundle);
+      expanded.add(key);
     }
-    host.appendChild(appRow(bundle, ws));
-    if (ws.length > 1 && expanded.has(bundle)) {
-      for (const w of ws) host.appendChild(windowRow(bundle, w, ws[0].app));
+    host.appendChild(appRow(key, ws));
+    if (ws.length > 1 && expanded.has(key)) {
+      for (const w of ws) host.appendChild(windowRow(w, ws[0].app));
     }
   }
 }
