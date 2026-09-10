@@ -367,10 +367,14 @@ both polarities and a mix of them work.
 The frame a pass recognises was captured before the recognition ran, so the
 payload describes pixels up to a whole pass old (p50 2.2s on a real Kindle
 page). Someone who just turned a page is often about to turn another. A pass
-that emitted *new text* therefore waits 0.1s instead of the full interval,
-bounded at three in a row so an animated page cannot pin the recogniser. Pixels
-that move while the text does not are already a heartbeat, not new text, so
-they never take this path.
+that emitted *new text* — under 85% of its characters shared with the previous
+read — therefore waits 0.1s instead of the full interval, bounded at three in a
+row. Pixels that move while the text does not are already a heartbeat, not new
+text, and a re-read that differs only by recognition noise is not new text
+either, so neither takes this path. It used to: an animated background makes
+every payload string differ, which put 3 passes in 4 on the short wait for as
+long as the animation ran, `--interval` had no effect (0.6s → 3.0s changed one
+gap in four), and CPU went from 4.5% to 37% (measured 2026-09-10).
 
 ### 13. The app ships with no dictionary
 

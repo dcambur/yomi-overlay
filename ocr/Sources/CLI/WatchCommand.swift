@@ -39,9 +39,39 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
 /// Bounded, because a page that changes every pass would otherwise pin the
 /// recogniser: after `maxSettlePasses` consecutive shortened waits the
 /// ordinary interval comes back. Pixels that move while the TEXT does not
-/// already fall outside this — that path emits a heartbeat, not new text.
+/// already fall outside this — that path emits a heartbeat, not new text —
+/// and so does a re-read of the same page that differs only by recognition
+/// noise (see `settleSharedText`).
 let settleInterval = 0.1
 let maxSettlePasses = 3
+
+/// How much of its text a re-read must share with the last one before the
+/// change counts as real. Characters in any order, not line strings: a read of
+/// an unchanged page under an animated background shares 0.95–1.0 with the
+/// one before it, and 0.04–0.09 after a real change (the page occluded,
+/// another window's text) — measured 2026-09-10.
+let settleSharedText = 0.85
+
+/// Fraction of characters two recognised passes have in common, any order.
+func sharedText(_ a: [Line], _ b: [Line]) -> Double {
+    func count(_ lines: [Line]) -> ([Character: Int], Int) {
+        var m: [Character: Int] = [:]
+        var n = 0
+        for l in lines {
+            for ch in l.text {
+                m[ch, default: 0] += 1
+                n += 1
+            }
+        }
+        return (m, n)
+    }
+    let (ma, na) = count(a)
+    let (mb, nb) = count(b)
+    guard na > 0, nb > 0 else { return 0 }
+    var shared = 0
+    for (ch, k) in ma { shared += min(k, mb[ch] ?? 0) }
+    return Double(shared) / Double(max(na, nb))
+}
 
 /// The watch loop. Re-resolves the target every pass so it survives a
 /// resize, a reopen, or a move to another Space.
@@ -65,8 +95,9 @@ func runWatchLoop(_ opts: Options) async throws {
     // Tier-2 crop requests arrive on stdin (Phase 3).
     if opts.json && opts.watch { cropChannel.startReader() }
     repeat {
-        // Set below when this pass emitted text that differed, so the wait at
-        // the end can tell a settling page from an idle one.
+        // Set below when this pass emitted text that really changed — not a
+        // re-read of the same page with a few characters different — so the
+        // wait at the end can tell a settling page from an idle one.
         var producedNewText = false
         do {
             // Re-resolve the window each pass so it survives resize/reopen,
@@ -198,6 +229,15 @@ func runWatchLoop(_ opts: Options) async throws {
                 session: session)
             markRuby(&lines, vertical: isVertical)
 
+            // A different page, or the same one read again with jitter? An
+            // animated background makes every frame hash miss and every
+            // payload string differ, so "the payload changed" alone sent 3
+            // passes in 4 down the settle path for as long as the animation
+            // ran, and --interval had no effect (measured 2026-09-10: gaps
+            // 0.9/0.9/0.9/1.5s at --interval 0.6, 0.95/0.93/0.95/4.2s at
+            // --interval 3.0; CPU 4.5% → 37%).
+            let turned = sharedText(lines, voteBuf.first ?? []) < settleSharedText
+
             // Fresh page: this read is vote 1 and the base layout the
             // renderer will build spans from.
             voteBuf = [lines]
@@ -219,7 +259,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 if payload != lastText {
                     emit(payload, to: opts.outPath)
                     lastText = payload
-                    producedNewText = true
+                    producedNewText = turned
                     if opts.outPath == nil { fflush(stdout) }
                     FileHandle.standardError.write(
                         "emitted \(parts.count) lines\n".data(using: .utf8)!)
