@@ -25,11 +25,17 @@ func runListAllCommand() -> Never {
             kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { $0[kCGWindowNumber as String] as? Int })
 
-    // Map owning pid -> bundle id, which CGWindowList does not give.
-    var bundleFor: [pid_t: String] = [:]
-    for a in NSWorkspace.shared.runningApplications {
-        if let b = a.bundleIdentifier { bundleFor[a.processIdentifier] = b }
-    }
+    // Map owning pid -> the application LaunchServices knows it as, which
+    // CGWindowList does not give. A pid with no entry is not an application
+    // (the window server, agents) and is skipped below. Having no BUNDLE ID
+    // is a different thing: a bare executable is still an app with a Dock
+    // tile, named after its binary — which is what every game run through
+    // CrossOver is (Wine names the process after the .exe; there is no
+    // Info.plist to carry an id). Measured 2026-09-10 on such a process:
+    // bundleIdentifier nil, localizedName "Game.exe"; skipping on an empty
+    // id hid all of its windows from the picker (issue #20).
+    var appFor: [pid_t: NSRunningApplication] = [:]
+    for a in NSWorkspace.shared.runningApplications { appFor[a.processIdentifier] = a }
 
     var items: [String] = []
     for w in info {
@@ -42,8 +48,9 @@ func runListAllCommand() -> Never {
             let height = (bounds["Height"] as? NSNumber)?.doubleValue,
             width >= 300, height >= 200
         else { continue }
-        let bid = bundleFor[pid] ?? ""
-        if bid.isEmpty || bid.hasPrefix("com.apple.dock") { continue }
+        guard let app = appFor[pid] else { continue }
+        let bid = app.bundleIdentifier ?? ""
+        if bid.hasPrefix("com.apple.dock") { continue }
         let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
         let title = w[kCGWindowName as String] as? String ?? ""
         let wid = w[kCGWindowNumber as String] as? Int ?? 0
