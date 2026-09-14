@@ -12,15 +12,19 @@ let defaultBundleIDs: Set<String> = ["com.amazon.Lassen", "com.amazon.Kindle"]
 
 /// What the capture is pinned to. A specific window ID is exact (survives the
 /// app having several windows); a bundle ID follows whichever window that app
-/// currently shows.
+/// currently shows. An app with no bundle id — a bare executable, which is
+/// what every CrossOver .exe is — is followed by the name LaunchServices gives
+/// it instead, the one on its Dock tile (see --list-all).
 struct Target {
     var bundleIDs: Set<String> = defaultBundleIDs
+    var appNames: Set<String> = []
     var windowID: CGWindowID? = nil
 
     func matches(_ w: SCWindow) -> Bool {
         if let wid = windowID { return w.windowID == wid }
         guard let app = w.owningApplication else { return false }
         return bundleIDs.contains(app.bundleIdentifier)
+            || appNames.contains(app.applicationName)
     }
 }
 
@@ -375,6 +379,6 @@ func isTargetFrontmost() -> Bool {
         return owner == front.processIdentifier
     }
 
-    guard let bid = front.bundleIdentifier else { return false }
-    return target.bundleIDs.contains(bid)
+    if let bid = front.bundleIdentifier, target.bundleIDs.contains(bid) { return true }
+    return target.appNames.contains(front.localizedName ?? "")
 }

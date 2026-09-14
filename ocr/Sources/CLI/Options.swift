@@ -77,6 +77,12 @@ func parseArgs() -> Options {
                 if target.bundleIDs == defaultBundleIDs { target.bundleIDs = [] }
                 target.bundleIDs.insert(b)
             }
+        case "--app":
+            // --bundle for an app that has no bundle id (see Target).
+            if let n = it.next() {
+                if target.bundleIDs == defaultBundleIDs { target.bundleIDs = [] }
+                target.appNames.insert(n)
+            }
         case "--window":
             if let w = it.next(), let id = UInt32(w) { target.windowID = CGWindowID(id) }
         case "--interval":
@@ -107,6 +113,7 @@ func parseArgs() -> Options {
                   --vote-every N  vote on every Nth unchanged pass (default 2)
                   --check-permission  report Screen Recording status as JSON
                   --bundle ID     target an app by bundle id (repeatable)
+                  --app NAME      target an app that has no bundle id, by name (repeatable)
                   --window ID     target one specific window id
                   --frame, -f     print the target window's bounds and exit
                   --vertical, -v  vertical (tategaki) reading order

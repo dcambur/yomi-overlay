@@ -84,3 +84,13 @@ running (E2E launches its own instance; single-instance lock would fire).
 `page.html` is the older synthetic target (fixed-position probes at known
 coordinates) — kept for offline runs; point `main.js` at it instead of
 kakuyomu if the network is unavailable.
+
+## Hands-on: the target picker
+
+`verify_picker.py` compiles a bare executable — a Mach-O with no Info.plist,
+which is the shape of every game run through CrossOver — opens one window
+from it, and asserts against the live window server that `--list-all` offers
+it with `bundle ""` and that `--app <name> --list` resolves the same window.
+Needs `swiftc` and a desktop; the second step needs Screen Recording and is
+skipped without it. `YOMI_BIN=path/to/old/yomi` points it at another build,
+which is how to watch it fail on a helper from before the fix.

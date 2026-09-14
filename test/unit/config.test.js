@@ -15,15 +15,23 @@ const { sanitize, load } = require(
 const cur = load();
 
 test('a non-string bundle becomes null rather than reaching --bundle', () => {
-  const out = sanitize({ target: { bundle: 123, windowId: 'abc' } }, cur);
+  const out = sanitize({ target: { bundle: 123, app: 7, windowId: 'abc' } }, cur);
   assert.strictEqual(out.target.bundle, null);
+  assert.strictEqual(out.target.app, null);
   assert.strictEqual(out.target.windowId, null);
 });
 
 test('a valid target survives untouched', () => {
-  const target = { bundle: 'com.amazon.Lassen', windowId: 42, label: 'Kindle' };
+  const target = { bundle: 'com.amazon.Lassen', app: null, windowId: 42, label: 'Kindle' };
   const out = sanitize({ target }, cur);
   assert.deepStrictEqual(out.target, target);
+});
+
+test('an app with no bundle id is kept by name, and the name labels it', () => {
+  // What the picker sends for a CrossOver .exe: --list-all reports bundle "".
+  const out = sanitize({ target: { bundle: '', app: 'Game.exe', windowId: null } }, cur);
+  assert.deepStrictEqual(out.target,
+                         { bundle: null, app: 'Game.exe', windowId: null, label: 'Game.exe' });
 });
 
 test('an unknown modifier or mode falls back instead of reaching --modifier', () => {
