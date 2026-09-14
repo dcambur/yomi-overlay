@@ -51,7 +51,14 @@ func runListAllCommand() -> Never {
         guard let app = appFor[pid] else { continue }
         let bid = app.bundleIdentifier ?? ""
         if bid.hasPrefix("com.apple.dock") { continue }
-        let owner = w[kCGWindowOwnerName as String] as? String ?? "?"
+        // The app's name comes from LaunchServices, not kCGWindowOwnerName:
+        // the window server truncates the owner name to 31 bytes, which is
+        // ten kanji. Measured 2026-09-14 on a CrossOver process named
+        // 飼い犬勇者と魔王の城.exe: owner "飼い犬勇者と魔王の城." (31 bytes),
+        // localizedName "飼い犬勇者と魔王の城.exe" (34). The picker showed
+        // the first; --app matches SCK's applicationName, which is the
+        // second; so the game was listed but could not be followed.
+        let owner = app.localizedName ?? w[kCGWindowOwnerName as String] as? String ?? "?"
         let title = w[kCGWindowName as String] as? String ?? ""
         let wid = w[kCGWindowNumber as String] as? Int ?? 0
         let ox = (bounds["X"] as? NSNumber)?.doubleValue ?? 0

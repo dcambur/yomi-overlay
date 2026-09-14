@@ -31,7 +31,10 @@ from paths import OCR_BIN
 # YOMI_BIN overrides, as in golden.sh, for A/B-ing two builds.
 OCR = os.environ.get("YOMI_BIN", str(OCR_BIN))
 
-NAME = "Rig.exe"
+# Longer than 31 bytes on purpose: kCGWindowOwnerName is truncated there,
+# and a picker built on it listed a ten-kanji CrossOver game under a name
+# that --app could not resolve (measured 2026-09-14, ListCommand.swift).
+NAME = "RigWithANameTheWindowServerTruncates.exe"
 
 # The rig prints what LaunchServices thinks it is, so the test can compare the
 # picker's answer against the process's own rather than against a constant.
