@@ -13,6 +13,7 @@ const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { openSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
+const { createAnki } = require('./main/anki.js');
 const overlayWindow = require('./main/overlay-window.js');
 const permissions = require('./main/permissions.js');
 const { reportSpawnFailure } = permissions;
@@ -134,7 +135,9 @@ function onTriggerEvent(ev) {
   overlayWindow.send('trigger', { type: ev.type, x, y });
 }
 
-const { onCropReply } = createTier2({ ocrChild });
+const { onCropReply, requestCrop } = createTier2({ ocrChild });
+// The card's picture is a crop from the watch process, like the probe's.
+const anki = createAnki({ cfg, requestCrop });
 
 // Global modifier / click monitor. Lets a lookup fire without the cursor
 // having to move — the overlay itself can only see forwarded mouse-move
@@ -156,7 +159,7 @@ const eventsChild = new SupervisedChild({
 
 // Registered here, not earlier: it hands out both children, and eventsChild
 // is declared above only a few lines back.
-ipc.register({ overlayWindow, ocrChild, eventsChild, tray });
+ipc.register({ overlayWindow, ocrChild, eventsChild, tray, anki });
 
 app.on('will-quit', () => logf('will-quit'));
 app.on('before-quit', () => logf('before-quit'));

@@ -191,6 +191,9 @@
   // structure is built as DOM by structured.js, which cannot be expressed as a
   // string here — so it is stubbed in and filled after innerHTML lands.
   let scSlots = [];
+  // The groups the popup is showing, in card order — what an Anki mark's
+  // index refers to when it is clicked.
+  let lastGroups = [];
 
   function glossItem(g, dict) {
     if (typeof g === 'string') return glossHtml(g);
@@ -230,8 +233,104 @@
       + '</div>';
   }
 
+  // --- the Anki mark ----------------------------------------------------
+  // One control per card, at the right end of the headword line: a card
+  // outline that fills when the word is in the chosen deck (docs/ANKI.md).
+  // Drawn only while Anki is on in Settings; renderer.js decides what a
+  // click means and tells this file which state to show.
+  const ANKI_LABEL = {
+    unknown: 'Anki', absent: 'Anki', adding: 'adding…', present: 'in Anki',
+    confirm: 'remove?', removing: 'removing…', error: 'Anki',
+  };
+
+  function ankiMarkHtml(gi) {
+    return `<button class="anki" data-gi="${gi}" data-state="unknown"`
+      + ' title="Checking the deck…"><span class="anki-card"></span>'
+      + '<span class="anki-label">Anki</span></button>';
+  }
+
+  /** Show what the mark of card `gi` means now; `detail` is a note id or an error. */
+  function setAnkiState(gi, state, detail) {
+    const b = popup.querySelector(`.anki[data-gi="${gi}"]`);
+    if (!b) return;
+    const deck = (window.viewOptions && window.viewOptions.anki || {}).deck || 'the deck';
+    b.dataset.state = state;
+    if (state === 'present') b.dataset.note = String(detail);
+    if (state === 'absent' || state === 'error' || state === 'unknown') delete b.dataset.note;
+    b.querySelector('.anki-label').textContent = ANKI_LABEL[state] || state;
+    b.title = {
+      unknown: 'Checking the deck…',
+      absent: `Add to ${deck}`,
+      adding: `Adding to ${deck}…`,
+      present: `In ${deck} — click to remove`,
+      confirm: 'Click again to remove it from Anki',
+      removing: 'Removing…',
+      error: String(detail || 'Anki did not answer'),
+    }[state] || '';
+  }
+
+  const KINDS = new Set(['bi', 'mono', 'gram', 'kanji', 'name']);
+
+  /**
+   * One rendered entry as the HTML a card gets: the body without its
+   * dictionary-name header, and every image replaced by the text it stands
+   * for — Anki cannot fetch yomi-media:, and the label is what the mark
+   * means anyway.
+   */
+  function entryBody(el) {
+    const c = el.cloneNode(true);
+    const hd = c.querySelector('.ent-hd');
+    if (hd) hd.remove();
+    for (const img of c.querySelectorAll('img')) img.replaceWith(img.alt || img.title || '');
+    return c.innerHTML;
+  }
+
+  /** Yomitan's glossary shape, so Lapis's stylesheet applies to it. */
+  function glossaryHtml(items) {
+    if (!items.length) return '';
+    const lis = items.map((e) => `<li data-dictionary="${esc(e.dict)}">`
+      + `<i>(${esc(e.dict)})</i> <span>${e.html}</span></li>`);
+    return '<div style="text-align: left;" class="yomitan-glossary">'
+      + `<ol>${lis.join('')}</ol></div>`;
+  }
+
+  /**
+   * What the popup knows about card `gi`, in the shape main/anki.js builds a
+   * note from. The sentence is renderer.js's to add — it owns the glyph the
+   * cursor hit. Null for a kanji fallback card: a character is not a word.
+   */
+  function noteFor(gi) {
+    const g = lastGroups[gi];
+    const card = popup.children[gi];
+    if (!g || g.kanji || !card) return null;
+    const onlyKanji = g.entries.every((e) => dictKind(e) === 'kanji');
+    const rd = onlyKanji ? '' : (g.entries[0] && g.entries[0].reading) || '';
+    const pitch = (g.pitch || []).filter((x) => !rd || x.reading === rd).map((x) => x.position);
+    const items = [];
+    for (const el of card.querySelectorAll('.ent')) {
+      const kind = [...el.classList].find((c) => KINDS.has(c));
+      if (kind === 'name' || kind === 'kanji') continue;
+      const src = el.querySelector('.src');
+      items.push({ dict: src ? src.textContent : '', kind, html: entryBody(el) });
+    }
+    // The first monolingual dictionary leads the card; Lapis hides it from
+    // the glossary list, so both fields can be full.
+    const mono = items.find((e) => e.kind === 'mono');
+    const main = mono ? items.filter((e) => e.dict === mono.dict) : [];
+    return {
+      expression: g.base || g.surface,
+      reading: rd,
+      pitch,
+      freq: (g.freq || []).map((f) => ({ source: f.source, value: f.value })),
+      mainDefinition: glossaryHtml(main),
+      glossary: glossaryHtml(items),
+      // How many glyphs of the hit line the word covers, for the <b>.
+      matchLength: g.matchLength,
+    };
+  }
+
   /** Headword block: the dictionary form, its reading and pitch, how common. */
-  function headerHtml(g) {
+  function headerHtml(g, gi) {
     const parts = ['<div class="hd">'];
     // The DICTIONARY form leads. A reader looking at 始まります wants 始まる —
     // that is the word to learn and to look up again; the form on the page is
@@ -255,11 +354,15 @@
     }
 
     // How common, right-aligned on the same line: it answers one yes/no
-    // question and does not deserve a row of its own.
+    // question and does not deserve a row of its own. The Anki mark shares
+    // that right edge — one more yes/no, and the only control on a card.
     const freq = (g.freq || []).slice(0, 2)
       .map((f) => `<span class="chip freq">${esc(f.source)} ${esc(String(f.value))}</span>`)
       .join('');
-    if (freq) parts.push(`<span class="chips">${freq}</span>`);
+    const ankiOn = !!(window.viewOptions && window.viewOptions.anki
+                      && window.viewOptions.anki.enabled);
+    const anki = ankiOn && !g.kanji ? ankiMarkHtml(gi) : '';
+    if (freq || anki) parts.push(`<span class="chips">${freq}${anki}</span>`);
     parts.push('</div>');
     parts.push(routeHtml(g));
     return parts.join('');
@@ -326,13 +429,15 @@
    */
   function render(res, anchorRect, pageVertical) {
     const groups = res.groups || [res];
+    lastGroups = groups;
     const parts = [];
     // One card per headword group, every group equal rank: separation comes
     // from the card surface, priority from ORDER alone — the first card is
     // the longest match, not a typographically privileged one.
-    for (const g of groups) {
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
       parts.push('<div class="card">');
-      parts.push(headerHtml(g));
+      parts.push(headerHtml(g, gi));
 
       const entries = orderEntries(g.entries);
       // Proper names are a reference list, not a definition: 神 answers with
@@ -388,6 +493,8 @@
 
   window.popupView = {
     render,
+    setAnkiState,
+    noteFor,
     hide() { popup.style.display = 'none'; },
     visible() { return popup.style.display === 'block'; },
     bounds() { return popup.getBoundingClientRect(); },

@@ -32,7 +32,9 @@ const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 let win;
 let lookupReply = null;          // what ipcMain.handle('lookup') returns
-const ipcSeen = { interactive: [], tier2: [] };
+const ipcSeen = { interactive: [], tier2: [], ankiFind: [], ankiAdd: [], ankiRemove: [] };
+// What main/anki.js answers: nothing in the deck yet, then note 42 once added.
+let ankiIds = [];
 
 const results = [];
 async function test(name, fn) {
@@ -237,6 +239,75 @@ async function run() {
     send('covers', []); await settle();
   });
 
+  // --- Anki ------------------------------------------------------------------
+  // page-b, horizontal: 吾輩は猫である。… — the popup answers for 吾輩 at the
+  // start of line 0, placed so the first glyph lands at (100,100).
+  const ankiButtons = () => js("document.querySelectorAll('#popup .anki').length");
+  const ankiState = () => js("document.querySelector('#popup .anki').dataset.state");
+  const WAGAHAI = {
+    surface: '吾輩', base: null, matchLength: 2,
+    entries: [{ reading: 'わがはい', dict: 'Jitendex', glosses: ['I; me'] }],
+    pitch: [{ reading: 'わがはい', position: 0 }], freq: [{ source: 'JPDB', value: 4321 }],
+  };
+  WAGAHAI.groups = [WAGAHAI];
+  async function lookUpWagahai() {
+    send('capture', B); await settle();
+    const c = B.lines[0].chars[0];
+    const [sx, sy] = await js('[window.screenX, window.screenY]');
+    send('offset', { fx: sx + 100 - c.x, fy: sy + 100 - c.y }); await settle();
+    lookupReply = WAGAHAI;
+    send('trigger', { type: 'click', x: 100 + c.w / 2, y: 100 + c.h / 2 });
+    await settle(120);
+    assert.strictEqual(await popupShown(), true, 'no popup');
+  }
+
+  await test('with Anki off, no mark is drawn and the deck is not asked', async () => {
+    send('view-config', { images: true, anki: { enabled: false, deck: null } }); await settle();
+    await lookUpWagahai();
+    assert.strictEqual(await ankiButtons(), 0);
+    assert.strictEqual(ipcSeen.ankiFind.length, 0);
+    send('dismiss'); await settle();
+  });
+
+  await test('with Anki on, the deck is asked once and the mark shows the answer', async () => {
+    send('view-config', { images: true, anki: { enabled: true, deck: 'Mining' } });
+    await settle();
+    await lookUpWagahai();
+    assert.strictEqual(await ankiButtons(), 1, 'one mark per card');
+    assert.deepStrictEqual(ipcSeen.ankiFind, [['吾輩']]);
+    assert.strictEqual(await ankiState(), 'absent');
+  });
+
+  await test('a click sends main the note, with the sentence and the word in <b>', async () => {
+    ankiIds = [42];
+    await js("document.querySelector('#popup .anki').click()");
+    await settle(120);
+    assert.strictEqual(ipcSeen.ankiAdd.length, 1, 'one note asked for');
+    const note = ipcSeen.ankiAdd[0];
+    assert.strictEqual(note.expression, '吾輩');
+    assert.strictEqual(note.reading, 'わがはい');
+    assert.strictEqual(note.sentence, '<b>吾輩</b>は猫である。');
+    assert.deepStrictEqual(note.pitch, [0]);
+    assert.deepStrictEqual(note.freq, [{ source: 'JPDB', value: 4321 }]);
+    assert.match(note.glossary, /data-dictionary="Jitendex"/);
+    assert.match(note.glossary, /I; me/);
+    assert.strictEqual(note.mainDefinition, '', 'no monolingual dictionary answered');
+    assert.ok(note.region && note.region.w > 0 && note.region.h > 0, 'a region to crop');
+    assert.strictEqual(await ankiState(), 'present');
+  });
+
+  await test('removing takes two clicks, and the second asks main by note id', async () => {
+    await js("document.querySelector('#popup .anki').click()");
+    await settle();
+    assert.strictEqual(await ankiState(), 'confirm');
+    assert.strictEqual(ipcSeen.ankiRemove.length, 0, 'one click removes nothing');
+    await js("document.querySelector('#popup .anki').click()");
+    await settle(120);
+    assert.deepStrictEqual(ipcSeen.ankiRemove, [42]);
+    assert.strictEqual(await ankiState(), 'absent');
+    send('dismiss'); await settle();
+  });
+
   const failed = results.filter(r => !r[0]);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -250,6 +321,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('lookup', () => lookupReply);
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
   ipcMain.on('tier2', (_e, r) => ipcSeen.tier2.push(r));
+  ipcMain.handle('anki:find', (_e, words) => {
+    ipcSeen.ankiFind.push(words);
+    return { ok: true, ids: words.map((_w, i) => ankiIds[i] || null) };
+  });
+  ipcMain.handle('anki:add', (_e, note) => {
+    ipcSeen.ankiAdd.push(note);
+    return { ok: true, noteId: 42 };
+  });
+  ipcMain.handle('anki:remove', (_e, id) => {
+    ipcSeen.ankiRemove.push(id);
+    return { ok: true };
+  });
 
   win = new BrowserWindow({
     show: false, width: 1440, height: 900,

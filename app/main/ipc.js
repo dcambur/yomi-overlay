@@ -47,7 +47,31 @@ function validGlyphs(v) {
          v.every((g) => isStr(g, 8));
 }
 
-function register({ overlayWindow, ocrChild, eventsChild, tray }) {
+// What the popup sends for one Anki note (docs/ANKI.md). The definitions are
+// HTML the renderer built from what it drew; they go into the user's own
+// collection, so only their size is bounded here.
+const MAX_FIELD = 256 * 1024;
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+function validNote(n) {
+  if (!n || typeof n !== 'object') return false;
+  if (!isStr(n.expression, 64) || !n.expression) return false;
+  if (n.reading != null && !isStr(n.reading, 64)) return false;
+  if (n.sentence != null && !isStr(n.sentence, 8192)) return false;
+  if (n.glossary != null && !isStr(n.glossary, MAX_FIELD)) return false;
+  if (n.mainDefinition != null && !isStr(n.mainDefinition, MAX_FIELD)) return false;
+  const shortList = (v, ok) => Array.isArray(v) && v.length <= 8 && v.every(ok);
+  if (n.pitch != null && !shortList(n.pitch, Number.isInteger)) return false;
+  if (n.freq != null &&
+      !shortList(n.freq, (f) => f && isStr(f.source, 64) && finite(f.value))) return false;
+  if (n.region != null) {
+    const r = n.region;
+    if (!r || typeof r !== 'object' || ![r.x, r.y, r.w, r.h].every(finite)) return false;
+    if (!(r.w > 0 && r.h > 0 && r.w < 8000 && r.h < 8000)) return false;
+  }
+  return true;
+}
+
+function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
   ipcMain.handle('lookup', (_e, text, hint) => {
     if (!validGlyphs(text)) return reject('lookup', 'text is not a glyph array');
     if (hint != null && !isStr(hint, MAX_TEXT)) return reject('lookup', 'bad hint');
@@ -136,6 +160,36 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
     }
     cfg.save({ dictionaries: list });
     return cfg.load();
+  });
+
+  // --- Anki -------------------------------------------------------------
+  // Settings saves live, like the trigger: the overlay is told, and the next
+  // popup draws its card marks or stops drawing them. Nothing restarts.
+  ipcMain.handle('cfg:anki', (_e, next) => {
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      reject('cfg:anki', 'not an object');
+      return cfg.load();
+    }
+    cfg.save({ anki: next });
+    overlayWindow.sendTrigger();
+    return cfg.load();
+  });
+  ipcMain.handle('anki:status', () => anki.status());
+
+  ipcMain.handle('anki:find', (_e, words) => {
+    if (!Array.isArray(words) || !words.length || words.length > 16
+        || !words.every((w) => isStr(w, 64) && w)) {
+      return reject('anki:find', 'not a list of words');
+    }
+    return anki.find(words);
+  });
+  ipcMain.handle('anki:add', (_e, note) => {
+    if (!validNote(note)) return reject('anki:add', 'not a note');
+    return anki.add(note);
+  });
+  ipcMain.handle('anki:remove', (_e, noteId) => {
+    if (!isNum(noteId)) return reject('anki:remove', 'not a note id');
+    return anki.remove(noteId);
   });
 
   // --- dictionaries ---------------------------------------------------

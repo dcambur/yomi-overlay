@@ -150,6 +150,44 @@
   .src.name  { color: #9d9484; }
   .src.kanji { color: #d8a889; }
 
+  /* --- the Anki mark ------------------------------------------------------
+     The only control on a card, at the right end of the headword line beside
+     the frequency chips. A card outline that FILLS when the word is in the
+     chosen deck: the fill is the whole state vocabulary — no second icon, no
+     second colour — so the eye reads it without the label, and the label
+     says what a click will do. Chip-sized and chip-coloured until pointed
+     at, so a popup with Anki on is not a popup with a button on it. */
+  #popup .anki {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 0 5px 0 4px; border: 0; border-radius: 3px;
+    background: transparent; color: #9d9484;
+    font: inherit; font-size: 9.5px; letter-spacing: .03em; line-height: 1.7;
+    font-family: -apple-system, system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #popup .anki:hover { color: #d3b072; background: rgba(211,176,114,0.09); }
+  #popup .anki-card {
+    box-sizing: border-box; width: 11px; height: 8px;
+    border: 1.5px solid currentColor; border-radius: 2px;
+    transition: background-color .18s ease;
+  }
+  #popup .anki[data-state="unknown"] { opacity: .5; }
+  #popup .anki[data-state="present"] { color: #d3b072; }
+  #popup .anki[data-state="present"] .anki-card { background: currentColor; }
+  /* Waiting on Anki: the outline breathes rather than the text changing size. */
+  #popup .anki[data-state="adding"] .anki-card,
+  #popup .anki[data-state="removing"] .anki-card {
+    animation: anki-wait .9s ease-in-out infinite;
+  }
+  /* The second click deletes a note and its review history: the mark says so
+     by turning to the one warm colour the popup otherwise never uses. */
+  #popup .anki[data-state="confirm"], #popup .anki[data-state="error"] { color: #d88a8a; }
+  #popup .anki[data-state="confirm"] .anki-card { border-style: dashed; }
+  @keyframes anki-wait { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) {
+    #popup .anki-card { transition: none; animation: none; }
+  }
+
   /* --- one dictionary's answer -------------------------------------------
      A 2px spine in the kind's colour, instead of a rule between every pair of
      entries. Scrolling past eleven dictionaries, the spine says which stratum

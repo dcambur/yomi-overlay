@@ -74,6 +74,8 @@ window.overlay.onDismiss(() => dismiss());
 
 let pageVertical = false;   // tategaki page: popup goes left of the column
 let lastTier2Surface = '';  // last word sent to the tier-2 shadow probe
+let lastHit = null;         // {li, ci} of the glyph the open popup answers for
+let ankiSeq = 0;            // discards Anki replies for a popup since replaced
 
 /**
  * Apply a payload: place the layer, then let it decide what to do with the
@@ -152,6 +154,8 @@ function dismiss() {
   lastKey = '';
   pinned = false;
   turnCandidate = null;
+  lastHit = null;
+  ankiSeq++;
   setInteractive(false);
   if (pendingPayload) {           // page changed while the popup was open
     const p = pendingPayload;
@@ -312,7 +316,102 @@ async function doLookup(px, py) {
   const lineVertical = line.vertical !== undefined ? !!line.vertical : pageVertical;
   popupView.render(res, el.getBoundingClientRect(), lineVertical);
   pinned = true;
+  lastHit = { li, ci };
+  ankiMarks(res);
 }
+
+// --- Anki -------------------------------------------------------------------
+// popup.js draws the marks and builds the definitions; sentence.js slices the
+// sentence; main/anki.js talks to Anki. This owns the timing: the deck is
+// asked once per popup, a click walks the mark through its states, and a
+// reply for a popup that has since been replaced is dropped.
+
+const ankiOn = () => !!(window.viewOptions && window.viewOptions.anki
+                        && window.viewOptions.anki.enabled);
+
+/** Which of the popup's words are already in the deck — one round trip. */
+async function ankiMarks(res) {
+  if (!ankiOn()) return;
+  const groups = res.groups || [res];
+  const cards = groups.map((g, gi) => ({ g, gi })).filter(({ g }) => !g.kanji);
+  if (!cards.length) return;
+  const seq = ++ankiSeq;
+  const r = await window.overlay.ankiFind(cards.map(({ g }) => g.base || g.surface));
+  if (seq !== ankiSeq) return;
+  for (let k = 0; k < cards.length; k++) {
+    const { gi } = cards[k];
+    if (!r || !r.ok) popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
+    else popupView.setAnkiState(gi, r.ids[k] ? 'present' : 'absent', r.ids[k]);
+  }
+}
+
+/** The lines the layer holds now, in payload order — what sentence.js reads. */
+function layerLines() {
+  return Array.from({ length: glyphLayer.lineCount }, (_, i) => glyphLayer.lineAt(i));
+}
+
+async function ankiAdd(b, gi) {
+  const note = popupView.noteFor(gi);
+  if (!note || !lastHit) return;
+  const lines = layerLines();
+  const s = window.sentence.around(lines, lastHit.li, lastHit.ci, pageVertical);
+  if (s) {
+    note.sentence = window.sentence.markup(lines, s, { ...lastHit, n: note.matchLength });
+    note.region = window.sentence.region(lines, s);
+  }
+  delete note.matchLength;
+  const seq = ankiSeq;
+  popupView.setAnkiState(gi, 'adding');
+  const r = await window.overlay.ankiAdd(note);
+  if (seq !== ankiSeq) return;
+  if (r && r.ok) popupView.setAnkiState(gi, 'present', r.noteId);
+  else popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
+}
+
+async function ankiRemove(b, gi) {
+  const noteId = Number(b.dataset.note);
+  if (!noteId) { popupView.setAnkiState(gi, 'absent'); return; }
+  const seq = ankiSeq;
+  popupView.setAnkiState(gi, 'removing');
+  const r = await window.overlay.ankiRemove(noteId);
+  if (seq !== ankiSeq) return;
+  if (r && r.ok) popupView.setAnkiState(gi, 'absent');
+  else popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
+}
+
+// Removal takes two clicks: the second must come within this long, or the
+// mark goes back to saying the word is in the deck. A deleted note takes its
+// review history with it, which one stray click must not be able to do.
+const ANKI_CONFIRM_MS = 3000;
+let ankiConfirmTimer = null;
+
+document.getElementById('popup').addEventListener('click', (e) => {
+  const b = e.target.closest('button.anki');
+  if (!b) return;
+  e.stopPropagation();
+  const gi = Number(b.dataset.gi);
+  if (ankiConfirmTimer) { clearTimeout(ankiConfirmTimer); ankiConfirmTimer = null; }
+  switch (b.dataset.state) {
+    case 'absent':
+    case 'error':
+      ankiAdd(b, gi);
+      break;
+    case 'present':
+      popupView.setAnkiState(gi, 'confirm');
+      ankiConfirmTimer = setTimeout(() => {
+        ankiConfirmTimer = null;
+        if (b.dataset.state === 'confirm') {
+          popupView.setAnkiState(gi, 'present', b.dataset.note);
+        }
+      }, ANKI_CONFIRM_MS);
+      break;
+    case 'confirm':
+      ankiRemove(b, gi);
+      break;
+    default:   // unknown, adding, removing: a click while waiting means nothing
+      break;
+  }
+});
 
 // Popup markup, pitch graphs, dictionary-kind styling, and placement all
 // live in popup.js (window.popupView) — presentation only. This file owns
