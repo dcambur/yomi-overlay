@@ -26,6 +26,9 @@ const consoleMessages = [];
 const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null,
                 anki: null };
 
+// Set to make the bridge itself fail, as a main process older than the page does.
+let ankiBridgeDown = false;
+
 const results = [];
 async function test(name, fn) {
   try { await fn(); results.push([true, name]); }
@@ -224,6 +227,20 @@ async function run() {
     assert.strictEqual(saved.anki.deck, 'Mining', 'one object carries every key');
   });
 
+  await test('a bridge that rejects is shown as not answering, not left checking', async () => {
+    ankiBridgeDown = true;
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    ankiBridgeDown = false;
+    assert.strictEqual(await js("document.getElementById('anki-state').textContent"),
+                       'Not answering');
+    assert.match(await js("document.getElementById('anki-detail').textContent"),
+                 /No handler registered/);
+    assert.ok(await js("document.getElementById('anki-dot').classList.contains('idle')"));
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck').length"), 1,
+                       'the chosen deck is still listed, alone');
+  });
+
   await test('tags are split on spaces and shown back tidy', async () => {
     await js("(() => { const t = document.getElementById('anki-tags');"
              + " t.value = '  novel   yomi-overlay '; t.onchange(); })()");
@@ -252,7 +269,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
   ipcMain.handle('cfg:anki', (_e, v) => { saved.anki = v; return CONFIG; });
-  ipcMain.handle('anki:status', () => ANKI);
+  ipcMain.handle('anki:status', () => {
+    if (ankiBridgeDown) throw new Error('No handler registered for anki:status');
+    return ANKI;
+  });
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);
   ipcMain.on('cfg:close', () => {});

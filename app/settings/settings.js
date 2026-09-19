@@ -107,7 +107,7 @@ function showTab(name) {
   // Anki is asked when its tab is looked at, not on a timer: a deck list
   // changes at human speed, and a closed Anki would otherwise be asked every
   // few seconds for as long as the window is open.
-  if (name === 'anki') refreshAnki().catch(() => {});
+  if (name === 'anki') refreshAnki();
 }
 
 for (const tab of document.querySelectorAll('.tab')) {
@@ -609,7 +609,16 @@ function renderAnkiStatus() {
 async function refreshAnki() {
   $('anki-state').textContent = 'checking…';
   $('anki-detail').textContent = '';
-  ankiStatus = await window.settings.ankiStatus();
+  // main/anki.js answers every case itself, so a rejection here is the
+  // bridge, not Anki — a main process older than this page, most likely
+  // (measured 2026-09-19: "No handler registered for 'anki:status'", and the
+  // row said "checking…" until the window was closed). Shown as the not-
+  // answering state rather than left hanging.
+  try {
+    ankiStatus = await window.settings.ankiStatus();
+  } catch (e) {
+    ankiStatus = { running: false, error: e.message };
+  }
   renderAnkiStatus();
   renderDecks();
 }
@@ -746,7 +755,7 @@ $('anki-tags').onchange = () => {
   $('anki-tags').value = tags.join(' ');
   saveAnki();
 };
-$('anki-refresh').onclick = () => refreshAnki().catch(() => {});
+$('anki-refresh').onclick = () => refreshAnki();
 
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
