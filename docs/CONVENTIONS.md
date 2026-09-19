@@ -222,7 +222,7 @@ change.
   hang. Stop the app before testing. `--image` is exempt — it opens no session,
   which is why the golden harness uses it.
 - Ordinary windows cannot join another app's fullscreen Space; a test rig that
-  must be visible there needs `type: 'panel'` + `visibleOnFullScreenScreen`.
+  must be visible there needs `type: 'panel'` + `visibleOnFullScreen`.
 - A Space transition animates: capturing mid-slide reads a transient x. Let it
   settle before asserting.
 - Electron *can* be driven from a plain shell, including a hidden

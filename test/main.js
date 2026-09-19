@@ -26,7 +26,7 @@ function ensureVertical() {
   winV = new BrowserWindow({
     ...V, frame: false, resizable: false, type: 'panel', alwaysOnTop: true,
   });
-  winV.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+  winV.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   winV.setAlwaysOnTop(true, 'screen-saver');
   winV.loadFile('vertical.html');
   return winV;
@@ -89,7 +89,7 @@ app.whenReady().then(() => {
   // be active when the suite runs (an editor in fullscreen would otherwise
   // leave both windows uncomposited and every case trivially "not capturable").
   for (const w of [winA, winB]) {
-    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+    w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
   setTimeout(() => winA.moveTop(), 500);
 
@@ -142,7 +142,7 @@ app.whenReady().then(() => {
         // whatever Space the test runner happens to be on.
         setTimeout(() => {
           for (const w of [winA, winB]) {
-            w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+            w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
           }
           res.end('ok');
         }, 1500);
