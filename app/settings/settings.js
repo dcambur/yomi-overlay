@@ -308,7 +308,10 @@ async function dictAction(label, fn) {
   if (dictJobs.has(label)) return;
   dictJobs.set(label, { phase: 'starting' });
   renderDictionaries();
-  const r = await fn();
+  // A request that rejects is still an answer. Without this the row stayed
+  // busy for as long as the window was open, and nothing said what failed.
+  let r;
+  try { r = await fn(); } catch (e) { r = { ok: false, error: e.message }; }
   dictJobs.delete(label);
   await refreshDictionaries();
   // An import of several archives can half-succeed: some went in, one was not

@@ -27,6 +27,21 @@ let lastCovers = '';
 // most of them mid-session flapping.
 const IDLE_HIDE_MS = 8000;
 
+// Both options, spelled exactly as Electron reads them. The second was
+// `visibleOnFullScreenScreen` for a long time, and an option Electron does not
+// recognise is `false`: every call then cleared NSWindowCollectionBehavior-
+// FullScreenAuxiliary — the bit setFullScreenable(false) had set — and ran
+// Electron's DockShow(), which turned this LSUIElement app into a Foreground
+// one behind app.dock.hide()'s back (measured 2026-09-19: lsappinfo reported
+// the running app as type "Foreground"; a panel flagged this way sat on 2 of
+// the 4 Spaces where a correctly flagged one sat on all 4, and was absent from
+// Chrome's fullscreen Space while the log said "shown"). Apple has not let a
+// Foreground app's windows float over another app's fullscreen Space since
+// 10.14, so the panel came back only when that Space was re-created. The
+// process type is this app's own business (main.js and settings-window.js
+// manage the Dock explicitly), hence skipTransformProcessType.
+const ALL_SPACES = { visibleOnFullScreen: true, skipTransformProcessType: true };
+
 function hideOverlay(why) {
   if (!win || win.isDestroyed() || !win.isVisible()) return;
   win.hide();
@@ -93,7 +108,7 @@ function createWindow() {
   // Must outrank the menu bar: at 'floating' a y=0 request is clamped to
   // y=30, which offsets the whole glyph layer against a fullscreen target.
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+  win.setVisibleOnAllWorkspaces(true, ALL_SPACES);
   // Don't let macOS treat the overlay itself as fullscreen-capable.
   win.setFullScreenable(false);
   // forward:true — the renderer sees mousemove (so hover works) while clicks
@@ -151,7 +166,7 @@ function trackTarget(frame, covers) {
     // Re-apply after showing. Set only at creation time, macOS commonly drops
     // the fullscreen-auxiliary collection behaviour, and the window then lands
     // on the ordinary desktop instead of over the target's fullscreen Space.
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreenScreen: true });
+    win.setVisibleOnAllWorkspaces(true, ALL_SPACES);
     win.setAlwaysOnTop(true, 'screen-saver');
     console.log('[win] shown; allWorkspaces=' + win.isVisibleOnAllWorkspaces());
   }

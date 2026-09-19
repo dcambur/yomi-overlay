@@ -31,8 +31,9 @@ BUILT="$OUT/$APP_NAME-darwin-arm64/$APP_NAME.app"
 IDENTITY="${SIGN_IDENTITY:-Yomi Overlay Dev}"
 
 echo "==> Building the Swift capture helper"
-mkdir -p "$BIN_DIR"
-swiftc -O -parse-as-library "$OCR_SRC"/*.swift -o "$OCR_BIN"
+# The one build line lives in ocr/build.sh. A copy here used a flat glob and
+# stopped compiling the day the sources moved into subdirectories.
+"$PROJECT_ROOT/ocr/build.sh"
 
 echo "==> Packaging the loader shell (Electron $ELECTRON_VERSION)"
 rm -rf "$OUT"

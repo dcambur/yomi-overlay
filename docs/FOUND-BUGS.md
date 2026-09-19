@@ -61,3 +61,43 @@ Uncertain: whether the trigger is the cdhash, the path change
 (`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
 same step. To separate them, restore a previously-run binary at the *new* path
 and relaunch: if it captures first try, the cdhash is the trigger.
+
+---
+
+## 3. The 12 s deadline cannot outrun the ScreenCaptureKit call it races
+
+[ocr/Sources/Capture/Capture.swift](../ocr/Sources/Capture/Capture.swift) and
+[ocr/Sources/Capture/WindowSelection.swift](../ocr/Sources/Capture/WindowSelection.swift)
+
+Both race the SCK call against a sleeper in a `withThrowingTaskGroup`. When
+the sleeper wins, `group.next()` throws — and then the group *waits for the
+other child to finish* before the throw propagates, because structured
+concurrency never exits with a live child. `SCScreenshotManager.captureImage`
+and `SCShareableContent.excludingDesktopWindows` are bridged
+completion-handler APIs and do not observe cancellation, so a stalled call
+stalls the deadline with it. Found by reading (2026-09-19); the effect
+depends on SCK genuinely never returning, which is the 40-minute silence
+measured 2026-08-09 — so the bound that actually ended it was main.js's
+2-minute watchdog, not this code.
+
+Fix, if measured to matter: race with an unstructured `Task` and a
+continuation the timeout resumes first, leaking the SCK call the way
+`LiveText.analyze` already leaks its watchdog-timed-out request. Changes
+the capture path, so it needs the golden baseline and a stalled-SCK repro.
+
+---
+
+## 4. Renderer state is not re-sent after a load, and a renderer crash is not noticed
+
+[app/main/overlay-window.js](../app/main/overlay-window.js)
+
+`offset` and `covers` are sent only when they change and `capture` only for
+changed payloads; `did-finish-load` re-sends the trigger and view config and
+nothing else. A payload that lands before the renderer's listeners exist
+leaves the layer with no origin until the target next moves, and there is no
+`render-process-gone` handler, so after a renderer crash main keeps sending
+into the void for the rest of the session. Found by reading (2026-09-19);
+neither has been observed in a log. Fix: reset `lastOffset`/`lastCovers` on
+`did-finish-load` and reload on `render-process-gone` — cheap, but it changes
+what the renderer receives at startup, so it wants a `[win]` log from a slow
+cold start first.

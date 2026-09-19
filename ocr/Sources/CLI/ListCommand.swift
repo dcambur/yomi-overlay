@@ -118,7 +118,7 @@ func runFrameCommand(_ opts: Options) async throws -> Never {
     repeat {
         if let w = (try? await chooseWindow()) ?? nil {
             let f = w.frame
-            let title = (w.title ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+            let title = jsonEscape(w.title ?? "")
             print(
                 """
                 {"x":\(Int(f.origin.x)),"y":\(Int(f.origin.y)),\

@@ -91,12 +91,14 @@ fi
 
 if run shell; then
   echo "== shell =="
-  if find . -name '*.sh' -not -path './node_modules/*' -not -path '*/node_modules/*' \
-       -exec bash -n {} \; ; then
-    ok "bash -n"
-  else
-    fail "bash -n"
-  fi
+  # One bash -n per file, in a loop: `find -exec … \;` exits 0 whatever the
+  # command returned, so a syntax error printed and passed; and `bash -n a b`
+  # parses only a. Read loop, not mapfile — macOS ships bash 3.2.
+  syntax_ok=1
+  while IFS= read -r f; do
+    bash -n "$f" || syntax_ok=0
+  done < <(find . -name '*.sh' -not -path '*/node_modules/*')
+  if [ "$syntax_ok" = 1 ]; then ok "bash -n"; else fail "bash -n"; fi
   if command -v shellcheck >/dev/null 2>&1; then
     # -exec, not $(find), so a path with a space cannot split into two.
     if find . -name '*.sh' -not -path '*/node_modules/*' \

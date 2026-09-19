@@ -54,7 +54,7 @@ switch (mode) {
     break;
   case 'ignore-sigterm':
     process.on('SIGTERM', () => {});
-    w(JSON.stringify({ seq: 0, stubborn: true }) + '\n');
+    w(JSON.stringify({ seq: 0, stubborn: true, pid: process.pid }) + '\n');
     stay();
     break;
   case 'echo': {

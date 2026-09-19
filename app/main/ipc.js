@@ -256,7 +256,15 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
       // Index whatever DID land, even if something else did not. Returning
       // early left the archives already copied on disk and out of the index.
       if (added.length) {
-        await rebuildAndReopen(added.map((a) => a.file).join(', '), report);
+        try {
+          await rebuildAndReopen(added.map((a) => a.file).join(', '), report);
+        } catch (e) {
+          // A rejection here reached the window as an exception nobody
+          // caught: the row stayed busy and nothing said why.
+          logf('[dict] import build failed: ' + e.message);
+          report({ phase: 'error', message: e.message });
+          return { ok: false, added, failed, error: e.message };
+        }
       }
       if (failed.length) {
         const names = failed.map((f) => f.file).join(', ');
@@ -290,7 +298,13 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
         result = { pruned: false };
       }
       if (!result.pruned) {
-        await rebuildAndReopen(file, report);
+        try {
+          await rebuildAndReopen(file, report);
+        } catch (e) {
+          logf('[dict] rebuild after remove failed: ' + e.message);
+          report({ phase: 'error', message: e.message });
+          return { ok: false, error: e.message };
+        }
         return { ok: true, rebuilt: true };
       }
       const labels = dictionaries.writeManifest();

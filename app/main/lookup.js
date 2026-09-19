@@ -24,7 +24,12 @@ const { ASSET_DIR, USER_DIR } = require('../paths.js');
 // no need to touch a signed bundle.
 const fs = require('fs');
 const USER_DB = path.join(USER_DIR, 'index.db');
-const DB_PATH = fs.existsSync(USER_DB) ? USER_DB : path.join(ASSET_DIR, 'index.db');
+const BUNDLED_DB = path.join(ASSET_DIR, 'index.db');
+// Asked at every open(), not once at load: a release install starts with no
+// index at all, and the one the first download builds lands under USER_DIR
+// while this module is already loaded. Decided at load, every lookup after
+// that download still opened the bundle's missing file until a restart.
+const dbPath = () => (fs.existsSync(USER_DB) ? USER_DB : BUNDLED_DB);
 const cfg = require('./config.js');
 
 let db = null;
@@ -77,7 +82,7 @@ function close() {
 function open(at) {
   if (db) return true;
   try {
-    db = new DatabaseSync(at || DB_PATH, { readOnly: true });
+    db = new DatabaseSync(at || dbPath(), { readOnly: true });
     // Two schemas exist in the wild. The current one keeps each glossary's
     // STRUCTURE, deduplicated and deflated in its own table; the one before it
     // stored pre-flattened sense strings on the row. An index built by the old

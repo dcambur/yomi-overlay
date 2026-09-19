@@ -17,9 +17,10 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # Where yomi lives is not this suite's business — ask the one file
 # that knows the layout. Keeps the suites working across a move.
 sys.path.insert(0, str(REPO / "tools"))
-from paths import OCR_BIN
+from paths import OCR_BIN, APP_DIR, CONFIG
 OCR = str(OCR_BIN)
-OVERLAY_DIR = str(REPO / "tools")
+OVERLAY_DIR = str(APP_DIR)
+CONFIG_PATH = str(CONFIG)
 ELECTRON = OVERLAY_DIR + "/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
 LOG = "/tmp/yomi-overlay.log"
 
@@ -146,7 +147,7 @@ def test_alignment(bounds, label, scroll=None):
 # ---------------------------------------------------------------------- e2e --
 def test_e2e(bounds, win_id):
     print("== 4. E2E (overlay layer position vs independent OCR) ==")
-    cfg_path = OVERLAY_DIR + "/config.json"
+    cfg_path = CONFIG_PATH
     backup = cfg_path + ".test-backup"
     shutil.copy(cfg_path, backup)
     cfg = json.load(open(cfg_path))
