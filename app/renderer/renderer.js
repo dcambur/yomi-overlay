@@ -17,12 +17,6 @@ let pendingPayload = null;
 
 let turnCandidate = null;   // line texts of the unconfirmed turn-like payload
 
-function sharedRatio(a, b) {
-  if (!a.length || !b.length) return 0;
-  const set = new Set(b);
-  return a.filter(t => set.has(t)).length / Math.max(a.length, b.length);
-}
-
 window.overlay.onCapture(payload => {
   if (pinned) {
     // Minor jitter can wait until the popup closes. A confirmed page turn
@@ -30,7 +24,7 @@ window.overlay.onCapture(payload => {
     // previous page and every later lookup would silently miss.
     if (glyphLayer.isPageTurn(payload)) {
       const texts = (payload.lines || []).map(l => l.text);
-      if (turnCandidate && sharedRatio(texts, turnCandidate) >= 0.5) {
+      if (turnCandidate && glyphLayer.sharedText(texts, turnCandidate) >= 0.5) {
         console.log('popup: page turn confirmed — dismissing');
         turnCandidate = null;
         pendingPayload = null;      // superseded by this payload
