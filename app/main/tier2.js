@@ -14,11 +14,13 @@ const cfg = require('./config.js');
 const { logf } = require('./log.js');
 
 /**
- * Wire up the tier-2 shadow probe.
+ * Wire up the tier-2 shadow probe, and the crop channel it rides on.
  *
  * `ocrChild` serves the crops: re-capturing would need a second
  * ScreenCaptureKit session and concurrent sessions stall, so the watch
- * process crops its own last frame.
+ * process crops its own last frame. The probe was the channel's only
+ * customer; `requestCrop` is the same channel offered to anyone else who
+ * needs pixels of the target — the Anki card's picture (docs/ANKI.md).
  */
 function createTier2({ ocrChild }) {
   let sidecar = null;
@@ -30,6 +32,7 @@ function createTier2({ ocrChild }) {
   let lastTier2At = 0;
   const tier2Pending = new Map();   // id -> {text, conf, t0}
   const tier2Queue = [];            // sidecar requests parked until ready
+  const cropWaiters = new Map();    // id -> resolve, crops asked for by someone else
 
   function tier2Config() {
     const c = cfg.load().tier2 || {};
@@ -122,7 +125,33 @@ function createTier2({ ocrChild }) {
     });
   }
 
+  /**
+   * A crop of the last frame, written to `file`. Resolves true when it is
+   * there, false when the watch process is not running, could not be asked,
+   * or did not answer within `waitMs` — never rejects.
+   *
+   * `rect` is frame-relative, the space the payload's char boxes use. The
+   * path goes on the command line the crop reader splits on spaces, so a path
+   * with one cannot be asked for.
+   */
+  function requestCrop(rect, file, waitMs) {
+    return new Promise((resolve) => {
+      if (!ocrChild.running || /\s/.test(file)) { resolve(false); return; }
+      const id = ++tier2Seq;
+      const r = [rect.x, rect.y, rect.w, rect.h].map((v) => Math.round(v)).join(' ');
+      const timer = setTimeout(() => { cropWaiters.delete(id); resolve(false); }, waitMs);
+      cropWaiters.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
+      if (!ocrChild.write(`crop ${id} ${r} ${file}\n`)) {
+        clearTimeout(timer);
+        cropWaiters.delete(id);
+        resolve(false);
+      }
+    });
+  }
+
   function onCropReply(c) {
+    const waiter = cropWaiters.get(c.id);
+    if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); return; }
     const pend = tier2Pending.get(c.id);
     if (!pend) return;
     if (!c.ok) { tier2Pending.delete(c.id); return; }
@@ -156,7 +185,7 @@ function createTier2({ ocrChild }) {
     }
   });
 
-  return { onCropReply };
+  return { onCropReply, requestCrop };
 }
 
 module.exports = { createTier2 };

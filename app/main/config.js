@@ -40,6 +40,15 @@ const DEFAULT_DICTIONARIES = [
 //                       in Yomitan, so offer both rather than picking for the user.
 const DEFAULT_TRIGGER = { modifier: 'shift', mode: 'hold', hoverDelayMs: 250 };
 
+// Anki, through the AnkiConnect add-on (docs/ANKI.md). Off until a deck is
+// chosen: the popup draws its card marks only while this is on. `url` and
+// `key` are the add-on's own defaults — edit-and-restart keys for an
+// AnkiConnect that was moved or locked with an API key.
+const DEFAULT_ANKI = {
+  enabled: false, deck: null, tags: ['yomi-overlay'], picture: true,
+  url: 'http://127.0.0.1:8765', key: null,
+};
+
 const DEFAULTS = {
   // null target => first run, settings window opens so a window can be picked.
   // `app` is the target's name, set only for an app that has no bundle id — a
@@ -63,6 +72,7 @@ const DEFAULTS = {
   // Dictionary images. On, because a dictionary that ships them means
   // them; off for a reader who wants the popup to stay text.
   images: true,
+  anki: DEFAULT_ANKI,
 };
 
 let cached = null;
@@ -113,7 +123,8 @@ function load() {
     // `trigger` key, and spreading `raw` over DEFAULTS would leave it undefined
     // for every consumer rather than falling back.
     cached = { ...DEFAULTS, ...raw, dictionaries: merged,
-               trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) } };
+               trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) },
+               anki: { ...DEFAULT_ANKI, ...(raw.anki || {}) } };
   } catch {
     cached = { ...JSON.parse(JSON.stringify(DEFAULTS)), dictionaries: known || [] };
   }
@@ -156,6 +167,20 @@ function sanitize(next, current) {
     out.trigger = g;
   }
   if ('images' in out) out.images = !!out.images;
+  if (out.anki && typeof out.anki === 'object') {
+    const k = { ...current.anki, ...out.anki };
+    k.enabled = !!k.enabled;
+    k.deck = typeof k.deck === 'string' && k.deck.trim() ? k.deck.trim().slice(0, 256) : null;
+    // Anki tags cannot hold a space; the settings field is space-separated.
+    k.tags = Array.isArray(k.tags)
+      ? k.tags.filter((t) => typeof t === 'string').map((t) => t.trim()).filter(Boolean)
+        .slice(0, 16)
+      : current.anki.tags;
+    k.picture = k.picture !== false;
+    k.url = typeof k.url === 'string' && /^https?:\/\//.test(k.url) ? k.url : current.anki.url;
+    k.key = typeof k.key === 'string' && k.key ? k.key : null;
+    out.anki = k;
+  }
   if ('engine' in out && !ENGINES.has(out.engine)) out.engine = current.engine;
   if ('interval' in out) out.interval = num(out.interval, 0.1, 10, current.interval);
   if (out.voting && typeof out.voting === 'object') {
@@ -204,6 +229,11 @@ function trigger() {
   return { ...DEFAULT_TRIGGER, ...(load().trigger || {}) };
 }
 
+/** Anki settings, always fully populated. */
+function anki() {
+  return { ...DEFAULT_ANKI, ...(load().anki || {}) };
+}
+
 /**
  * Forget the cached settings so the next load() re-reads the manifest.
  *
@@ -223,7 +253,7 @@ function manifestPath() {
 }
 
 module.exports = {
-  load, save, enabledDictionaries, targetArgs, trigger, refreshDictionaries,
+  load, save, enabledDictionaries, targetArgs, trigger, anki, refreshDictionaries,
   manifestPath,
-  CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, sanitize,
+  CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, DEFAULT_ANKI, sanitize,
 };
