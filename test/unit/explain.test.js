@@ -82,3 +82,63 @@ test('a page with no punctuation is capped, keeping the pointed-at glyph', () =>
 test('a glyph that is not on the page yields nothing', () => {
   assert.strictEqual(sentenceAround(B.lines, 9, 9), null);
 });
+
+// --- blocks: where a sentence may not cross a line break ---------------------
+
+/** A horizontal line of `text` at (x, y), 24px glyphs. */
+function hline(text, x, y, size = 24) {
+  const chars = Array.from(text, (c, i) => ({ c, x: x + i * size, y, w: size, h: size }));
+  return { text, chars };
+}
+
+test('a heading column is not the start of the sentence below it', () => {
+  // page-a: 第1章 綵月宮 / 第1話 プロローグ / 一体どうなってるんだ……。 — the
+  // headings have no 。 and the old walk read all three as one sentence.
+  const [li, ci] = find(A, '一体');
+  const s = sentenceAround(A.lines, li, ci, true);
+  assert.strictEqual(s.text, '一体どうなってるんだ・・・・・・。');
+  const heading = sentenceAround(A.lines, ...find(A, 'プロローグ'), true);
+  assert.ok(!heading.text.includes('一体'), heading.text);
+});
+
+test('a metadata row is its own block; the next title does not inherit it', () => {
+  // The syosetu ranking that sent author + stars + tags + date + next title.
+  const lines = [
+    hline('転移したら山の中だった。', 100, 100),
+    hline('選びました。／じゃがバター', 100, 130),
+    hline('★73,648 ・ 書籍化 ・', 100, 170, 20),
+    hline('2026年9月18日更新', 100, 195, 20),
+    hline('才能に恵まれ過ぎた極悪貴族が、', 100, 300),
+    hline('油断も慢心もせず、謙虚堅実に努力したら', 100, 330),
+  ];
+  const title = sentenceAround(lines, 4, 3, false);
+  assert.strictEqual(title.text, '才能に恵まれ過ぎた極悪貴族が、油断も慢心もせず、謙虚堅実に努力したら');
+  const meta = sentenceAround(lines, 2, 1, false);
+  assert.strictEqual(meta.text, '★73,648 ・ 書籍化 ・');
+  const author = sentenceAround(lines, 1, 7, false);
+  assert.strictEqual(author.text, '／じゃがバター', 'stops at the metadata row below');
+});
+
+test('a line in the other column is not the continuation', () => {
+  const lines = [
+    hline('左の段落はここから始まって', 40, 100),
+    hline('右の段の最初の行です', 600, 100),
+    hline('次の行に続いています。', 40, 130),
+    hline('右の段の二行目。', 600, 130),
+  ];
+  const s = sentenceAround(lines, 0, 2, false);
+  assert.strictEqual(s.text, '左の段落はここから始まって次の行に続いています。');
+});
+
+test('a manga bubble keeps its centred lines together', () => {
+  const lines = [
+    hline('この街に', 130, 100),
+    hline('来たのは', 130, 126),
+    hline('初めてだ', 130, 152),
+    hline('そうか', 400, 400),     // another bubble, far away
+    hline('よかった', 400, 426),
+  ];
+  const s = sentenceAround(lines, 1, 0, false);
+  assert.strictEqual(s.text, 'この街に来たのは初めてだ');
+  assert.strictEqual(sentenceAround(lines, 4, 0, false).text, 'そうかよかった');
+});

@@ -52,17 +52,36 @@ renderer/explain.js
   └─ seq check (a newer ⌘E wins) → view.result = res → cache[sentence] = res
 ```
 
-Sentence slicing rules (`sentenceAround`), all testable on captured payloads:
+Sentence slicing (`sentenceAround`), all testable on captured payloads:
 
-- Start at the glyph under the cursor; extend backwards to the glyph after the
-  last `。！？` (or line start if the previous line ends with one), forwards to
-  the first `。！？` inclusive.
-- Cross line boundaries only while the previous/next line is not `ruby` and
-  the join stays under `MAX_SENTENCE_GLYPHS` (120 — Claude's cost is per
-  token, the popup's width is per glyph; a manga bubble is ~20, a novel
-  sentence ~60).
-- `、` never terminates. Quotes `「」` are kept as text; do not try to pair them.
-- If nothing under the cursor: HUD says "point at text, then ⌘E".
+1. **Blocks first.** Lines are grouped before any punctuation is looked at.
+   A line continues the nearest earlier line *in its own column* (≥30% shared
+   cross-axis extent, same orientation) — not the line before it in the
+   payload, because Vision lists a two-column page top to bottom and the
+   array interleaves the columns. It starts a new block when the flow-axis
+   gap to that predecessor is over 1.8× the page's median gap (a paragraph,
+   a heading, another bubble: 124–132px on page-a against 19–44px inside a
+   paragraph — fixed pixel thresholds fail across font sizes, the median
+   does not), or when either line is not prose (under half kana/kanji: a
+   ★73,648 ・ 書籍化 ・ 2026年9月18日更新 row is its own block, never the
+   start of the title under it). Ruby lines are left out entirely.
+2. **Then punctuation, inside the block.** From the glyph under the cursor,
+   back to the glyph after the previous `。！？`, forward through the next
+   one; `、` never terminates; `「」` are kept as text, not paired.
+3. **Cap** at `MAX_SENTENCE_GLYPHS` (120): Claude's cost is per token, the
+   popup's width is per glyph; a manga bubble is ~20, a novel sentence 40–70.
+   Over the cap the pointed-at glyph stays in the middle.
+
+Deliberately **not** a rule: a line ending short of the block's edge. That
+marks a paragraph end in justified prose but also every line of a centred
+manga bubble, which would split the bubble into one-line sentences.
+
+What this cannot do: know that two OCR lines Vision merged are two
+sentences, or that a heading in the same size and spacing as body text is a
+heading. On prose (novels, manga) the rules are exact given the payload; on
+web furniture (lists, rankings, forms) they degrade to "the line under the
+cursor", which is the honest answer there. If nothing is under the cursor
+the HUD says so.
 
 ## 2. Files (≈ 300 lines added, nothing rewritten)
 
