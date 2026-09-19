@@ -12,6 +12,7 @@ anything.
 | [PLAN](PLAN.md) | The staged roadmap and what is already done | Before proposing work — several obvious-looking items are finished |
 | [FOUND-BUGS](FOUND-BUGS.md) | Bugs found while refactoring and deliberately left, with the measurement | Before "fixing" one of them, or when one bites you |
 | [INTEGRATION](INTEGRATION.md) | The design record for the OCR accuracy phases: Live Text, voting, tier-2, furigana. Why each is shaped the way it is | When touching recognition. It explains decisions, not current line numbers |
+| [ANKI](ANKI.md) | The design record for the Anki integration: what was measured in the collection and the Lapis template, which field gets what, and why the client lives in main | When touching the card mark, the note builder, or the Anki tab |
 
 ## The short version, if you read nothing else
 

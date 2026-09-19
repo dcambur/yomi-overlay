@@ -128,8 +128,9 @@ context), the source-window pixels (screenshot), and the deinflected base form
 already exist at lookup time.
 
 - **AnkiConnect** `addNote` with word, reading, glosses, sentence, and a
-  region screenshot (base64 `picture` payload); configurable deck/model/field
-  mapping in settings; a small "+" button on the popup.
+  region screenshot; a card mark on the popup that also removes the note.
+  **Done** (2026-09, [ANKI.md](ANKI.md)) — with one deliberate narrowing: the
+  note type is Lapis by field name, not a configurable mapping.
 - **Audio**: macOS `AVSpeechSynthesizer` (ja-JP) as the zero-dependency
   default; optional VOICEVOX/AivisSpeech local HTTP if installed. Skip
   JapanesePod101 scraping (unlicensed).
