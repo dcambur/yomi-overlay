@@ -166,14 +166,26 @@ async function download(id, onProgress = () => {}) {
 
   let got = 0;
   const out = fs.createWriteStream(part);
+  // A stream that fails instead of draining (disk full, the .part removed)
+  // never emits 'drain'; waiting for that alone parked every later job
+  // behind this one for ever.
+  let failed = null;
+  out.on('error', (e) => { failed = e; });
   try {
     for await (const chunk of res.body) {
+      if (failed) throw failed;
       got += chunk.length;
       if (!out.write(chunk)) {
-        await new Promise((r) => out.once('drain', r));
+        await new Promise((resolve, reject) => {
+          const onError = (e) => { out.off('drain', onDrain); reject(e); };
+          const onDrain = () => { out.off('error', onError); resolve(); };
+          out.once('drain', onDrain);
+          out.once('error', onError);
+        });
       }
       onProgress({ name: entry.name, got, total });
     }
+    if (failed) throw failed;
     await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
   } catch (e) {
     out.destroy();
@@ -358,11 +370,18 @@ function writeManifest() {
  * Always everything, never an increment: frequency ordering is global, so
  * adding one dictionary changes how senses from the others rank.
  */
+/** Nothing installed: no index, and a manifest that says so. */
+function emptyIndex() {
+  fs.rmSync(INDEX_PATH, { force: true });
+  // build() writes the manifest as part of building; with nothing to build
+  // it has to be written here, or the settings list and the tray keep naming
+  // the dictionaries that were just removed.
+  writeManifest();
+  return { labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] };
+}
+
 function rebuild(onProgress = () => {}) {
-  if (!installed().length) {
-    fs.rmSync(INDEX_PATH, { force: true });
-    return { labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] };
-  }
+  if (!installed().length) return emptyIndex();
   return build(DICTS_DIR, INDEX_PATH, onProgress);
 }
 
@@ -401,11 +420,7 @@ function inWorker(message, onProgress) {
 }
 
 function rebuildAsync(onProgress = () => {}) {
-  if (!installed().length) {
-    fs.rmSync(INDEX_PATH, { force: true });
-    return Promise.resolve(
-      { labels: [], rows: 0, keys: 0, glosses: 0, counts: {}, skipped: [] });
-  }
+  if (!installed().length) return Promise.resolve(emptyIndex());
   return inWorker({ type: 'build', dictsDir: DICTS_DIR, outPath: INDEX_PATH },
                   onProgress);
 }

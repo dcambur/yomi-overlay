@@ -73,10 +73,16 @@ else bad "bash 4 builtins used" "$b4"; fi
 # merge, on main. Measured: `tools/build-index.py: Permission denied`, release
 # run 31815845246. Invoking through an interpreter sidesteps the bit entirely
 # and is what setup.sh already does, so either form passes.
-notexec=$(grep -hoE '^ *run: [a-z]+/[a-z0-9-]+\.(sh|py)' .github/workflows/*.yml 2>/dev/null |
-  sed 's/^ *run: //' | sort -u |
+#
+# Anywhere on a line, not only right after `run:` — `V="$(tools/x.sh)"` and
+# `VAR=1 tools/x.sh` inside a run block are bare invocations too, and the
+# release workflow has both. A path preceded by an interpreter is skipped;
+# one git does not track is somebody else's file.
+notexec=$(grep -hoE '([a-z0-9]+ )?[a-z]+/[a-z0-9-]+\.(sh|py)' .github/workflows/*.yml 2>/dev/null |
+  grep -vE '^(python3?|bash|sh) ' | grep -oE '[a-z]+/[a-z0-9-]+\.(sh|py)$' | sort -u |
   while read -r s; do
-    [ "$(git ls-files -s "$s" 2>/dev/null | awk '{print $1}')" = "100755" ] || echo "$s"
+    mode=$(git ls-files -s "$s" 2>/dev/null | awk '{print $1}')
+    [ -z "$mode" ] || [ "$mode" = "100755" ] || echo "$s"
   done)
 if [ -z "$notexec" ]; then ok "workflows only invoke executable scripts bare"
 else bad "invoked bare but not executable in git (chmod +x, or call via python3/bash)" "$notexec"; fi

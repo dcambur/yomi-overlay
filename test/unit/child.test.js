@@ -170,6 +170,28 @@ test('a child that ignores SIGTERM is escalated to SIGKILL', async () => {
               'the stubborn child to actually die', 4000);
 });
 
+test('two restarts inside the kill window leave exactly one live child', async () => {
+  // Double-clicking "Watch this window" is two cfg:save → two restart()s
+  // while the first child is still ignoring SIGTERM. The first exit used to
+  // run its continuation on top of the second start: three spawned, one
+  // orphaned and streaming, and nothing to kill it at quit.
+  const { child, lines } = stub('ignore-sigterm');
+  child.start();
+  await until(() => lines.length === 1, 'the stub to start');
+  child.restart();
+  child.restart();
+  await until(() => lines.length === 2, 'the replacement to start', 4000);
+  await wait(300);   // long enough for a third start to have shown up
+  const pids = lines.map((l) => l.pid);
+  assert.strictEqual(pids.length, 2, `spawned ${pids.length} children, expected 2`);
+  assert.strictEqual(child.proc.pid, pids[1], 'the live child is the replacement');
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  assert.strictEqual(alive(pids[0]), false, 'the first child is dead');
+  assert.strictEqual(alive(pids[1]), true, 'the replacement is alive and supervised');
+  child.stop();
+  await until(() => !alive(pids[1]), 'the replacement to die on stop', 4000);
+});
+
 // ---- watchdog --------------------------------------------------------------
 
 test('silence while still running trips the watchdog', async () => {
