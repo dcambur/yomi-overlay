@@ -40,6 +40,24 @@ const DEFAULT_DICTIONARIES = [
 //                       in Yomitan, so offer both rather than picking for the user.
 const DEFAULT_TRIGGER = { modifier: 'shift', mode: 'hold', hoverDelayMs: 250 };
 
+// Sentence explanation (docs/EXPLAIN.md). The keys are Electron accelerators,
+// registered globally and re-registered in place when they change — no child
+// restarts. model / thinking / effort are null for "whatever the skill says";
+// the picker in the overlay sets them, so what it may offer is listed HERE and
+// pushed to the renderer rather than written down twice.
+const DEFAULT_EXPLAIN = {
+  enabled: true,
+  shortcut: 'CommandOrControl+E',
+  pickerShortcut: 'CommandOrControl+Shift+E',
+  bin: null,
+  skill: 'ja',
+  model: null,
+  thinking: null,
+  effort: null,
+};
+const EXPLAIN_MODELS = ['sonnet', 'opus', 'fable'];
+const EXPLAIN_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 const DEFAULTS = {
   // null target => first run, settings window opens so a window can be picked.
   // `app` is the target's name, set only for an app that has no bundle id — a
@@ -63,6 +81,7 @@ const DEFAULTS = {
   // Dictionary images. On, because a dictionary that ships them means
   // them; off for a reader who wants the popup to stay text.
   images: true,
+  explain: DEFAULT_EXPLAIN,
 };
 
 let cached = null;
@@ -113,7 +132,8 @@ function load() {
     // `trigger` key, and spreading `raw` over DEFAULTS would leave it undefined
     // for every consumer rather than falling back.
     cached = { ...DEFAULTS, ...raw, dictionaries: merged,
-               trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) } };
+               trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) },
+               explain: { ...DEFAULT_EXPLAIN, ...(raw.explain || {}) } };
   } catch {
     cached = { ...JSON.parse(JSON.stringify(DEFAULTS)), dictionaries: known || [] };
   }
@@ -156,6 +176,19 @@ function sanitize(next, current) {
     out.trigger = g;
   }
   if ('images' in out) out.images = !!out.images;
+  if (out.explain && typeof out.explain === 'object') {
+    const x = { ...out.explain };
+    const str = (v, max) => typeof v === 'string' && v.trim() && v.length <= max;
+    x.enabled = !!x.enabled;
+    if (!str(x.shortcut, 64)) x.shortcut = current.explain.shortcut;
+    if (!str(x.pickerShortcut, 64)) x.pickerShortcut = current.explain.pickerShortcut;
+    x.bin = str(x.bin, 512) ? x.bin : null;
+    if (!str(x.skill, 32)) x.skill = current.explain.skill;
+    if (!EXPLAIN_MODELS.includes(x.model)) x.model = null;
+    if (typeof x.thinking !== 'boolean') x.thinking = null;
+    if (!EXPLAIN_EFFORTS.includes(x.effort)) x.effort = null;
+    out.explain = x;
+  }
   if ('engine' in out && !ENGINES.has(out.engine)) out.engine = current.engine;
   if ('interval' in out) out.interval = num(out.interval, 0.1, 10, current.interval);
   if (out.voting && typeof out.voting === 'object') {
@@ -204,6 +237,11 @@ function trigger() {
   return { ...DEFAULT_TRIGGER, ...(load().trigger || {}) };
 }
 
+/** Explanation settings, always fully populated. */
+function explain() {
+  return { ...DEFAULT_EXPLAIN, ...(load().explain || {}) };
+}
+
 /**
  * Forget the cached settings so the next load() re-reads the manifest.
  *
@@ -223,6 +261,7 @@ function manifestPath() {
 }
 
 module.exports = {
+  explain, EXPLAIN_MODELS, EXPLAIN_EFFORTS,
   load, save, enabledDictionaries, targetArgs, trigger, refreshDictionaries,
   manifestPath,
   CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, sanitize,

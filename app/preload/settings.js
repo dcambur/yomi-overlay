@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('settings', {
   // What the popup draws. Applied immediately, like the trigger.
   saveView: (next) => ipcRenderer.invoke('cfg:view', next),
   saveDictionaries: (list) => ipcRenderer.invoke('cfg:dictionaries', list),
+  // The explain key and switch. Applied immediately: the accelerator is
+  // re-registered in place.
+  saveExplain: (next) => ipcRenderer.invoke('cfg:explain', next),
   listWindows: () => ipcRenderer.invoke('cfg:windows'),
   close: () => ipcRenderer.send('cfg:close'),
 

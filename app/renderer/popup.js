@@ -360,7 +360,43 @@
       parts.push('</div>');
     }
     popup.innerHTML = parts.join('');
+    popup.classList.remove('explain');
     fillStructured(popup);
+    place(anchorRect, pageVertical);
+  }
+
+  /**
+   * A sentence explanation in the same tray: the sentence as the headword,
+   * the chip saying what the answer is made with, and the answer element
+   * itself — bot-api's <bot-answer>, which the caller feeds once the reply
+   * lands. Both are returned: the caller owns the reply and the chip's click.
+   */
+  function renderExplain(sentence, anchorRect, pageVertical, chipLabel) {
+    popup.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'card explain';
+    card.innerHTML =
+      `<div class="hd"><span class="term sentence ja">${esc(sentence)}</span>` +
+      '<span class="chips"><button class="cfg" type="button"></button></span></div>';
+    const chip = card.querySelector('.cfg');
+    chip.textContent = chipLabel;
+    const view = document.createElement('bot-answer');
+    view.loading = true;
+    card.appendChild(view);
+    popup.appendChild(card);
+    popup.classList.add('explain');
+    place(anchorRect, pageVertical);
+    return { view, chip };
+  }
+
+  /** The chip follows a picker choice without redrawing the answer. */
+  function setChip(label) {
+    const chip = popup.querySelector('.cfg');
+    if (chip) chip.textContent = label;
+  }
+
+  /** Show the tray by the anchor: below a horizontal word, left of a column. */
+  function place(anchorRect, pageVertical) {
     popup.style.display = 'block';
     popup.scrollTop = 0;       // a fresh word must not inherit the old scroll
 
@@ -388,6 +424,8 @@
 
   window.popupView = {
     render,
+    renderExplain,
+    setChip,
     hide() { popup.style.display = 'none'; },
     visible() { return popup.style.display === 'block'; },
     bounds() { return popup.getBoundingClientRect(); },

@@ -71,3 +71,22 @@ test('dictionary entries are normalised, junk dropped', () => {
 test('unknown keys pass through, so settings can grow', () => {
   assert.strictEqual(sanitize({ somethingNew: 7 }, cur).somethingNew, 7);
 });
+
+test('explain: a bad key or model falls back, picker values are typed', () => {
+  const explain = { enabled: 'yes', shortcut: '', model: 'gpt', thinking: 'off',
+                    effort: 'ultra', bin: 42 };
+  const out = sanitize({ explain }, cur);
+  assert.strictEqual(out.explain.enabled, true);
+  assert.strictEqual(out.explain.shortcut, cur.explain.shortcut);
+  assert.strictEqual(out.explain.model, null);
+  assert.strictEqual(out.explain.thinking, null);
+  assert.strictEqual(out.explain.effort, null);
+  assert.strictEqual(out.explain.bin, null);
+});
+
+test('explain: real picker choices survive', () => {
+  const explain = { enabled: false, shortcut: 'Alt+E', pickerShortcut: 'Alt+Shift+E',
+                    bin: '/opt/bot', skill: 'ja', model: 'opus', thinking: false,
+                    effort: 'high' };
+  assert.deepStrictEqual(sanitize({ explain }, cur).explain, explain);
+});

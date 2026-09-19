@@ -226,6 +226,10 @@ function renderTrigger() {
   $('modifier').value = t.modifier || DEFAULT_TRIGGER.modifier;
   $('delay').value = t.hoverDelayMs ?? DEFAULT_TRIGGER.hoverDelayMs;
   syncTriggerRows();
+  const x = config.explain || {};
+  $('explain-enabled').checked = x.enabled !== false;
+  $('explain-shortcut').value = x.shortcut || 'CommandOrControl+E';
+  $('row-explain-key').classList.toggle('hidden', x.enabled === false);
 }
 
 /** Save the trigger as it changes; nothing here needs the overlay restarting. */
@@ -539,6 +543,20 @@ function renderDictionaries() {
 
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
+}
+// The explain key is a global accelerator, re-registered in place by main
+// (cfg:explain in ipc.js) — live, like the trigger. The picker's key is
+// derived (+Shift) rather than a second field to fill in.
+for (const id of ['explain-enabled', 'explain-shortcut']) {
+  $(id).onchange = () => {
+    const shortcut = $('explain-shortcut').value.trim() || 'CommandOrControl+E';
+    const next = { enabled: $('explain-enabled').checked, shortcut,
+                   pickerShortcut: shortcut.replace(/\+([A-Za-z0-9]+)$/, '+Shift+$1') };
+    config.explain = { ...(config.explain || {}), ...next };
+    $('row-explain-key').classList.toggle('hidden', !next.enabled);
+    window.settings.saveExplain(next);
+    $('status').textContent = 'saved';
+  };
 }
 // Live, like everything else on this tab: the overlay is told, and the next
 // popup is drawn the new way. Nothing is rebuilt and nothing restarts —

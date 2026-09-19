@@ -33,4 +33,13 @@ contextBridge.exposeInMainWorld('overlay', {
   // its Tier-1 text; main crops the region and asks the manga-ocr sidecar
   // for a second opinion. Fire-and-forget — the result is only logged.
   tier2: (req) => ipcRenderer.send('tier2', req),
+  // Sentence explanation (docs/EXPLAIN.md). The explain key lands with the
+  // cursor already in window coordinates, like a trigger; the sentence goes
+  // back as text; the answer returns as bot-api's JSON contract. The picker's
+  // choices are saved through the same channel the settings window uses.
+  onExplain: (cb) => ipcRenderer.on('explain', (_e, ev) => cb(ev)),
+  onExplainPicker: (cb) => ipcRenderer.on('explain-picker', (_e, ev) => cb(ev)),
+  onExplainConfig: (cb) => ipcRenderer.on('explain-config', (_e, c) => cb(c)),
+  explain: (sentence) => ipcRenderer.invoke('explain', sentence),
+  saveExplain: (next) => ipcRenderer.invoke('cfg:explain', next),
 });

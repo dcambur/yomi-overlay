@@ -47,7 +47,7 @@ function validGlyphs(v) {
          v.every((g) => isStr(g, 8));
 }
 
-function register({ overlayWindow, ocrChild, eventsChild, tray }) {
+function register({ overlayWindow, ocrChild, eventsChild, tray, explain }) {
   ipcMain.handle('lookup', (_e, text, hint) => {
     if (!validGlyphs(text)) return reject('lookup', 'text is not a glyph array');
     if (hint != null && !isStr(hint, MAX_TEXT)) return reject('lookup', 'bad hint');
@@ -57,6 +57,28 @@ function register({ overlayWindow, ocrChild, eventsChild, tray }) {
   // The renderer grabs the mouse only while the cursor is over the popup, so
   // everything else keeps falling through to the target.
   ipcMain.on('set-interactive', (_e, want) => overlayWindow.setInteractive(!!want));
+
+  // Sentence explanation (docs/EXPLAIN.md). The renderer sends the sentence it
+  // sliced; main runs bot-api and hands its JSON back untouched, so the
+  // renderer only ever sees the contract, never a process.
+  ipcMain.handle('explain', (_e, text) => {
+    if (!isStr(text, MAX_TEXT) || !text.trim()) return reject('explain', 'not a sentence');
+    return explain.run(text);
+  });
+
+  // model / thinking / effort from the picker, enabled / keys from the
+  // settings window. Live: the accelerators are re-registered in place and
+  // the overlay is told. Merged first, because save() replaces the object.
+  ipcMain.handle('cfg:explain', (_e, next) => {
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      reject('cfg:explain', 'not an object');
+      return cfg.load();
+    }
+    cfg.save({ explain: { ...cfg.explain(), ...next } });
+    explain.register();
+    overlayWindow.sendExplain();
+    return cfg.load();
+  });
 
   ipcMain.handle('cfg:get', () => {
     // Re-read first. The index can change without this process doing it — a

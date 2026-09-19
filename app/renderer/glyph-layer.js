@@ -237,6 +237,19 @@
 
   /** Target changed: every span belongs to a window we no longer track, and
    *  the text-only signature must not be compared across two different apps. */
+  /** Mark several runs as one — a sentence crosses lines; one `current` for all. */
+  function highlightRuns(runs) {
+    const all = [];
+    for (const r of runs) {
+      for (let k = 0; k < r.n; k++) {
+        const sp = spanIndex.get(r.li + ':' + (r.ci + k));
+        if (sp) { sp.classList.add('hit'); all.push(sp); }
+      }
+    }
+    current = all;
+    return all;
+  }
+
   function reset() {
     clearHighlight();
     contentSig = '';
@@ -250,7 +263,7 @@
   }
 
   window.glyphLayer = {
-    apply, isPageTurn, highlight, clearHighlight, reset,
+    apply, isPageTurn, highlight, highlightRuns, clearHighlight, reset,
     lineAt: (li) => lines[li],
     spanAt: (li, ci) => spanIndex.get(li + ':' + ci),
     get current() { return current; },

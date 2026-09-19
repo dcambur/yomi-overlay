@@ -29,6 +29,7 @@ const BROWSER = {
   setInterval: 'readonly', clearInterval: 'readonly',
   Node: 'readonly', Element: 'readonly', CSS: 'readonly',
   performance: 'readonly', fetch: 'readonly', URL: 'readonly',
+  CustomEvent: 'readonly',
 };
 
 /** Node's own globals, for the main process, the tools and the tests. */

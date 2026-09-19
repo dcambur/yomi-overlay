@@ -16,6 +16,7 @@
   <div id="layer"></div>
   <div id="hud">overlay ready — <b>Shift</b> + point (popup stays after release)</div>
   <div id="popup"></div>
+  <div id="picker"></div>
 
 <!-- Load order matters: these are classic scripts, not modules, so each one
      must be defined before the file that uses it. popup.js owns HOW a result
@@ -25,6 +26,12 @@
 <script src="glyph-layer.js"></script>
 <script src="structured.js"></script>
 <script src="popup.js"></script>
+<!-- Sentence explanation (docs/EXPLAIN.md): the answer element is vendored
+     from bot-api; picker.js and explain.js use popup.js and glyph-layer.js;
+     renderer.js decides when they run. -->
+<script src="../vendor/bot-answer/bot-answer.js"></script>
+<script src="picker.js"></script>
+<script src="explain.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

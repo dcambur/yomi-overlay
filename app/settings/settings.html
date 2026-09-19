@@ -60,6 +60,14 @@
         <input id="images" type="checkbox">
         <span class="unit">illustrations, stroke order, sense marks</span>
       </label>
+      <label class="row"><span>Explain sentence</span>
+        <input id="explain-enabled" type="checkbox">
+        <span class="unit">translation and grammar from Claude, through bot-api</span>
+      </label>
+      <label class="row" id="row-explain-key"><span>Explain key</span>
+        <input id="explain-shortcut" type="text" spellcheck="false">
+        <span class="unit">e.g. CommandOrControl+E; the picker is the same key + Shift</span>
+      </label>
       <p class="hint gap">
         Without Accessibility permission the key only registers while the mouse
         is moving; hover mode works either way. Images are read from the

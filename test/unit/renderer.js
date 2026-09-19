@@ -32,7 +32,8 @@ const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 let win;
 let lookupReply = null;          // what ipcMain.handle('lookup') returns
-const ipcSeen = { interactive: [], tier2: [] };
+let explainReply = null;         // what ipcMain.handle('explain') returns
+const ipcSeen = { interactive: [], tier2: [], explain: [] };
 
 const results = [];
 async function test(name, fn) {
@@ -183,6 +184,74 @@ async function run() {
     send('covers', []); await settle();
   });
 
+  // --- the explain key (docs/EXPLAIN.md) --------------------------------------
+  // Driven the way main drives it: 'explain' with a cursor, the reply from
+  // the stubbed 'explain' channel in bot-api's own shape.
+  const answered = (component) => ({
+    contract_version: '1', ok: true, text: '', model: 'claude-sonnet-5', session_id: 's',
+    usage: { output_tokens: 1 }, cost_usd: 0, duration_ms: 1, warnings: [],
+    structured: { component_version: '1', component },
+  });
+  // The layer is translated against the panel's real screen position (a hidden
+  // window still sits under the menu bar), so aim through the span, not the
+  // payload's raw coordinates — those are what the covered-region test may use
+  // only because it expects nothing to be hit.
+  const centerOf = async (li, ci) => {
+    const r = await js(`(() => { const b = document.querySelector('.g[data-li="${li}"]` +
+                       `[data-ci="${ci}"]').getBoundingClientRect();` +
+                       ' return [b.x, b.y, b.width, b.height]; })()');
+    return { x: r[0] + r[2] / 2, y: r[1] + r[3] / 2 };
+  };
+  const inAnswer = (sel) => js(
+    `(document.querySelector('#popup bot-answer').shadowRoot.querySelector('${sel}') || {})` +
+    '.textContent || null');
+
+  await test('the explain key highlights the sentence and draws the answer', async () => {
+    send('capture', B); await settle();
+    send('offset', { fx: 0, fy: 0 }); await settle();
+    explainReply = answered({
+      type: 'explanation', source: '吾輩は猫である。', translation: 'I am a cat.',
+      segments: [{ surface: '吾輩', reading: 'わがはい', gloss: 'I' },
+                 { surface: 'は', gloss: 'topic', role: 'particle' },
+                 { surface: '猫', reading: 'ねこ', gloss: 'cat' },
+                 { surface: 'である', gloss: 'is', role: 'aux' },
+                 { surface: '。', gloss: '', role: 'punct' }],
+      grammar: [],
+    });
+    send('explain', await centerOf(0, 3));             // 猫, inside the first sentence
+    await settle(150);
+    assert.strictEqual(await popupShown(), true, 'no popup');
+    assert.strictEqual(await hitCount(), '吾輩は猫である。'.length,
+                       'the whole sentence is highlighted, not one word');
+    assert.strictEqual(await js("document.querySelector('#popup .term.sentence').textContent"),
+                       '吾輩は猫である。');
+    assert.strictEqual(await inAnswer('.translation'), 'I am a cat.');
+  });
+
+  await test('a failed explanation shows the error, never a stale answer', async () => {
+    explainReply = { contract_version: '1', ok: false,
+                     error: { code: 'claude_not_found', message: 'bot-api is not installed' } };
+    send('explain', await centerOf(0, 9));             // 名前 — a different sentence
+    await settle(150);
+    assert.match(await inAnswer('.error') || '', /not installed/);
+    assert.strictEqual(await inAnswer('.translation'), null);
+  });
+
+  await test('the picker opens at the cursor and a pick goes to main', async () => {
+    send('explain-config', { skill: 'ja', model: null, thinking: null, effort: null,
+                             models: ['sonnet', 'opus'], efforts: ['low', 'high'] });
+    await settle();
+    send('explain-picker', { x: 400, y: 400 }); await settle();
+    assert.strictEqual(await js("document.getElementById('picker').classList.contains('show')"),
+                       true, 'picker not shown');
+    assert.strictEqual(await js("document.querySelectorAll('#picker .wedge').length"), 9,
+                       'three rings: skill+2 models, skill/on/off, default+2 efforts');
+    await js("document.querySelector('#picker .wedge[data-ring=\"model\"][data-index=\"2\"]')" +
+             ".dispatchEvent(new MouseEvent('click', { bubbles: true }))");
+    await settle();
+    assert.deepStrictEqual(ipcSeen.explain.pop(), { model: 'opus' });
+  });
+
   const failed = results.filter(r => !r[0]);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -194,6 +263,8 @@ async function run() {
 app.on('window-all-closed', () => {});
 app.whenReady().then(async () => {
   ipcMain.handle('lookup', () => lookupReply);
+  ipcMain.handle('explain', () => explainReply);
+  ipcMain.handle('cfg:explain', (_e, next) => { ipcSeen.explain.push(next); return {}; });
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
   ipcMain.on('tier2', (_e, r) => ipcSeen.tier2.push(r));
 

@@ -9,7 +9,7 @@
 // This file owns the decisions between them: when a payload is applied, when
 // a popup shows or dismisses, and what a pointer event means.
 
-const { glyphLayer, placement, popupView, hud } = window;
+const { glyphLayer, placement, popupView, hud, explain, picker } = window;
 
 console.log('renderer script started');
 
@@ -154,6 +154,7 @@ function setInteractive(v) {
 
 function dismiss() {
   popupView.hide();
+  picker.close();
   glyphLayer.clearHighlight();
   lastKey = '';
   pinned = false;
@@ -179,7 +180,38 @@ window.overlay.onTrigger(ev => {
   doLookup(ev.x, ev.y);
 });
 
+// The explain key: the sentence under the cursor (docs/EXPLAIN.md). The same
+// gate as a lookup — covered text is not on screen, a parked payload means
+// the layer is stale — then explain.js takes the glyph and does the rest.
+// Pinned like a lookup, because it is read, not glanced at.
+window.overlay.onExplain(ev => {
+  if (placement.isCovered(placement.toFrame(ev.x, ev.y))) return;
+  if (pendingPayload) {
+    const p = pendingPayload;
+    pendingPayload = null;
+    applyPayload(p);
+  }
+  const el = pickGlyph(ev.x, ev.y);
+  if (!el || el.dataset.ruby) {
+    hud.show('point at a sentence, then press the explain key');
+    return;
+  }
+  const line = glyphLayer.lineAt(Number(el.dataset.li));
+  const vertical = line && line.vertical !== undefined ? !!line.vertical : pageVertical;
+  if (!explain.show(el, vertical)) return;
+  lastKey = '';
+  pinned = true;
+});
+window.overlay.onExplainPicker(ev => explain.openPicker(ev.x, ev.y));
+
 document.addEventListener('mousemove', (e) => {
+  // The picker is read like the popup: it holds the mouse while the cursor is
+  // over it and closes once the cursor has moved well clear.
+  if (picker.visible()) {
+    if (distanceOutside(picker.bounds(), e.clientX, e.clientY) > DISMISS_PX) picker.close();
+    else if (picker.contains(e.clientX, e.clientY)) { setInteractive(true); return; }
+  }
+
   const visible = popupView.visible();
 
   if (visible) {

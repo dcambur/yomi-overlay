@@ -48,6 +48,7 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + jp-verbs deinflection (main process: `node:sqlite` is sync) |
 | [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |
 | [app/renderer/popup.js](../app/renderer/popup.js) | how a result looks — markup, pitch graphs, placement |
+| [app/renderer/explain.js](../app/renderer/explain.js) | the explain key: the sentence under the cursor, sliced from the glyph layer and explained by bot-api ([EXPLAIN.md](EXPLAIN.md)) |
 | [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory (§6) |
 | [app/main/index-builder.js](../app/main/index-builder.js) | Yomitan zips → `index.db` + `dictionaries.json`, in the app (§8, §13) |
 | [app/main/dictionaries.js](../app/main/dictionaries.js) | downloading and importing dictionaries (§13) |

@@ -13,6 +13,7 @@ const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { openSettings } = require('./main/settings-window.js');
 const { createTier2 } = require('./main/tier2.js');
+const { createExplain } = require('./main/explain.js');
 const overlayWindow = require('./main/overlay-window.js');
 const permissions = require('./main/permissions.js');
 const { reportSpawnFailure } = permissions;
@@ -136,6 +137,10 @@ function onTriggerEvent(ev) {
 
 const { onCropReply } = createTier2({ ocrChild });
 
+// The explain key: sentence → bot-api → popup. Registered once the overlay
+// exists, because firing converts the cursor against the panel's bounds.
+const explain = createExplain({ overlayWindow, cfg });
+
 // Global modifier / click monitor. Lets a lookup fire without the cursor
 // having to move — the overlay itself can only see forwarded mouse-move
 // messages.
@@ -156,7 +161,7 @@ const eventsChild = new SupervisedChild({
 
 // Registered here, not earlier: it hands out both children, and eventsChild
 // is declared above only a few lines back.
-ipc.register({ overlayWindow, ocrChild, eventsChild, tray });
+ipc.register({ overlayWindow, ocrChild, eventsChild, tray, explain });
 
 app.on('will-quit', () => logf('will-quit'));
 app.on('before-quit', () => logf('before-quit'));
@@ -190,6 +195,7 @@ app.whenReady().then(() => {
   overlayWindow.create();
   ocrChild.start();
   eventsChild.start();
+  explain.register();
 
 
   // The app is LSUIElement (no Dock icon, no menu bar), so a global shortcut is
@@ -218,6 +224,7 @@ app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 function killChildren() {
   ocrChild.stop();
   eventsChild.stop();
+  explain.stop();
 }
 app.on('before-quit', killChildren);
 app.on('quit', killChildren);

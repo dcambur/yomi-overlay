@@ -414,3 +414,51 @@
      costs nothing and is allowed. Named marks never reach here at all: they
      are set as text (structured.js), which is what they are. */
   #popup .sc-img.sc-mono { filter: invert(1); opacity: .85; }
+
+  /* --- sentence explanation (docs/EXPLAIN.md) --------------------------------
+     The same tray, one card: the sentence where the headword goes, and the
+     answer drawn by the vendored <bot-answer>, themed to the popup's palette
+     through its variables — nothing here restyles its insides. */
+  /* Sized to the answer, not to the dictionary tray: a translation and a
+     gloss row in a fixed 32vh box is half empty on a big window and a
+     scrollbar on a small one. */
+  #popup.explain { height: auto; max-height: clamp(220px, 48vh, 540px); }
+  #popup.explain .term.sentence {
+    font-size: 14px; font-weight: 500; line-height: 1.5; color: #f2efe8;
+  }
+  #popup .cfg {
+    font: 10.5px/1.4 -apple-system, system-ui, sans-serif;
+    color: #9d9484; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+    padding: 1px 6px; cursor: pointer; white-space: nowrap;
+  }
+  #popup .cfg:hover { color: #d3b072; border-color: rgba(211,176,114,0.5); }
+  #popup bot-answer {
+    display: block; margin-top: 8px;
+    --ba-accent: #d3b072;
+    --ba-muted: #9d9484;
+    --ba-rule: rgba(255,255,255,0.1);
+    --ba-font: -apple-system, system-ui, sans-serif;
+    --ba-font-cjk: "Hiragino Mincho ProN", serif;
+    --ba-size: 13px;
+  }
+
+  /* The picker: a half-disc of choices around the cursor. The popup's tray
+     colours, the chosen wedge in the accent gold — and every fill OPAQUE: it
+     floats over the popup and the page alike, and a translucent gold over a
+     paper-coloured page washed the label out to nothing (measured on the
+     first render). Hover only while the mouse is captured, which renderer.js
+     arranges when the cursor is over it. */
+  #picker { position: absolute; display: none; z-index: 11; }
+  #picker.show { display: block; }
+  #picker svg { overflow: visible; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.5)); }
+  #picker .wedge { fill: #18171c; stroke: #3a3841; stroke-width: 1.5; cursor: pointer; }
+  #picker .wedge:hover { fill: #2b2931; }
+  #picker .wedge.on { fill: #4a3e25; stroke: #d3b072; }
+  #picker text {
+    font: 10.5px -apple-system, system-ui, sans-serif; fill: #e9e6df;
+    text-anchor: middle; dominant-baseline: middle; pointer-events: none;
+    /* Legible on any wedge and on whatever the caption lands over. */
+    paint-order: stroke; stroke: #18171c; stroke-width: 3px; stroke-linejoin: round;
+  }
+  #picker text.caption { fill: #d3b072; }

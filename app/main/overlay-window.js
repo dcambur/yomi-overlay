@@ -113,11 +113,20 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     console.log('[renderer] loaded');
     sendTrigger();
+    sendExplain();
   });
   win.loadFile(path.join(RENDERER_DIR, 'index.html'));
 }
 
 /** Push trigger settings to the renderer, which does the modifier test itself. */
+/** Push the explanation settings and what the picker may offer. */
+function sendExplain() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('explain-config', {
+    ...cfg.explain(), models: cfg.EXPLAIN_MODELS, efforts: cfg.EXPLAIN_EFFORTS,
+  });
+}
+
 function sendTrigger() {
   if (!win || win.isDestroyed()) return;
   const t = cfg.trigger();
@@ -197,6 +206,7 @@ function reset() {
 module.exports = {
   create: createWindow,
   sendTrigger,
+  sendExplain,
   hide: hideOverlay,
   trackTarget,
   setInteractive,
