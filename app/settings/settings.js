@@ -11,6 +11,7 @@
 //   target window       what the overlay attaches to
 //   lookup trigger      what makes a lookup fire
 //   dictionaries        what is installed, in what order
+//   anki                where a card goes, and whether the popup offers one
 //   wiring              footer buttons, progress events, first load
 //
 // Nothing here touches the filesystem or the index: every action is a request
@@ -82,7 +83,7 @@ function progressOf(p) {
 
 // --- tabs -------------------------------------------------------------------
 
-const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger' };
+const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger', anki: 'p-anki' };
 
 /**
  * Show the tab, and the footer button only where it means something.
@@ -103,6 +104,10 @@ function showTab(name) {
   // child's arguments, so changing it restarts capture and drops the glyph
   // layer. The trigger and the dictionaries save themselves as they change.
   $('save').classList.toggle('hidden', name !== 'window');
+  // Anki is asked when its tab is looked at, not on a timer: a deck list
+  // changes at human speed, and a closed Anki would otherwise be asked every
+  // few seconds for as long as the window is open.
+  if (name === 'anki') refreshAnki().catch(() => {});
 }
 
 for (const tab of document.querySelectorAll('.tab')) {
@@ -535,7 +540,108 @@ function renderDictionaries() {
   }
 }
 
+// --- anki -------------------------------------------------------------------
+//
+// Saved as it changes, like the trigger: the overlay draws its card marks from
+// the moment Anki is on and stops when it is off. The deck list is what Anki
+// reports when the tab is shown; with Anki closed the chosen deck is still
+// listed, alone, so the choice can be seen and is not lost.
+
+const DEFAULT_ANKI = { enabled: false, deck: null, tags: ['yomi-overlay'], picture: true };
+let ankiStatus = null;    // the last answer from the main process, or null
+
+/** The saved Anki settings, filled in for a config written before they existed. */
+function ankiConfig() {
+  config.anki = { ...DEFAULT_ANKI, ...(config.anki || {}) };
+  return config.anki;
+}
+
+function saveAnki() {
+  window.settings.saveAnki(ankiConfig());
+  $('status').textContent = 'saved';
+}
+
+function renderAnki() {
+  const a = ankiConfig();
+  $('anki-on').checked = !!a.enabled;
+  $('anki-tags').value = (a.tags || []).join(' ');
+  $('anki-picture').checked = a.picture !== false;
+  renderAnkiStatus();
+  renderDecks();
+}
+
+/**
+ * The status row, in the window picker's dot vocabulary: green is ready,
+ * amber is running but missing something, grey is not there.
+ */
+function renderAnkiStatus() {
+  const s = ankiStatus;
+  let cls = 'idle', text = 'not checked yet';
+  if (s && s.running && s.model) {
+    cls = 'live';
+    text = `Anki is open and has the Lapis note type — ${(s.decks || []).length} decks`;
+  } else if (s && s.running) {
+    cls = 'away';
+    text = 'Anki is open, but the Lapis note type is not in it — import Lapis.apkg';
+  } else if (s) {
+    text = s.error || 'Anki is not running';
+  }
+  $('anki-dot').className = 'dot ' + cls;
+  $('anki-state').textContent = text;
+}
+
+async function refreshAnki() {
+  $('anki-state').textContent = 'checking…';
+  ankiStatus = await window.settings.ankiStatus();
+  renderAnkiStatus();
+  renderDecks();
+}
+
+/** One deck, drawn like a window in the picker: the same kind of choice. */
+function deckRow(name, chosen) {
+  const el = document.createElement('div');
+  el.className = 'win' + (chosen ? ' sel' : '');
+  el.innerHTML = `<span class="grow"><div class="app">${esc(name)}</div></span>`;
+  el.onclick = () => {
+    ankiConfig().deck = name;
+    saveAnki();
+    renderDecks();
+  };
+  return el;
+}
+
+function renderDecks() {
+  const host = $('decklist');
+  host.innerHTML = '';
+  const a = ankiConfig();
+  const decks = (ankiStatus && ankiStatus.decks) || [];
+  const listed = decks.length ? decks : (a.deck ? [a.deck] : []);
+  for (const name of listed) host.appendChild(deckRow(name, name === a.deck));
+  if (!listed.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No decks to show — open Anki and check again.';
+    host.appendChild(p);
+  }
+}
+
 // --- wiring -----------------------------------------------------------------
+
+$('anki-on').onchange = () => {
+  ankiConfig().enabled = $('anki-on').checked;
+  saveAnki();
+};
+$('anki-picture').onchange = () => {
+  ankiConfig().picture = $('anki-picture').checked;
+  saveAnki();
+};
+$('anki-tags').onchange = () => {
+  const tags = $('anki-tags').value.split(/\s+/).filter(Boolean);
+  ankiConfig().tags = tags;
+  $('anki-tags').value = tags.join(' ');
+  saveAnki();
+};
+$('anki-refresh').onclick = () => refreshAnki().catch(() => {});
 
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
@@ -617,6 +723,7 @@ async function init() {
   config = await window.settings.getConfig();
   selected = { ...(config.target || {}) };
   renderTrigger();
+  renderAnki();
   showTab('window');
   await refreshDictionaries();
   await refreshWindows();

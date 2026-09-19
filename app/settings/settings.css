@@ -323,6 +323,8 @@ button {
   color: var(--text-button);
   font: inherit;
   font-size: 11px;
+  /* A label is one line: beside a long status the button folded in two. */
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -347,7 +349,8 @@ button:disabled {
 .primary:hover { color: var(--on-accent) !important; }
 
 select,
-input[type=number] {
+input[type=number],
+input[type=text] {
   padding: 3px 6px;
   border: 1px solid var(--line-control);
   border-radius: 5px;
@@ -358,6 +361,7 @@ input[type=number] {
 }
 
 input[type=number] { width: 80px; }
+input[type=text] { width: 200px; }
 
 input[type=checkbox] { accent-color: var(--accent); }
 

@@ -23,7 +23,8 @@ let win;
 const consoleMessages = [];
 // What the page saved, per channel, so a test can assert that a change applied
 // itself rather than waiting for the footer button.
-const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null };
+const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null,
+                anki: null };
 
 const results = [];
 async function test(name, fn) {
@@ -40,7 +41,10 @@ const CONFIG = {
   target: { bundle: 'com.apple.Safari', windowId: null, label: 'Safari' },
   dictionaries: [{ name: 'Jitendex', enabled: true }],
   trigger: { mode: 'hold', modifier: 'shift', hoverDelayMs: 250 },
+  anki: { enabled: false, deck: null, tags: ['yomi-overlay'], picture: true },
 };
+// What main/anki.js answers with Anki open and Lapis imported.
+const ANKI = { running: true, version: 6, model: true, decks: ['Default', 'Mining', 'Novels'] };
 const CATALOGUE = [
   { id: 'jitendex', label: 'Jitendex', name: 'Jitendex', detail: 'JA-EN', installed: true },
   { id: 'jmnedict', label: 'Names', name: 'JMnedict', detail: 'names', installed: false },
@@ -164,6 +168,39 @@ async function run() {
                            'the main process was told, without a button');
   });
 
+  await test('the Anki tab asks Anki when shown, and lists its decks', async () => {
+    await js("document.querySelector('[data-tab=\"anki\"]').click()");
+    await settle();
+    assert.ok(await js("document.getElementById('save').classList.contains('hidden')"),
+              'nothing to apply: the tab saves as it changes');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .win').length"), 3,
+                       'one row per deck');
+    assert.ok(await js("document.getElementById('anki-dot').classList.contains('live')"),
+              'open with Lapis is the green dot');
+  });
+
+  await test('choosing a deck saves it without a button, and turning Anki on too', async () => {
+    await js("[...document.querySelectorAll('#decklist .win .app')]"
+             + ".find((e) => e.textContent === 'Mining').closest('.win').click()");
+    await settle();
+    assert.strictEqual(saved.anki && saved.anki.deck, 'Mining');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .win.sel').length"), 1);
+    await js("(() => { const b = document.getElementById('anki-on');"
+             + ' b.checked = true; b.onchange(); })()');
+    await settle();
+    assert.strictEqual(saved.anki.enabled, true);
+    assert.strictEqual(saved.anki.deck, 'Mining', 'one object carries every key');
+  });
+
+  await test('tags are split on spaces and shown back tidy', async () => {
+    await js("(() => { const t = document.getElementById('anki-tags');"
+             + " t.value = '  novel   yomi-overlay '; t.onchange(); })()");
+    await settle();
+    assert.deepStrictEqual(saved.anki.tags, ['novel', 'yomi-overlay']);
+    assert.strictEqual(await js("document.getElementById('anki-tags').value"),
+                       'novel yomi-overlay');
+  });
+
   const failed = results.filter(([ok]) => !ok);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -182,6 +219,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
   ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
+  ipcMain.handle('cfg:anki', (_e, v) => { saved.anki = v; return CONFIG; });
+  ipcMain.handle('anki:status', () => ANKI);
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);
   ipcMain.on('cfg:close', () => {});

@@ -16,6 +16,7 @@
       <div class="tab on" data-tab="window">Target window</div>
       <div class="tab" data-tab="dicts">Dictionaries</div>
       <div class="tab" data-tab="trigger">Lookup</div>
+      <div class="tab" data-tab="anki">Anki</div>
     </div>
   </header>
 
@@ -66,6 +67,38 @@
         dictionary archives as they are shown — turning them off costs nothing
         but shows nothing.
       </p>
+    </div>
+
+    <div class="panel" id="p-anki">
+      <p class="hint">
+        Each headword in the popup gets a small card mark. One click puts a
+        <b>Lapis</b> note in the deck below: the word, its reading, the
+        sentence it was in, the definitions, pitch, frequency and a picture
+        of that part of the page. A filled mark is a word already in the deck;
+        two clicks remove it. <b>Applies as you change it.</b> Needs Anki
+        open, with the AnkiConnect add-on and the Lapis note type
+        (github.com/donkuri/lapis).
+      </p>
+      <label class="row"><span>Anki</span>
+        <input id="anki-on" type="checkbox">
+        <span class="unit">show the card marks in the popup</span>
+      </label>
+      <div class="row"><span>Status</span>
+        <span class="dot" id="anki-dot"></span>
+        <span class="unit" id="anki-state">not checked yet</span>
+        <span class="grow"></span>
+        <button id="anki-refresh">Check again</button>
+      </div>
+      <p class="hint group-head">Deck — new notes go here</p>
+      <div id="decklist"></div>
+      <label class="row gap"><span>Tags</span>
+        <input id="anki-tags" type="text" spellcheck="false">
+        <span class="unit">separated by spaces</span>
+      </label>
+      <label class="row"><span>Picture</span>
+        <input id="anki-picture" type="checkbox">
+        <span class="unit">the sentence's part of the page, on the card</span>
+      </label>
     </div>
 
     <div class="panel" id="p-dicts">

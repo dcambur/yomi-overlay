@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld('settings', {
   // What the popup draws. Applied immediately, like the trigger.
   saveView: (next) => ipcRenderer.invoke('cfg:view', next),
   saveDictionaries: (list) => ipcRenderer.invoke('cfg:dictionaries', list),
+  // Anki: applied immediately, like the trigger — the overlay is told and
+  // the next popup draws (or stops drawing) its card marks.
+  saveAnki: (next) => ipcRenderer.invoke('cfg:anki', next),
+  // Is Anki running, does it have the Lapis note type, which decks exist.
+  ankiStatus: () => ipcRenderer.invoke('anki:status'),
   listWindows: () => ipcRenderer.invoke('cfg:windows'),
   close: () => ipcRenderer.send('cfg:close'),
 
