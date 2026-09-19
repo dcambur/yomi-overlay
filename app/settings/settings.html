@@ -71,33 +71,36 @@
 
     <div class="panel" id="p-anki">
       <p class="hint">
-        Each headword in the popup gets a small card mark. One click puts a
-        <b>Lapis</b> note in the deck below: the word, its reading, the
-        sentence it was in, the definitions, pitch, frequency and a picture
-        of that part of the page. A filled mark is a word already in the deck;
-        two clicks remove it. <b>Applies as you change it.</b> Needs Anki
-        open, with the AnkiConnect add-on and the Lapis note type
-        (github.com/donkuri/lapis).
+        A click on a headword's card mark puts the word in Anki as a
+        <b>Lapis</b> note; a filled mark is already in the deck, and two
+        clicks take it out. <b>Applies as you change it.</b>
       </p>
       <label class="row"><span>Anki</span>
         <input id="anki-on" type="checkbox">
         <span class="unit">show the card marks in the popup</span>
       </label>
+      <!-- The state is one or two words after the dot; what to DO about it
+           is the muted line after them, and only when there is something to
+           do. When Anki is ready, the requirements are not worth reading. -->
       <div class="row"><span>Status</span>
         <span class="dot" id="anki-dot"></span>
-        <span class="unit" id="anki-state">not checked yet</span>
-        <span class="grow"></span>
+        <span class="state" id="anki-state">not checked yet</span>
+        <span class="unit grow" id="anki-detail"></span>
         <button id="anki-refresh">Check again</button>
       </div>
       <p class="hint group-head">Deck — new notes go here</p>
-      <div id="decklist"></div>
-      <label class="row gap"><span>Tags</span>
+      <!-- Anki's deck names are paths (a::b::c). The list is drawn as that
+           tree: a parent folds its subdecks away, and only the chosen deck's
+           ancestors start open. -->
+      <div class="tree" id="decklist"></div>
+      <p class="hint group-head">On the card</p>
+      <label class="row"><span>Tags</span>
         <input id="anki-tags" type="text" spellcheck="false">
         <span class="unit">separated by spaces</span>
       </label>
       <label class="row"><span>Picture</span>
         <input id="anki-picture" type="checkbox">
-        <span class="unit">the sentence's part of the page, on the card</span>
+        <span class="unit">the sentence's part of the page</span>
       </label>
     </div>
 

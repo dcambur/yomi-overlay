@@ -572,41 +572,135 @@ function renderAnki() {
 
 /**
  * The status row, in the window picker's dot vocabulary: green is ready,
- * amber is running but missing something, grey is not there.
+ * amber is running but missing something, grey is not there. The state is
+ * a word or two; the detail is what to do about it, and is empty when there
+ * is nothing to do — a ready Anki does not need its requirements listed.
  */
 function renderAnkiStatus() {
   const s = ankiStatus;
-  let cls = 'idle', text = 'not checked yet';
+  let cls = 'idle', state = 'not checked yet', detail = '';
   if (s && s.running && s.model) {
     cls = 'live';
-    text = `Anki is open and has the Lapis note type — ${(s.decks || []).length} decks`;
+    state = 'Ready';
+    const n = (s.decks || []).length;
+    detail = `Lapis note type · ${n} ${n === 1 ? 'deck' : 'decks'}`;
   } else if (s && s.running) {
     cls = 'away';
-    text = 'Anki is open, but the Lapis note type is not in it — import Lapis.apkg';
+    state = 'No Lapis';
+    detail = 'import the note type from github.com/donkuri/lapis';
   } else if (s) {
-    text = s.error || 'Anki is not running';
+    // Connection refused is the common case and has a plain reading; any
+    // other failure (a timeout, a 403 from a locked AnkiConnect) is shown as
+    // the client reported it, because that is the only clue there is.
+    const refused = /not running/.test(s.error || '');
+    state = refused ? 'Not running' : 'Not answering';
+    detail = refused
+      ? 'open Anki with AnkiConnect'
+      : (s.error || '');
   }
   $('anki-dot').className = 'dot ' + cls;
-  $('anki-state').textContent = text;
+  $('anki-state').textContent = state;
+  $('anki-detail').textContent = detail;
 }
 
 async function refreshAnki() {
   $('anki-state').textContent = 'checking…';
+  $('anki-detail').textContent = '';
   ankiStatus = await window.settings.ankiStatus();
   renderAnkiStatus();
   renderDecks();
 }
 
-/** One deck, drawn like a window in the picker: the same kind of choice. */
-function deckRow(name, chosen) {
+// Anki names a subdeck by its path, `Parent::Child`, and deckNames lists
+// every level. Drawn flat, a collection with a few nested decks is a wall of
+// repeated prefixes (this machine: 18 decks, 3 roots). So the list is the
+// tree Anki's own deck browser shows: a parent folds its subdecks, and the
+// folds start closed except along the path to the chosen deck. Which folds
+// are open lives here, not in config — it is how the list looks right now,
+// not a setting.
+const openDecks = new Set();
+let openDecksSeeded = false;
+
+/** The deck list as a tree: [{ name, path, kids: [...] }], in Anki's order. */
+function deckTree(names) {
+  const roots = [];
+  const byPath = new Map();
+  for (const path of names) {
+    const parts = path.split('::');
+    let level = roots, prefix = '';
+    for (const part of parts) {
+      prefix = prefix ? `${prefix}::${part}` : part;
+      let node = byPath.get(prefix);
+      if (!node) {
+        node = { name: part, path: prefix, kids: [] };
+        byPath.set(prefix, node);
+        level.push(node);
+      }
+      level = node.kids;
+    }
+  }
+  return roots;
+}
+
+/** Every proper ancestor of a deck path, nearest last. */
+function ancestors(path) {
+  const parts = (path || '').split('::');
+  const out = [];
+  for (let i = 1; i < parts.length; i++) out.push(parts.slice(0, i).join('::'));
+  return out;
+}
+
+/**
+ * One deck, and its subdecks under it. The name chooses; the fold at the
+ * left opens and closes, and is drawn (blank) on a leaf too, so names line
+ * up down a level. A closed parent says how many it hides, and keeps the
+ * accent when the chosen deck is one of them, so a choice is never hidden.
+ */
+function deckNode(node, chosen) {
   const el = document.createElement('div');
-  el.className = 'win' + (chosen ? ' sel' : '');
-  el.innerHTML = `<span class="grow"><div class="app">${esc(name)}</div></span>`;
-  el.onclick = () => {
-    ankiConfig().deck = name;
+  el.className = 'deck-node';
+  const open = openDecks.has(node.path);
+  const hasKids = node.kids.length > 0;
+  const chosenInside = !open && ancestors(chosen).includes(node.path);
+  const row = document.createElement('div');
+  row.className = 'deck' + (node.path === chosen ? ' sel' : '')
+    + (chosenInside ? ' holds-sel' : '');
+  row.dataset.path = node.path;
+  const fold = document.createElement('button');
+  fold.className = 'fold' + (hasKids ? (open ? ' open' : '') : ' leaf');
+  fold.type = 'button';
+  fold.title = hasKids ? (open ? 'Fold the subdecks away' : 'Show the subdecks') : '';
+  fold.tabIndex = hasKids ? 0 : -1;
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = node.name;
+  row.append(fold, name);
+  if (hasKids && !open) {
+    const count = document.createElement('span');
+    count.className = 'sub';
+    const n = node.kids.length;
+    count.textContent = `${n} ${n === 1 ? 'subdeck' : 'subdecks'}`;
+    row.append(count);
+  }
+  el.append(row);
+  if (hasKids) {
+    const kids = document.createElement('div');
+    kids.className = 'deck-kids' + (open ? '' : ' hidden');
+    for (const k of node.kids) kids.append(deckNode(k, chosen));
+    el.append(kids);
+  }
+  row.onclick = () => {
+    ankiConfig().deck = node.path;
     saveAnki();
     renderDecks();
   };
+  if (hasKids) {
+    fold.onclick = (e) => {
+      e.stopPropagation();
+      if (open) openDecks.delete(node.path); else openDecks.add(node.path);
+      renderDecks();
+    };
+  }
   return el;
 }
 
@@ -615,11 +709,19 @@ function renderDecks() {
   host.innerHTML = '';
   const a = ankiConfig();
   const decks = (ankiStatus && ankiStatus.decks) || [];
-  const listed = decks.length ? decks : (a.deck ? [a.deck] : []);
-  for (const name of listed) host.appendChild(deckRow(name, name === a.deck));
+  // With Anki closed the chosen deck is still listed, alone, so the choice
+  // can be seen and is not lost. With Anki open and the deck gone from it,
+  // the same: the row is the only place the stale choice is visible.
+  const listed = decks.slice();
+  if (a.deck && !listed.includes(a.deck)) listed.push(a.deck);
+  if (!openDecksSeeded) {
+    for (const p of ancestors(a.deck)) openDecks.add(p);
+    openDecksSeeded = true;
+  }
+  for (const node of deckTree(listed)) host.appendChild(deckNode(node, a.deck));
   if (!listed.length) {
     const p = document.createElement('p');
-    p.className = 'hint';
+    p.className = 'hint empty';
     p.textContent = 'No decks to show — open Anki and check again.';
     host.appendChild(p);
   }

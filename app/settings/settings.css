@@ -291,6 +291,118 @@ footer .grow { flex: 1 1 auto; }
   100% { margin-left: 100%; }
 }
 
+/* --- anki ------------------------------------------------------------------ */
+
+/* The status row: dot, then the state in a word or two, then what to do. */
+.row .state {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.row .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The deck list is one surface, not a card per deck: it is a tree, and a tree
+   is read by its indentation, which a stack of separate cards would hide. */
+.tree {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.tree .empty {
+  margin: 0;
+  padding: 8px 9px;
+}
+
+.deck {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.tree > .deck-node:first-child > .deck { border-top: none; }
+
+.deck:hover { background: var(--surface-tab); }
+
+/* The chosen deck: an accent bar at the left, so it reads as chosen at any
+   depth, where a border round the row would fight the indentation. */
+.deck.sel {
+  background: var(--surface-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* A closed parent with the chosen deck folded inside it. */
+.deck.holds-sel .name { color: var(--accent); }
+
+/* One level deeper per nesting. Beyond four the rows stop stepping in and
+   the folds still work; Anki lets a deck nest as far as anyone types. */
+.deck-kids .deck { padding-left: 27px; }
+.deck-kids .deck-kids .deck { padding-left: 45px; }
+.deck-kids .deck-kids .deck-kids .deck { padding-left: 63px; }
+
+.deck .name {
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck .sub {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* The fold: a triangle, pointing right when closed and down when open. It is
+   drawn on a leaf too, blank, so names line up down a level. */
+.fold {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-muted);
+}
+
+.fold::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  border-right: none;
+  transition: transform .12s ease-out;
+}
+
+.fold.open::before { transform: rotate(90deg); }
+
+.fold:hover:not(:disabled) {
+  border: none;
+  background: var(--surface-control);
+  color: var(--text);
+}
+
+.fold.leaf { visibility: hidden; }
+
+.fold:focus-visible { outline: 1px solid var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fold::before { transition: none; }
+}
+
 /* --- controls -------------------------------------------------------------- */
 
 /* A labelled setting: name on the left, control after it. */

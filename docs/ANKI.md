@@ -144,12 +144,19 @@ in the renderer can reach the network — its CSP stays `default-src 'none'`.
 ## Settings → Anki
 
 Saved live, like the trigger tab: nothing restarts. The tab shows a status
-line with the same dot vocabulary the window picker uses — green: Anki is
-running and has Lapis; amber: running, no Lapis note type; grey: not running —
-then the deck list (one row each, click to choose, refreshed when the tab is
-shown), the tags, and the picture switch. `anki.url` and `anki.key` are
-edit-and-restart keys in `config.json` for an AnkiConnect that was moved or
-locked; the defaults are the add-on's.
+row with the same dot vocabulary the window picker uses — green `Ready`;
+amber `No Lapis`; grey `Not running` — with the one thing to do about it
+after the state, and nothing after `Ready`. Then the deck list, drawn as the
+tree Anki's own deck browser shows: `deckNames` lists every level of
+`Parent::Child`, and flat that was 18 rows of repeated prefixes on this
+machine (3 roots). A parent folds its subdecks and says how many it hides;
+the folds start closed except along the path to the chosen deck; a closed
+parent with the chosen deck inside keeps the accent on its name, so the
+choice is never out of sight. Which folds are open is not a setting and is
+not saved. Clicking a name chooses it; the deck list is refreshed when the
+tab is shown. Then the tags and the picture switch. `anki.url` and
+`anki.key` are edit-and-restart keys in `config.json` for an AnkiConnect
+that was moved or locked; the defaults are the add-on's.
 
 ## Tests
 

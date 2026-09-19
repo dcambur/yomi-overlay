@@ -44,7 +44,9 @@ const CONFIG = {
   anki: { enabled: false, deck: null, tags: ['yomi-overlay'], picture: true },
 };
 // What main/anki.js answers with Anki open and Lapis imported.
-const ANKI = { running: true, version: 6, model: true, decks: ['Default', 'Mining', 'Novels'] };
+const ANKI = { running: true, version: 6, model: true,
+               decks: ['Default', 'Mining', 'Novels', 'Novels::Hoshi',
+                       'Novels::Hoshi::Vol 1'] };
 const CATALOGUE = [
   { id: 'jitendex', label: 'Jitendex', name: 'Jitendex', detail: 'JA-EN', installed: true },
   { id: 'jmnedict', label: 'Names', name: 'JMnedict', detail: 'names', installed: false },
@@ -168,23 +170,53 @@ async function run() {
                            'the main process was told, without a button');
   });
 
-  await test('the Anki tab asks Anki when shown, and lists its decks', async () => {
+  const deck = (p) => `document.querySelector('#decklist .deck[data-path="${p}"]')`;
+  const shown = "[...document.querySelectorAll('#decklist .deck')]"
+    + '.filter((e) => e.getBoundingClientRect().height > 0).map((e) => e.dataset.path)';
+
+  await test('the Anki tab asks Anki when shown, and lists its decks as a tree', async () => {
     await js("document.querySelector('[data-tab=\"anki\"]').click()");
     await settle();
     assert.ok(await js("document.getElementById('save').classList.contains('hidden')"),
               'nothing to apply: the tab saves as it changes');
-    assert.strictEqual(await js("document.querySelectorAll('#decklist .win').length"), 3,
-                       'one row per deck');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck').length"), 5,
+                       'one row per deck, subdecks included');
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels'],
+                           'subdecks start folded away');
+    assert.strictEqual(await js(`${deck('Novels')}.querySelector('.sub').textContent`),
+                       '1 subdeck', 'a closed parent says what it hides');
     assert.ok(await js("document.getElementById('anki-dot').classList.contains('live')"),
               'open with Lapis is the green dot');
+    assert.strictEqual(await js("document.getElementById('anki-state').textContent"), 'Ready');
+  });
+
+  await test('a fold opens one level, and choosing a subdeck saves its full path', async () => {
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await settle();
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels', 'Novels::Hoshi'],
+                           'one level, not the whole subtree');
+    assert.strictEqual(saved.anki, null, 'a fold is not a choice');
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await js(`${deck('Novels::Hoshi')}.querySelector('.fold').click()`);
+    await settle();
+    await js(`${deck('Novels::Hoshi::Vol 1')}.click()`);
+    await settle();
+    assert.strictEqual(saved.anki && saved.anki.deck, 'Novels::Hoshi::Vol 1');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck.sel').length"), 1);
+    // Fold the grandparent: the choice is out of sight, and the row that hides
+    // it says so.
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await settle();
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels']);
+    assert.ok(await js(`${deck('Novels')}.classList.contains('holds-sel')`));
   });
 
   await test('choosing a deck saves it without a button, and turning Anki on too', async () => {
-    await js("[...document.querySelectorAll('#decklist .win .app')]"
-             + ".find((e) => e.textContent === 'Mining').closest('.win').click()");
+    await js(`${deck('Mining')}.click()`);
     await settle();
     assert.strictEqual(saved.anki && saved.anki.deck, 'Mining');
-    assert.strictEqual(await js("document.querySelectorAll('#decklist .win.sel').length"), 1);
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck.sel').length"), 1);
     await js("(() => { const b = document.getElementById('anki-on');"
              + ' b.checked = true; b.onchange(); })()');
     await settle();
