@@ -67,6 +67,7 @@ function parseCentralDirectory(cd, count) {
     if (cd.readUInt32LE(p) !== CENTRAL_SIG) break;
     const method = cd.readUInt16LE(p + 10);
     let size = cd.readUInt32LE(p + 20);          // compressed
+    const uncompressed = cd.readUInt32LE(p + 24);
     const nameLen = cd.readUInt16LE(p + 28);
     const extraLen = cd.readUInt16LE(p + 30);
     const commentLen = cd.readUInt16LE(p + 32);
@@ -74,7 +75,10 @@ function parseCentralDirectory(cd, count) {
     const name = cd.toString('utf8', p + 46, p + 46 + nameLen);
 
     // Oversized values live in the zip64 extra field, tag 0x0001, holding
-    // whichever of uncompressed/compressed/offset overflowed, in that order.
+    // ONLY whichever of uncompressed/compressed/offset overflowed, in that
+    // order — an entry whose offset overflowed but whose sizes did not has
+    // an 8-byte field, not 24, and skipping a fixed 8 read the offset out
+    // of the next entry's bytes.
     if (size === 0xffffffff || offset === 0xffffffff) {
       let e = p + 46 + nameLen;
       const stop = e + extraLen;
@@ -83,7 +87,7 @@ function parseCentralDirectory(cd, count) {
         const len = cd.readUInt16LE(e + 2);
         if (tag === 0x0001) {
           let q = e + 4;
-          q += 8;                                 // uncompressed, unused here
+          if (uncompressed === 0xffffffff) q += 8;   // present, unused here
           if (size === 0xffffffff) { size = Number(cd.readBigUInt64LE(q)); q += 8; }
           if (offset === 0xffffffff) { offset = Number(cd.readBigUInt64LE(q)); }
           break;

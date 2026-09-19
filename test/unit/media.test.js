@@ -35,6 +35,7 @@ withMedia('a.zip', 'Alpha');
 withMedia('b.zip', 'Beta');
 withMedia('c.zip', 'Gamma');
 withMedia('d.zip', 'Delta');
+withMedia('e.zip', 'Eps/ilon');   // a title with a slash in it, as a label
 
 // The handler asks the dictionaries module where an archive is; this is that
 // module's shape, without an index or a config to build first.
@@ -43,7 +44,7 @@ const dictionaries = {
   installed: () => fs.readdirSync(DICTS).filter((f) => f.endsWith('.zip')).map((file) => ({
     file,
     label: { 'a.zip': 'Alpha', 'b.zip': 'Beta',
-             'c.zip': 'Gamma', 'd.zip': 'Delta' }[file],
+             'c.zip': 'Gamma', 'd.zip': 'Delta', 'e.zip': 'Eps/ilon' }[file],
   })),
 };
 
@@ -85,6 +86,14 @@ test('a path that is not an entry cannot reach the filesystem', async () => {
   }
 });
 
+test('a label with a slash in it still finds its archive', async () => {
+  // Labels come from the archive's own title, which nobody sanitises. The
+  // renderer encodes the label as one segment; the handler must not split it.
+  const res = media.serve(url('Eps/ilon', 'icons/一.svg'), dictionaries);
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(await res.text(), SVG);
+});
+
 test('a dictionary nobody has installed is a 404, not a crash', () => {
   assert.strictEqual(media.serve(url('Nope', 'icons/一.svg'), dictionaries).status, 404);
 });
@@ -97,12 +106,7 @@ test('a malformed request is refused', () => {
 test('the open archives stay bounded', async () => {
   // Serving images is a handle held open per dictionary. Unbounded, a scroll
   // through a large set ends where the descriptor leak this replaced ended.
-  const count = () => {
-    try {
-      return Number(require('child_process')
-        .execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`).toString().trim());
-    } catch { return 0; }
-  };
+  const count = require('./fixtures/open-files.js').openFiles;
   media.forget();
   const before = count();
   for (let i = 0; i < 30; i++) {

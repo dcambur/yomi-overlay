@@ -76,7 +76,10 @@ function forget() {
  * simply is not an entry and the request 404s.
  */
 function serve(url, dictionaries) {
-  const parts = decodeURIComponent(new URL(url).pathname).split('/').filter(Boolean);
+  // Split first, then decode each piece: structured.js encodes the label and
+  // every path segment separately, so a dictionary whose title holds a slash
+  // arrives as one %2F segment and must come back as one label.
+  const parts = new URL(url).pathname.split('/').filter(Boolean).map(decodeURIComponent);
   const label = parts.shift();
   const name = parts.join('/');
   if (!label || !name) return new Response('bad media path', { status: 400 });

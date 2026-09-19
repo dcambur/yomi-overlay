@@ -196,12 +196,7 @@ test('reading an archive does not leave it open', () => {
   for (const n of ['a', 'b', 'c']) {
     mk.termDictionary(path.join(dir, n + '.zip'), { title: n, entries: 2 });
   }
-  const open = () => {
-    try {
-      return Number(require('child_process')
-        .execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`).toString().trim());
-    } catch { return 0; }
-  };
+  const open = require('./fixtures/open-files.js').openFiles;
   const before = open();
   for (let i = 0; i < 20; i++) {
     for (const n of ['a', 'b', 'c']) classify(path.join(dir, n + '.zip'));
@@ -222,12 +217,7 @@ test('a build closes every archive it read', () => {
   mk.kanjiDictionary(path.join(dicts, 'kanji.zip'), { title: 'K' });
   mk.pitchDictionary(path.join(dicts, 'pitch_p.zip'), { title: 'P' });
   mk.freqDictionary(path.join(dicts, 'freq_f.zip'), { title: 'F' });
-  const open = () => {
-    try {
-      return Number(require('child_process')
-        .execSync(`lsof -p ${process.pid} 2>/dev/null | wc -l`).toString().trim());
-    } catch { return 0; }
-  };
+  const open = require('./fixtures/open-files.js').openFiles;
   const before = open();
   build(dicts, path.join(dir, 'index.db'));
   const after = open();
