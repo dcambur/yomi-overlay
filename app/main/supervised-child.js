@@ -44,6 +44,11 @@ class SupervisedChild {
     this.logError = o.logError || this.log;
 
     this.proc = null;
+    // The kill in flight: {proc, then}. A second stop() or restart() inside
+    // the SIGTERM→exit window replaces `then` instead of starting at once —
+    // otherwise the first exit still runs its continuation and spawns a
+    // second live child that nothing supervises or kills.
+    this.stopping = null;
     this.restartTimer = null;
     this.backoff = this.backoffCfg.initial;
     this.lastOutput = 0;
@@ -109,11 +114,24 @@ class SupervisedChild {
     this._disarmWatchdog();
     const p = this.proc;
     this.proc = null;
-    if (!p) { if (then) then(); return; }
+    if (!p) {
+      // Nothing to kill, but maybe something still dying: the newest
+      // continuation is the one that runs when it has gone.
+      if (this.stopping) { this.stopping.then = then; return; }
+      if (then) then();
+      return;
+    }
     p.deliberate = true;
     if (p.exitCode !== null || p.signalCode !== null) { if (then) then(); return; }
+    const pending = { proc: p, then };
+    this.stopping = pending;
     let done = false;
-    const finish = () => { if (done) return; done = true; if (then) then(); };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (this.stopping === pending) this.stopping = null;
+      if (pending.then) pending.then();
+    };
     p.once('exit', finish);
     try { p.kill(); } catch { finish(); return; }
     // Don't let a wedged child block a retarget forever.
