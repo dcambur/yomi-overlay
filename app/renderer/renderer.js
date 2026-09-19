@@ -76,6 +76,11 @@ let pageVertical = false;   // tategaki page: popup goes left of the column
 let lastTier2Surface = '';  // last word sent to the tier-2 shadow probe
 let lastHit = null;         // {li, ci} of the glyph the open popup answers for
 let ankiSeq = 0;            // discards Anki replies for a popup since replaced
+// Removal takes two clicks: the second must come within this long, or the
+// mark goes back to saying the word is in the deck. A deleted note takes its
+// review history with it, which one stray click must not be able to do.
+const ANKI_CONFIRM_MS = 3000;
+let ankiConfirmTimer = null;
 
 /**
  * Apply a payload: place the layer, then let it decide what to do with the
@@ -156,6 +161,7 @@ function dismiss() {
   turnCandidate = null;
   lastHit = null;
   ankiSeq++;
+  if (ankiConfirmTimer) { clearTimeout(ankiConfirmTimer); ankiConfirmTimer = null; }
   setInteractive(false);
   if (pendingPayload) {           // page changed while the popup was open
     const p = pendingPayload;
@@ -379,12 +385,6 @@ async function ankiRemove(b, gi) {
   else popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
 }
 
-// Removal takes two clicks: the second must come within this long, or the
-// mark goes back to saying the word is in the deck. A deleted note takes its
-// review history with it, which one stray click must not be able to do.
-const ANKI_CONFIRM_MS = 3000;
-let ankiConfirmTimer = null;
-
 document.getElementById('popup').addEventListener('click', (e) => {
   const b = e.target.closest('button.anki');
   if (!b) return;
@@ -400,7 +400,10 @@ document.getElementById('popup').addEventListener('click', (e) => {
       popupView.setAnkiState(gi, 'confirm');
       ankiConfirmTimer = setTimeout(() => {
         ankiConfirmTimer = null;
-        if (b.dataset.state === 'confirm') {
+        // The mark must still be the one on screen: a lookup made in the
+        // meantime replaced the popup, and setAnkiState finds marks by card
+        // index — the old note id would land on the new word's card.
+        if (b.isConnected && b.dataset.state === 'confirm') {
           popupView.setAnkiState(gi, 'present', b.dataset.note);
         }
       }, ANKI_CONFIRM_MS);

@@ -220,12 +220,18 @@ function createAnki({ cfg, requestCrop }) {
     }
   }
 
+  // Two marks clicked within a second are two crops in flight: the file and
+  // the media name both carry a counter, or the second overwrites the first
+  // on disk and AnkiConnect (deleteExisting by default) in the media folder.
+  let pictureSeq = 0;
+
   /** The crop the watch process serves, as a file AnkiConnect can read. */
   async function pictureFor(region) {
     const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-    const file = path.join(os.tmpdir(), `yomi-anki-${stamp}-${process.pid}.png`);
+    const tag = `${stamp}-${++pictureSeq}`;
+    const file = path.join(os.tmpdir(), `yomi-anki-${process.pid}-${tag}.png`);
     const ok = await requestCrop(region, file, CROP_WAIT_MS);
-    return ok ? { path: file, filename: `yomi-overlay-${stamp}.png` } : null;
+    return ok ? { path: file, filename: `yomi-overlay-${tag}.png` } : null;
   }
 
   /** Add one Lapis note. Resolves to what happened; never rejects. */

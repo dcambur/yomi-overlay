@@ -243,11 +243,39 @@ test('a picture is asked from the crop channel, read by Anki, and cleaned up', a
     const note = double.notes.get(r.noteId);
     assert.strictEqual(note.picture.length, 1);
     assert.deepStrictEqual(note.picture[0].fields, ['Picture']);
-    assert.match(note.picture[0].filename, /^yomi-overlay-\d{14}\.png$/);
+    assert.match(note.picture[0].filename, /^yomi-overlay-\d{14}-\d+\.png$/);
     assert.strictEqual(note.picture[0].bytes.length, 4, 'Anki read the file');
     await new Promise((res) => setTimeout(res, 50));
     assert.ok(!fs.existsSync(asked.file), 'the temp file is gone once Anki has it');
     await anki.remove(r.noteId);
+  } finally {
+    settings.picture = false;
+  }
+});
+
+test('two adds in the same second get two files and two media names', async () => {
+  const files = [];
+  const requestCrop = async (_rect, file) => {
+    files.push(file);
+    fs.writeFileSync(file, Buffer.from([files.length]));
+    return true;
+  };
+  settings.picture = true;
+  const anki = createAnki({ cfg, requestCrop });
+  try {
+    const region = { x: 0, y: 0, w: 1, h: 1 };
+    const [a, b] = await Promise.all([
+      anki.add({ expression: '甲', reading: 'こう', region }),
+      anki.add({ expression: '乙', reading: 'おつ', region }),
+    ]);
+    assert.notStrictEqual(files[0], files[1], 'two temp files');
+    const pa = double.notes.get(a.noteId).picture[0];
+    const pb = double.notes.get(b.noteId).picture[0];
+    assert.notStrictEqual(pa.filename, pb.filename, 'two media names');
+    assert.strictEqual(pa.bytes[0], 1, 'the first card got the first crop');
+    assert.strictEqual(pb.bytes[0], 2, 'the second card got the second crop');
+    await anki.remove(a.noteId);
+    await anki.remove(b.noteId);
   } finally {
     settings.picture = false;
   }

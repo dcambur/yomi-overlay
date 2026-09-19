@@ -8,6 +8,7 @@
 
 const { ipcMain } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const { TOOLS_DIR, VENV_DIR } = require('../paths.js');
 const cfg = require('./config.js');
@@ -30,8 +31,20 @@ function createTier2({ ocrChild }) {
   let sidecarIdleTimer = null;
   let tier2Seq = 0;
   let lastTier2At = 0;
-  const tier2Pending = new Map();   // id -> {text, conf, t0}
+  const tier2Pending = new Map();   // id -> {text, conf, t0, path}
   const tier2Queue = [];            // sidecar requests parked until ready
+
+  // A probe's crop is a file under /tmp that nothing but this module knows
+  // about: the sidecar reads it and forgets it. Delete it here, on every path
+  // that ends a probe — measured 2026-09-19: one PNG per looked-up word for
+  // the life of the machine, since macOS only purges untouched /tmp files
+  // after three days.
+  function forget(id) {
+    const pend = tier2Pending.get(id);
+    tier2Pending.delete(id);
+    if (pend && pend.path) fs.unlink(pend.path, () => {});
+    return pend;
+  }
   const cropWaiters = new Map();    // id -> resolve, crops asked for by someone else
 
   function tier2Config() {
@@ -83,6 +96,9 @@ function createTier2({ ocrChild }) {
     });
     p.on('exit', code => {
       if (sidecar === p) { sidecar = null; sidecarReady = false; }
+      // Whatever it was asked and never answered is not coming.
+      for (const id of [...tier2Pending.keys()]) forget(id);
+      tier2Queue.length = 0;
       if (code === 2 || code === 3) {
         // Import/model failure is not transient — degrade honestly, once.
         sidecarDisabled = true;
@@ -110,9 +126,8 @@ function createTier2({ ocrChild }) {
           while (tier2Queue.length) p.stdin.write(tier2Queue.shift());
           continue;
         }
-        const pend = tier2Pending.get(r.id);
+        const pend = forget(r.id);
         if (!pend) continue;
-        tier2Pending.delete(r.id);
         if (r.error) { logf('[tier2] ocr error: ' + r.error); continue; }
         const t2 = (r.text || '').normalize('NFKC');
         const t1 = pend.text.normalize('NFKC');
@@ -155,8 +170,9 @@ function createTier2({ ocrChild }) {
     const pend = tier2Pending.get(c.id);
     if (!pend) return;
     if (!c.ok) { tier2Pending.delete(c.id); return; }
+    pend.path = c.path;
     ensureSidecar();
-    if (sidecarDisabled || !sidecar) { tier2Pending.delete(c.id); return; }
+    if (sidecarDisabled || !sidecar) { forget(c.id); return; }
     pokeSidecarIdle();
     const req = JSON.stringify({ id: c.id, image: c.path }) + '\n';
     if (sidecarReady) sidecar.stdin.write(req);
