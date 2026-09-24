@@ -636,6 +636,12 @@ async function appScenario(A, B) {
         try { process.kill(pid, 0); return false; } catch { return true; }
       }), 3000);
     });
+
+    await test('the app logged into its own directory, each line once', async () => {
+      const log = fs.readFileSync(path.join(dir, 'yomi-overlay.log'), 'utf8').split('\n');
+      const launches = log.filter((l) => l.includes('--- launch, argv=')).length;
+      check(launches === 1, `the launch line is in the log ${launches} times`);
+    });
   } finally {
     if (cdp) cdp.close();
     if (child && child.exitCode === null) child.kill('SIGKILL');
