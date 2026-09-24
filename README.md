@@ -108,7 +108,7 @@ Start with [docs/README.md](docs/README.md), which indexes the rest. [docs/ARCHI
 
 Layout: ocr/Sources/ is the Swift capture and OCR helper. app/ is the Electron side, split into main/ (main process), renderer/ (the overlay window), preload/ (the IPC boundary), and shell/ (the loader). tools/ has the build scripts and test/ has the suites.
 
-Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or windows. `test/golden.sh` is a byte-exact regression check over the OCR helper's output; it needs a built binary. The test/verify*.py suites take their ground truth from a live DOM and the window server, so they need the overlay stopped and Screen Recording granted. The test/gt/ corpora aren't in the repo; regenerate them with test/gt/gen_aozora.py.
+Tests: `test/run.sh` runs everything, and nothing appears on your screen. The logic and page suites take a few seconds and need no permissions. The screen lane runs the real capture helper and the real app on an invisible display, so it needs Screen Recording and the overlay stopped. `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
 
 ## Known gaps
 

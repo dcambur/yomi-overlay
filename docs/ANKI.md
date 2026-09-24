@@ -175,7 +175,7 @@ that was moved or locked; the defaults are the add-on's.
 
 ## Gates
 
-`tools/lint.sh`, `test/unit/run.sh`. No Swift changed, so golden is
+`tools/lint.sh`, `test/run.sh`. No Swift changed, so golden is
 unaffected. The by-hand check: Anki open with Lapis imported, pick a deck in
 Settings → Anki, look up a word, click the mark, open the note in Anki.
 

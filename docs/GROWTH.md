@@ -124,5 +124,5 @@ git diff origin/main HEAD -- '*.swift' '*.js' '*.py' \
 
 The second number is added source lines, comments and docs excluded. If it surprises you, find
 the largest single mechanism in the diff and ask the three questions above
-about it. Then check the gates: `test/golden.sh check`, `test/unit/run.sh`,
-`test/cer.py` if recognition moved, and `tools/check-conventions.sh`.
+about it. Then check the gates: `test/run.sh golden check`, `test/run.sh`, `test/cer.py` if
+recognition moved, and `tools/check-conventions.sh`.

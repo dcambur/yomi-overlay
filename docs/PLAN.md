@@ -10,9 +10,11 @@ Each stage has an acceptance benchmark — no stage is "done" on vibes.
   pipeline stage; `main.js` 813 → 224 lines with no module-scope state;
   `index.html` 739 → 25. Layout is `ocr/ app/ tools/ data/ bin/ docs/` with one
   path resolver per language. The capture helper is `yomi`, not `kindleocr`.
-- ✅ **Unattended tests (2026-08).** `test/unit/run.sh` — 32 assertions, ~3s,
-  no permissions or windows — plus `test/golden.sh`, a byte-exact golden master
-  over `yomi --image`. Neither existed before.
+- ✅ **Unattended tests (2026-08).** Unit suites plus `test/golden.sh`, a
+  byte-exact golden master over `yomi --image`. Neither existed before.
+- ✅ **One test command, nothing on screen (2026-09).** `test/run.sh`: logic,
+  pages, and a screen lane that runs the real capture helper and the real app
+  on an invisible display. It replaced the hands-on `verify*.py` rig.
 
 - ✅ Pitch-accent graph (mora overline + downstep, Yomitan-style) — was the
   research doc's Stage 0 headliner.
@@ -63,7 +65,7 @@ What was planned vs what measurement forced:
 - ✅ **Popup left of the column** on vertical pages (payload carries
   `vertical: true`); tail extraction needed no change — chars already arrive
   in reading order.
-- ✅ **`test/verify_vertical.py`** — per-character DOM ground truth
+- ✅ **Vertical DOM-truth test** (now in the screen lane) — per-character DOM ground truth
   (`writing-mode: vertical-rl` page), measuring coverage / placement / order.
 
 Current numbers on the test page: **coverage 95%, placement 77%, column
@@ -100,7 +102,7 @@ Build the measurement harness before touching accuracy:
 
 - **Ground-truth set**: 50–100 crops from real Kindle (horizontal + vertical),
   BOOK☆WALKER, kakuyomu; hand-typed truth; CER as the metric (extend
-  `test/verify.py` — the DOM-truth trick already gives free ground truth for
+  the screen lane — the DOM-truth trick already gives free ground truth for
   browser content).
 
 Then, in order of gain-per-effort, keeping only levers that move CER:
@@ -188,9 +190,8 @@ known words render dimmed on the glyph layer.*
   alone. Stop there and judge whether the rest earns its cost. Golden-master
   covers every one of those conversions: they are all on the `--image` path, so
   a sign error moves glyph boxes and the harness fails loudly.
-- **A smoke test for the four CLI paths golden cannot see** (`--list-all`,
-  `--list`, `--frame`, `--check-permission`). Those hold the multi-line string
-  literals, which is exactly where a formatting change does silent damage.
+- ~~A smoke test for the CLI paths golden cannot see~~ — the screen lane runs
+  `--list-all` and `--list` against real windows; CI runs `--check-permission`.
 
 ## Explicitly out of scope (per current decision)
 

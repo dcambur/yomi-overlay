@@ -178,11 +178,15 @@ where one developer's version is at least consistent with itself.
 Three tiers, by what they need. Reach for the cheapest one that can see your
 change.
 
-| Suite | Needs | Sees |
+One command runs them, `test/run.sh`, and nothing it runs appears on screen
+([test/README.md](../test/README.md)).
+
+| Lane | Needs | Sees |
 |---|---|---|
-| `test/unit/run.sh` | nothing (`python3` for one) | lookup, the index builder, dictionary install/import/removal, settings, child supervision, the glyph layer |
-| `test/golden.sh` | a built `bin/yomi` | every byte the OCR helper emits |
-| `test/verify*.py` | Screen Recording, a live desktop, network | real capture geometry |
+| `logic` | node (`python3` for one) | lookup, the index builder, dictionary install/import/removal, config, Anki, child supervision |
+| `pages` | Electron | the overlay page (the glyph layer) and the settings page |
+| `screen` | Screen Recording, the overlay stopped | real capture geometry and window selection, and the real app end to end, on an invisible display |
+| `golden` | a built `bin/yomi` | every byte the OCR helper emits |
 
 - **A test may not depend on a file we cannot ship.** The dictionary suites
   used to read `data/dicts/`, which is gitignored and mostly commercial: on a
@@ -190,14 +194,15 @@ change.
   green meant nothing. Generate the input instead — `test/unit/fixtures/`
   writes the Yomitan archives, and that is also the only way to test a bad
   CRC, an unknown bank, or two dictionaries claiming one title. The same rule
-  is why `golden.sh` and `verify*.py` are separate tiers rather than skips.
+  is why `golden` and `screen` are lanes that fail when they cannot run
+  rather than skips.
 - **Record `golden.sh` before any structural change to the Swift, and require
   byte-identical output after.** It runs off `--image`, so it needs no
   permission and no window, and works while the overlay is running.
-- Golden cannot see `--list-all`, `--list`, `--frame` or `--check-permission`.
-  If you touch those, exercise them by hand.
-- The unattended suites do not load `app/main.js`. A five-second
-  `electron app/main.js` run is the cheapest check that it still starts.
+- Golden cannot see `--list-all`, `--list` or `--check-permission`; the
+  screen lane runs the first two.
+- The screen lane starts the real `app/main.js` with its own profile and user
+  directory, so it cannot touch your config, your index or a running copy.
 
 ## Workflow
 
@@ -213,8 +218,8 @@ change.
   `extend.plist`, the icon, or the Electron version changes. Nothing else may
   live in `app/shell/`: electron-packager copies that directory wholesale.
 - Re-run `tools/build-index.py` after adding dictionaries to `data/dicts/`.
-- Before claiming a geometry fix works, run the `verify*.py` suites. They need
-  the overlay **stopped** and the rig's windows on the active Space.
+- Before claiming a geometry fix works, run `test/run.sh screen`. It needs
+  the overlay **stopped**.
 
 ## Gotchas that will bite again
 
@@ -225,8 +230,10 @@ change.
   must be visible there needs `type: 'panel'` + `visibleOnFullScreen`.
 - A Space transition animates: capturing mid-slide reads a transient x. Let it
   settle before asserting.
+- `win.moveTop()` does not reorder an accessory app's windows; `showInactive()`
+  does (measured). CGWindowList's `optionAll` order is not z-order.
 - Electron *can* be driven from a plain shell, including a hidden
-  `show: false` window with real Chromium layout — that is how the renderer
-  suite runs. What cannot be scripted is the packaged `.app` and its TCC
-  prompts; ask a human to relaunch for those.
+  `show: false` window with real Chromium layout — that is how the page lane
+  runs. What cannot be scripted is the packaged `.app` and its TCC prompts;
+  ask a human to relaunch for those.
 - `mapfile` is bash 4. macOS ships bash 3.2.
