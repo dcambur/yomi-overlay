@@ -114,21 +114,62 @@ func contentRect(_ image: CGImage, scale: CGFloat) -> CGRect? {
     }
 }
 
-/// Races the capture against a deadline. SCScreenshotManager can stall
-/// indefinitely on a fullscreen window belonging to another Space, which would
-/// otherwise wedge the whole watch loop.
-func capture(_ target: TargetWindow, timeout: Double = 12) async throws -> Capture {
-    return try await withThrowingTaskGroup(of: Capture.self) { group in
-        group.addTask { try await captureOnce(target: target) }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            throw CaptureError.timedOut(timeout)
+/// How long a ScreenCaptureKit call may take before the pass gives up on it.
+/// Both capture and discovery can stall outright: a fullscreen window on
+/// another Space wedges the screenshot, and discovery once went silent for 40
+/// minutes (/tmp/yomi-overlay.log 2026-08-09 20:14→20:54).
+let sckDeadline: Double = 12
+
+/// `work`'s result, or `timedOut` thrown once `seconds` have passed —
+/// whichever comes first.
+///
+/// Not a task group, which is what both deadlines were: a group cannot finish
+/// while a child still runs, and ScreenCaptureKit's completion-handler calls
+/// ignore cancellation, so a stalled call held its "deadline" with it. Measured
+/// with a call that ignores cancellation: a 0.5 s deadline over 3 s of work
+/// threw at 3.20 s that way, at 0.51 s this way. The stalled call is
+/// abandoned, as LiveText.analyze abandons a request its watchdog timed out.
+func withDeadline<T>(
+    _ seconds: Double, orThrow timedOut: Error,
+    _ work: @escaping () async throws -> T
+) async throws -> T {
+    let once = ResumeOnce()
+    return try await withCheckedThrowingContinuation { cont in
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if once.claim() { cont.resume(throwing: timedOut) }
         }
-        guard let first = try await group.next() else {
-            throw CaptureError.timedOut(timeout)
+        Task {
+            do {
+                let value = try await work()
+                if once.claim() { cont.resume(returning: value) }
+            } catch {
+                if once.claim() { cont.resume(throwing: error) }
+            }
+            deadline.cancel()
         }
-        group.cancelAll()
-        return first
+    }
+}
+
+/// Lets exactly one of two racers resume a continuation.
+final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
+}
+
+/// The capture, raced against `sckDeadline`, so a stalled screenshot fails
+/// the pass instead of wedging the watch loop.
+func capture(_ target: TargetWindow, timeout: Double = sckDeadline) async throws -> Capture {
+    try await withDeadline(timeout, orThrow: CaptureError.timedOut(timeout)) {
+        try await captureOnce(target: target)
     }
 }
 

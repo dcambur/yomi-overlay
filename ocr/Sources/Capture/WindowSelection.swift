@@ -38,21 +38,10 @@ var target = Target()
 /// 40 minutes of total silence from a live watch process
 /// (/tmp/yomi-overlay.log 2026-08-09 20:14→20:54), ended only by a manual
 /// "Restart capture".
-func shareableContent(timeout: Double = 12) async throws -> SCShareableContent {
-    try await withThrowingTaskGroup(of: SCShareableContent.self) { group in
-        group.addTask {
-            try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: false)
-        }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            throw CaptureError.discoveryTimedOut(timeout)
-        }
-        guard let first = try await group.next() else {
-            throw CaptureError.discoveryTimedOut(timeout)
-        }
-        group.cancelAll()
-        return first
+func shareableContent(timeout: Double = sckDeadline) async throws -> SCShareableContent {
+    try await withDeadline(timeout, orThrow: CaptureError.discoveryTimedOut(timeout)) {
+        try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: false)
     }
 }
 
