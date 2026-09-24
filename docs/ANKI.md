@@ -15,8 +15,9 @@ the mark is filled in and clicking it removes the note again.
 
 Nothing is configurable about the note type: it is Lapis, by field name,
 because that is the note type the popup's data maps onto without a mapping
-editor. The Lapis note type is a free download
-(<https://github.com/donkuri/lapis>); Settings says so when it is missing.
+editor. Lapis is a free note type (<https://github.com/donkuri/lapis>, GPL-3.0);
+when Anki does not have it, the popup's marks say `no Lapis` and Settings → Anki
+installs it with one button (decision 7).
 
 ## What was measured before designing
 
@@ -123,6 +124,46 @@ popup's words once per popup, and only while Anki is enabled in Settings;
 a failed connection is reported on the mark, not retried per hover. Nothing
 in the renderer can reach the network — its CSP stays `default-src 'none'`.
 
+### 6. The mark says what stops a card, before it is clicked
+
+`find` asks `modelNames` and `deckNames` in the same `multi` as the searches,
+because a search for `note:Lapis` in a collection without Lapis answers
+"none": the mark offered an add that could only fail, and said so only in a
+tooltip after the click. Every refusal from `anki.js` carries a reason, and
+three of them are states of the mark, named in its label — a title shows only
+after a hover:
+
+| Reason | Mark | A click |
+|---|---|---|
+| `offline` — nothing at AnkiConnect's address | `Anki closed` | asks again, for every card |
+| `model` — no Lapis | `no Lapis` | opens Settings on the Anki tab |
+| `deck` — none chosen, or gone from Anki | `no deck` | opens Settings on the Anki tab |
+
+All three draw the same card outline struck through once, in the chip's
+colour: nothing is wrong with the word, and the warm red is kept for a note
+about to be deleted. Anything else is the `error` state, in the client's words.
+
+### 7. Installing Lapis makes the note type, not the package
+
+AnkiConnect's `importPackage` runs Anki's legacy importer, which reads
+`collection.anki2` from an `.apkg`. In Lapis 1.7.0's release that file has no
+Lapis at all — one note, "Please update to the latest Anki version" — and the
+real collection (`collection.anki21b`) also carries a `Lapis` deck with an
+example note and five media files (measured 2026-09-24). So the button does
+what Lapis's own build does (`build/genapkg.py`): one template, `Mining`, from
+`src/front.html` and `src/back.html`, the stylesheet `src/styling.css`, and the
+22 fields, made with `createModel`. The three files are fetched from the `1.7.0`
+tag on GitHub and checked against pinned SHA-256 digests, so a file changed
+under the tag is refused, not installed; they are GPL-3.0 and are never shipped
+with the app. Measured the same day: the tag's files are the release's note
+type byte for byte but for trailing whitespace Anki trims, and a note type made
+from them with `createModel`'s own steps in a scratch collection (Anki 25.07.5)
+renders a `lapisFields` note with no template error.
+
+Nothing else is written: no deck, no note, no media. The note type gets a new
+id rather than the release's, so importing a later `Lapis.apkg` over it is
+Anki's usual note-type import, not an in-place update.
+
 ## Note fields, and where each comes from
 
 | Lapis field | Value |
@@ -146,7 +187,11 @@ in the renderer can reach the network — its CSP stays `default-src 'none'`.
 Saved live, like the trigger tab: nothing restarts. The tab shows a status
 row with the same dot vocabulary the window picker uses — green `Ready`;
 amber `No Lapis`; grey `Not running` — with the one thing to do about it
-after the state, and nothing after `Ready`. Then the deck list, drawn as the
+after the state, and nothing after `Ready`. With `No Lapis` a second row says
+what installing adds (fields, template, styling; no deck, no notes) beside an
+`Install Lapis` button; while it runs, the dictionary tab's indeterminate bar,
+and after a failure the reason, with the button still there. The popup's
+`no Lapis` and `no deck` marks open the window on this tab. Then the deck list, drawn as the
 tree Anki's own deck browser shows: `deckNames` lists every level of
 `Parent::Child`, and flat that was 18 rows of repeated prefixes on this
 machine (3 roots). A parent folds its subdecks and says how many it hides;
@@ -164,14 +209,22 @@ that was moved or locked; the defaults are the add-on's.
   (信じ切る → `信[しん]じ 切[き]る`, 十中八九 → `十中八九[じっちゅうはっく]`, a
   kana word → empty), the search escaping, the harmonic rank, and the client
   against a local HTTP double that answers like AnkiConnect (add → find →
-  delete, duplicate refusal, model missing, connection refused).
+  delete, duplicate refusal, model missing, connection refused); the reason
+  on every refusal; the install — exactly `modelNames` then `createModel`
+  with the 22 fields and the `Mining` template, nothing fetched when Lapis is
+  there, a file whose digest differs refused before Anki is touched.
 - `test/unit/sentence.test.js` — sentences sliced from the real `page-a`
   and `page-b` payloads: crosses a wrapped line, stops at the paragraph gap,
   never leaves a column.
 - `test/unit/renderer.js` — the mark is drawn only when Anki is enabled, and
-  a click sends main a note whose Sentence bolds the matched glyphs.
+  a click sends main a note whose Sentence bolds the matched glyphs; `no
+  Lapis` is shown before a click and opens Settings, `Anki closed` asks again,
+  an add refused for its deck turns to `no deck`, and the strike is read from
+  the computed `::after`, not the class.
 - `test/unit/settings.js` — the tab renders decks from the bridge and saves
-  a deck choice without a button.
+  a deck choice without a button; the install row appears only with `No
+  Lapis`, shows its bar while installing, says why it failed, and main can
+  ask for the tab.
 
 ## Gates
 

@@ -183,6 +183,23 @@
      by turning to the one warm colour the popup otherwise never uses. */
   #popup .anki[data-state="confirm"], #popup .anki[data-state="error"] { color: #d88a8a; }
   #popup .anki[data-state="confirm"] .anki-card { border-style: dashed; }
+  /* Nothing can be made until something outside the popup changes (Anki
+     opened, Lapis installed, a deck chosen): the same outline, struck
+     through once. Chip-coloured, not the warm red — nothing is wrong with
+     this word, and red here means a note is about to go. The label names
+     the cause; the click goes where it is fixed. */
+  #popup .anki[data-state="offline"] .anki-card,
+  #popup .anki[data-state="nolapis"] .anki-card,
+  #popup .anki[data-state="nodeck"] .anki-card {
+    position: relative; overflow: hidden;
+  }
+  #popup .anki[data-state="offline"] .anki-card::after,
+  #popup .anki[data-state="nolapis"] .anki-card::after,
+  #popup .anki[data-state="nodeck"] .anki-card::after {
+    content: ''; position: absolute; left: -2px; right: -2px; top: 50%;
+    height: 1.5px; margin-top: -.75px; background: currentColor;
+    transform: rotate(-35deg);
+  }
   @keyframes anki-wait { 50% { opacity: .3; } }
   @media (prefers-reduced-motion: reduce) {
     #popup .anki-card { transition: none; animation: none; }

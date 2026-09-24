@@ -191,6 +191,15 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
     if (!isNum(noteId)) return reject('anki:remove', 'not a note id');
     return anki.remove(noteId);
   });
+  // Settings' "Install Lapis": the note type, fetched from its project at a
+  // pinned tag and made with createModel (anki.js says why not the .apkg).
+  ipcMain.handle('anki:install', () => anki.installLapis());
+  // A card mark that cannot make a card ("no Lapis", "no deck") opens the
+  // place where that is fixed.
+  ipcMain.on('settings:open', (_e, tab) => {
+    if (tab !== 'anki') return reject('settings:open', 'unknown tab');
+    openSettings(tab);
+  });
 
   // --- dictionaries ---------------------------------------------------
   // Adding or removing one changes the index the overlay reads, so every path

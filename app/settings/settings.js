@@ -590,7 +590,7 @@ function renderAnkiStatus() {
   } else if (s && s.running) {
     cls = 'away';
     state = 'No Lapis';
-    detail = 'import the note type from github.com/donkuri/lapis';
+    detail = 'install it below';
   } else if (s) {
     // Connection refused is the common case and has a plain reading; any
     // other failure (a timeout, a 403 from a locked AnkiConnect) is shown as
@@ -604,6 +604,43 @@ function renderAnkiStatus() {
   $('anki-dot').className = 'dot ' + cls;
   $('anki-state').textContent = state;
   $('anki-detail').textContent = detail;
+}
+
+// --- installing Lapis ---
+//
+// Offered only while Anki is running without Lapis. The row says what the
+// button will put in the collection before it is clicked — a note type from
+// someone else's project is a change to the reader's own Anki — and the button
+// keeps its name through the attempt, so "Install Lapis" is what it did.
+const LAPIS_WHAT = 'From github.com/donkuri/lapis 1.7.0: fields, template, styling. '
+  + 'No deck, no notes.';
+let installing = false;
+let installError = '';
+
+function renderInstall() {
+  const s = ankiStatus;
+  const missing = !!(s && s.running && !s.model);
+  $('anki-install-row').classList.toggle('hidden', !(missing || installing));
+  $('anki-install-prog').classList.toggle('hidden', !installing);
+  $('anki-install').disabled = installing;
+  $('anki-install-text').textContent = installing
+    ? 'Downloading and adding to Anki…'
+    : installError ? `Not installed: ${installError}` : LAPIS_WHAT;
+}
+
+async function installLapis() {
+  installing = true;
+  installError = '';
+  renderInstall();
+  let r;
+  try {
+    r = await window.settings.ankiInstall();
+  } catch (e) {
+    r = { ok: false, error: e.message };
+  }
+  installing = false;
+  if (!r || !r.ok) installError = (r && r.error) || 'Anki did not answer';
+  await refreshAnki();
 }
 
 async function refreshAnki() {
@@ -620,6 +657,7 @@ async function refreshAnki() {
     ankiStatus = { running: false, error: e.message };
   }
   renderAnkiStatus();
+  renderInstall();
   renderDecks();
 }
 
@@ -756,6 +794,9 @@ $('anki-tags').onchange = () => {
   saveAnki();
 };
 $('anki-refresh').onclick = () => refreshAnki();
+$('anki-install').onclick = () => installLapis();
+// The popup's "no Lapis" and "no deck" marks open this window on this tab.
+window.settings.onShowTab((name) => { if (PANELS[name]) showTab(name); });
 
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
@@ -838,7 +879,9 @@ async function init() {
   selected = { ...(config.target || {}) };
   renderTrigger();
   renderAnki();
-  showTab('window');
+  // Opened from a popup mark, the window starts on the tab that fixes it.
+  const asked = new window.URLSearchParams(window.location.search).get('tab');
+  showTab(PANELS[asked] ? asked : 'window');
   await refreshDictionaries();
   await refreshWindows();
 }

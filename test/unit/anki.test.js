@@ -16,8 +16,10 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-anki-'));
+const crypto = require('crypto');
 const {
   createAnki, lapisFields, furiganaPlain, harmonicRank, searchValue, MODEL, NO_FREQUENCY,
+  LAPIS_FIELDS, LAPIS_SOURCE,
 } = require(path.join(ROOT, 'app', 'main', 'anki.js'));
 
 // --- the note builder ---------------------------------------------------------
@@ -102,9 +104,15 @@ test('several accents are several brackets; a list name is escaped', () => {
 
 // --- the client, against an AnkiConnect double ---------------------------------
 
-/** What plugin/__init__.py answers, for the actions the client uses. */
+/**
+ * What plugin/__init__.py answers, for the actions the client uses. It also
+ * serves `lapis` under /lapis/, standing in for GitHub's raw host.
+ */
 function ankiDouble() {
   const notes = new Map();   // id -> {deck, fields, tags, picture}
+  const models = ['Basic', MODEL];
+  const created = [];        // createModel's params, as received
+  const lapis = {};          // file name -> body served under /lapis/
   let nextId = 1000;
   const log = [];
   const one = (req) => {
@@ -113,7 +121,7 @@ function ankiDouble() {
     if (req.version !== 6) throw new Error('version 6 expected on every action');
     switch (req.action) {
       case 'version': return 6;
-      case 'modelNames': return ['Basic', MODEL];
+      case 'modelNames': return models.slice();
       case 'deckNames': return ['Default', 'Mining', 'Mining::Novels'];
       case 'findNotes': {
         const m = /^"deck:(.+?)" "note:Lapis" "expression:(.+)"$/.exec(p.query);
@@ -125,7 +133,9 @@ function ankiDouble() {
       }
       case 'addNote': {
         const n = p.note;
-        if (n.modelName !== MODEL) throw new Error(`model was not found: ${n.modelName}`);
+        if (!models.includes(n.modelName)) {
+          throw new Error(`model was not found: ${n.modelName}`);
+        }
         if (!['Default', 'Mining', 'Mining::Novels'].includes(n.deckName)) {
           throw new Error(`deck was not found: ${n.deckName}`);
         }
@@ -142,6 +152,11 @@ function ankiDouble() {
         notes.set(id, { deck: n.deckName, fields: n.fields, tags: n.tags, picture });
         return id;
       }
+      case 'createModel':
+        if (models.includes(p.modelName)) throw new Error('Model name already exists');
+        created.push(p);
+        models.push(p.modelName);
+        return { name: p.modelName };
       case 'deleteNotes':
         for (const id of p.notes) notes.delete(id);
         return null;
@@ -154,6 +169,12 @@ function ankiDouble() {
     }
   };
   const server = http.createServer((req, res) => {
+    if (req.method === 'GET') {
+      const name = req.url.replace(/^\/lapis\//, '');
+      if (!(name in lapis)) { res.statusCode = 404; res.end(); return; }
+      res.end(lapis[name]);
+      return;
+    }
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
@@ -164,7 +185,7 @@ function ankiDouble() {
       res.end(JSON.stringify(out));
     });
   });
-  return { server, notes, log };
+  return { server, notes, log, models, created, lapis };
 }
 
 const double = ankiDouble();
@@ -340,4 +361,141 @@ test('an API key rides along on every action, sub-actions included', async () =>
   } finally {
     settings.key = null;
   }
+});
+
+// --- what stops a card, and installing Lapis -----------------------------------
+
+/** Take Lapis out of the double for one test, and put it back after. */
+async function withoutLapis(fn) {
+  const at = double.models.indexOf(MODEL);
+  double.models.splice(at, 1);
+  try { await fn(); } finally {
+    if (!double.models.includes(MODEL)) double.models.push(MODEL);
+    double.created.length = 0;
+  }
+}
+
+test('no Lapis in Anki: find says so before any add is offered, and add names it', async () => {
+  await withoutLapis(async () => {
+    const anki = createAnki({ cfg });
+    const found = await anki.find(['牽引']);
+    assert.strictEqual(found.ok, false);
+    assert.strictEqual(found.reason, 'model');
+    assert.match(found.error, /Lapis note type is not in Anki/);
+    const added = await anki.add({ expression: '牽引', reading: 'けんいん' });
+    assert.strictEqual(added.reason, 'model');
+    assert.strictEqual(double.notes.size, 0);
+  });
+});
+
+test('a chosen deck gone from Anki is a deck problem, found before a click', async () => {
+  const anki = createAnki({ cfg });
+  settings.deck = 'Nope';
+  try {
+    const found = await anki.find(['x']);
+    assert.deepStrictEqual([found.ok, found.reason], [false, 'deck']);
+    assert.match(found.error, /deck "Nope" is not in Anki/);
+    assert.strictEqual((await anki.add({ expression: 'x' })).reason, 'deck');
+  } finally {
+    settings.deck = 'Mining';
+  }
+});
+
+test('each refusal carries its reason: off, no deck chosen, not running', async () => {
+  const anki = createAnki({ cfg });
+  settings.enabled = false;
+  assert.strictEqual((await anki.find(['x'])).reason, 'off');
+  settings.enabled = true;
+  settings.deck = null;
+  assert.strictEqual((await anki.find(['x'])).reason, 'deck');
+  settings.deck = 'Mining';
+
+  const closed = http.createServer();
+  await new Promise((r) => closed.listen(0, '127.0.0.1', r));
+  const port = closed.address().port;
+  await new Promise((r) => closed.close(r));
+  const off = createAnki({ cfg: { anki: () => ({ ...settings, url: `http://127.0.0.1:${port}` }) } });
+  assert.strictEqual((await off.find(['x'])).reason, 'offline');
+  assert.strictEqual((await off.add({ expression: 'x' })).reason, 'offline');
+  assert.strictEqual((await off.installLapis()).reason, 'offline');
+});
+
+test('every field the note builder writes is one Lapis has', () => {
+  const written = Object.keys(lapisFields({ expression: 'x' }));
+  for (const f of written) assert.ok(LAPIS_FIELDS.includes(f), f);
+  assert.strictEqual(LAPIS_FIELDS.length, 22);
+});
+
+/** Serve these files as Lapis, and a source that pins their real digests. */
+function serveLapis(files) {
+  Object.assign(double.lapis, files);
+  const sha256 = {};
+  for (const [name, body] of Object.entries(files)) {
+    sha256[name] = crypto.createHash('sha256').update(body).digest('hex');
+  }
+  return { tag: 'test', base: `${url}/lapis/`, sha256 };
+}
+const LAPIS_FILES = {
+  'front.html': '<div>{{Expression}}</div>', 'back.html': '<div>{{Glossary}}</div>',
+  'styling.css': '.card { color: black; }',
+};
+
+test('install: the note type from the three files, and nothing else', async () => {
+  await withoutLapis(async () => {
+    const anki = createAnki({ cfg, lapisSource: serveLapis(LAPIS_FILES) });
+    const from = double.log.length;
+    assert.deepStrictEqual(await anki.installLapis(), { ok: true });
+    assert.strictEqual(double.created.length, 1);
+    const m = double.created[0];
+    assert.strictEqual(m.modelName, MODEL);
+    assert.deepStrictEqual(m.inOrderFields, LAPIS_FIELDS);
+    assert.strictEqual(m.css, LAPIS_FILES['styling.css']);
+    assert.strictEqual(m.isCloze, false);
+    assert.deepStrictEqual(m.cardTemplates, [{
+      Name: 'Mining', Front: LAPIS_FILES['front.html'], Back: LAPIS_FILES['back.html'],
+    }]);
+    const sent = double.log.slice(from).map((r) => r.action);
+    assert.deepStrictEqual(sent, ['modelNames', 'createModel']);
+    assert.ok(!sent.includes('importPackage') && !sent.includes('createDeck')
+              && !sent.includes('addNote'), 'no deck, no note: ' + sent.join(' '));
+    // And the popup's search now finds a Lapis to search in.
+    assert.deepStrictEqual(await anki.find(['猫']), { ok: true, ids: [null] });
+  });
+});
+
+test('install when Lapis is already there changes nothing and fetches nothing', async () => {
+  const lapisSource = { tag: 'x', base: `${url}/nowhere/`, sha256: { a: 'b' } };
+  const anki = createAnki({ cfg, lapisSource });
+  assert.deepStrictEqual(await anki.installLapis(), { ok: true, existed: true });
+  assert.strictEqual(double.created.length, 0);
+});
+
+test('install refuses a file that is not the pinned one, before Anki is touched', async () => {
+  await withoutLapis(async () => {
+    const source = serveLapis(LAPIS_FILES);
+    double.lapis['back.html'] = '<div>something else</div>';
+    const anki = createAnki({ cfg, lapisSource: source });
+    const r = await anki.installLapis();
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /back\.html is not the one Lapis test released/);
+    assert.strictEqual(double.created.length, 0);
+    assert.ok(!double.models.includes(MODEL));
+  });
+});
+
+test('install says which file GitHub would not give', async () => {
+  await withoutLapis(async () => {
+    const lapisSource = { tag: 't', base: `${url}/lapis/`, sha256: { 'missing.css': '0' } };
+    const anki = createAnki({ cfg, lapisSource });
+    const r = await anki.installLapis();
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /GitHub answered 404 for missing\.css/);
+  });
+});
+
+test('the pinned source is Lapis 1.7.0 on GitHub, with a digest per file', () => {
+  assert.strictEqual(LAPIS_SOURCE.base, 'https://raw.githubusercontent.com/donkuri/lapis/1.7.0/src/');
+  assert.deepStrictEqual(Object.keys(LAPIS_SOURCE.sha256).sort(),
+                         ['back.html', 'front.html', 'styling.css']);
+  for (const d of Object.values(LAPIS_SOURCE.sha256)) assert.match(d, /^[0-9a-f]{64}$/);
 });
