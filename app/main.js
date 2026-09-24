@@ -88,7 +88,7 @@ function onOcrLine(payload) {
   // and aligned, but don't hand the renderer an empty line set — that would
   // wipe the glyph layer it is still using.
   if (payload.unchanged) return;
-  overlayWindow.send('capture', payload);
+  overlayWindow.sendCapture(payload);
 }
 
 const ocrChild = new SupervisedChild({

@@ -486,6 +486,8 @@ async function devtools(profile) {
     /** A pointer event delivered to the page itself: the real cursor stays put. */
     mouse: (type, x, y, extra = {}) =>
       call('Input.dispatchMouseEvent', { type, x, y, ...extra }),
+    /** Kill the page's renderer process. The socket goes with it. */
+    crash: () => { call('Page.crash').catch(() => {}); },
     close: () => ws.close(),
   };
 }
@@ -589,6 +591,26 @@ async function appScenario(A, B) {
             `sentence: ${n.fields.Sentence}`);
       check(n.picture.length === 1 && n.picture[0].bytes.subarray(1, 4).toString() === 'PNG',
             'the picture is not a PNG');
+    });
+
+    await test('a crashed overlay page comes back with its glyph layer', async () => {
+      const count = "document.querySelectorAll('.g').length";
+      const before = await cdp.eval(count);
+      cdp.crash();
+      cdp.close();
+      // The page is reloaded in a new renderer; the old target lingers a beat.
+      await sleep(500);
+      cdp = await waitFor('the reloaded page', async () => {
+        try {
+          const c = await devtools(profile);
+          await c.eval('1');
+          return c;
+        } catch { return null; }
+      });
+      // A static page: only heartbeats arrive, and they carry no lines — the
+      // layer can only come back if main replays what it last sent.
+      await waitFor('the layer to come back', async () =>
+        (await cdp.eval(count)) === before, 5000);
     });
 
     await test('the overlay leaves when the target does', async () => {
