@@ -236,6 +236,9 @@ test('off, or no deck: refused before Anki is asked', async () => {
   const sent = double.log.length;
   settings.enabled = false;
   assert.match((await anki.find(['x'])).error, /off in Settings/);
+  // Removal too: a popup still open when Anki was switched off keeps its
+  // marks, and its two-click remove must not reach the collection.
+  assert.match((await anki.remove(1001)).error, /off in Settings/);
   settings.enabled = true;
   settings.deck = null;
   assert.match((await anki.add({ expression: 'x' })).error, /no deck/);

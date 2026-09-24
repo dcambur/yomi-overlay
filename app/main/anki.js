@@ -271,6 +271,11 @@ function createAnki({ cfg, requestCrop }) {
   }
 
   async function remove(noteId) {
+    // Gated like add and find (ANKI.md, decision 5): a popup still open when
+    // Anki was switched off keeps its marks, and its remove must not reach
+    // the collection.
+    const refused = gate();
+    if (refused) return { ok: false, error: refused };
     try {
       await invoke('deleteNotes', { notes: [noteId] });
       logf(`[anki] removed note ${noteId}`);

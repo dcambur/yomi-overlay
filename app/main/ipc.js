@@ -188,7 +188,9 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
     return anki.add(note);
   });
   ipcMain.handle('anki:remove', (_e, noteId) => {
-    if (!isNum(noteId)) return reject('anki:remove', 'not a note id');
+    if (!(Number.isSafeInteger(noteId) && noteId > 0)) {
+      return reject('anki:remove', 'not a note id');
+    }
     return anki.remove(noteId);
   });
 
