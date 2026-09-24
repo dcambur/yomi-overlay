@@ -13,7 +13,5 @@
   window.hud = {
     element: hud,
     show: showHud,
-    /** Replace the resting text (what the HUD says when nothing is happening). */
-    setText(html) { hud.innerHTML = html; },
   };
 })();

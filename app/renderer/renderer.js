@@ -24,7 +24,7 @@ window.overlay.onCapture(payload => {
     // previous page and every later lookup would silently miss.
     if (glyphLayer.isPageTurn(payload)) {
       const texts = (payload.lines || []).map(l => l.text);
-      if (turnCandidate && glyphLayer.sharedText(texts, turnCandidate) >= 0.5) {
+      if (turnCandidate && glyphLayer.sameTurn(texts, turnCandidate)) {
         console.log('popup: page turn confirmed — dismissing');
         turnCandidate = null;
         pendingPayload = null;      // superseded by this payload
@@ -45,9 +45,6 @@ window.overlay.onCapture(payload => {
   pendingPayload = null;    // superseded: applying it later would revert this
   applyPayload(payload);
 });
-
-// Target changed. Every span belongs to a window we no longer track, and the
-// text-only signature must not be compared across two different apps — a stale
 
 // Target changed. Every span belongs to a window we no longer track, and the
 // old placement described the old target.
@@ -98,7 +95,8 @@ function applyPayload(payload) {
     lookupSeq++;
     if (popupView.visible()) dismiss();
     hud.show(`${glyphLayer.lineCount} lines · ${glyphLayer.glyphCount} glyphs — ` +
-             `<b>${MODIFIER_LABEL[trigger.modifier] || 'Shift'}</b> + point`);
+             (trigger.mode === 'hover' ? 'hover to look up'
+               : `<b>${MODIFIER_LABEL[trigger.modifier] || 'Shift'}</b> + point`));
   }
   return outcome;
 }
@@ -146,9 +144,6 @@ window.overlay.onViewConfig((v) => {
 window.overlay.onTriggerConfig(t => {
   trigger = { ...trigger, ...t };
   if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
-  hud.setText(trigger.mode === 'hover'
-    ? 'overlay ready — hover to look up'
-    : `overlay ready — <b>${MODIFIER_LABEL[trigger.modifier] || 'Shift'}</b> + point`);
 });
 
 function setInteractive(v) {
