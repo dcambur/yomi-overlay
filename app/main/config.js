@@ -17,20 +17,6 @@ const USER_MANIFEST = path.join(USER_DIR, 'dictionaries.json');
 const MANIFEST_PATH = fs.existsSync(USER_MANIFEST)
   ? USER_MANIFEST : path.join(ASSET_DIR, 'dictionaries.json');
 
-// Every dictionary the index can contain, in a sensible default order.
-// `enabled` and position are both user-editable in the settings window.
-const DEFAULT_DICTIONARIES = [
-  { name: 'Jitendex', enabled: true },
-  { name: '三省堂', enabled: true },
-  { name: '明鏡', enabled: true },
-  { name: '旺文社', enabled: true },
-  { name: '実用', enabled: true },
-  { name: 'DOJG', enabled: true },
-  { name: 'どんなとき', enabled: true },
-  { name: 'Names', enabled: true },
-  { name: 'KANJIDIC', enabled: true },
-];
-
 // How a lookup is triggered.
 //   modifier: which key must be held — Shift collides with shift-click and some
 //             IME candidate selection, so it has to be changeable.
@@ -50,11 +36,10 @@ const DEFAULT_ANKI = {
 };
 
 const DEFAULTS = {
-  // null target => first run, settings window opens so a window can be picked.
+  // Until a target is chosen (targetChosen), settings opens at launch.
   // `app` is the target's name, set only for an app that has no bundle id — a
   // CrossOver .exe is a bare executable — and yomi follows it with --app.
   target: { bundle: 'com.amazon.Lassen', app: null, windowId: null, label: 'Amazon Kindle' },
-  dictionaries: DEFAULT_DICTIONARIES,
   interval: 0.6,
   trigger: DEFAULT_TRIGGER,
   // Which recognizer yomi uses: 'auto' prefers Live Text (private
@@ -82,10 +67,10 @@ let chosen = {};
 /**
  * The dictionaries actually present in index.db, in build order.
  *
- * build-index.py writes this alongside the index. The hardcoded list above is
- * only a fallback: relying on it alone meant a dictionary the user dropped into
- * dicts/ was indexed and queryable but absent from the settings window, so it
- * could be neither hidden nor reordered.
+ * The index builder writes this alongside the index. It is the only list: a
+ * hardcoded one meant a dictionary the user dropped into dicts/ was indexed
+ * and queryable but absent from the settings window, so it could be neither
+ * hidden nor reordered.
  */
 function knownDictionaries() {
   try {
@@ -267,5 +252,5 @@ module.exports = {
   load, save, targetChosen, enabledDictionaries, targetArgs, trigger, anki,
   refreshDictionaries,
   manifestPath,
-  CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, DEFAULT_ANKI, sanitize,
+  CONFIG_PATH, DEFAULT_TRIGGER, DEFAULT_ANKI, sanitize,
 };

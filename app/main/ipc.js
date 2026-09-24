@@ -22,7 +22,7 @@ const dictionaries = require('./dictionaries.js');
 const { createQueue } = require('./job-queue.js');
 const media = require('./media.js');
 const lookupModule = require('./lookup.js');
-const { openSettings, closeSettings } = require('./settings-window.js');
+const { closeSettings } = require('./settings-window.js');
 
 // Lookup scans at most 12 glyphs; the renderer sends the rest of the line.
 // A cap well above that is a guard against a runaway payload, not a limit.
@@ -38,7 +38,6 @@ function reject(channel, why) {
 }
 
 const isStr = (v, max) => typeof v === 'string' && v.length <= max;
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 /** The glyph array the renderer sends, or a plain string. */
 function validGlyphs(v) {
@@ -100,15 +99,11 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
       reject('cfg:save', 'not an object');
       return cfg.load();
     }
-    const before = cfg.trigger();
     // config.js clamps the values it knows; this only guarantees it is handed
-    // something object-shaped to merge.
+    // something object-shaped to merge. The window's footer sends only the
+    // target — the trigger has its own channel, below.
     cfg.save(next);
     tray.refresh();
-    overlayWindow.sendTrigger();
-    // The modifier is baked into the event monitor's arguments, so a change to
-    // it needs a fresh child; mode/delay are renderer-side and do not.
-    if (cfg.trigger().modifier !== before.modifier) eventsChild.restart();
     // Retarget: drop the stale glyph layer, then restart capture. The old
     // process must be gone before the new one starts, or both stream payloads
     // and fight over the overlay's bounds.
@@ -321,4 +316,4 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
   ipcMain.on('cfg:close', () => closeSettings());
 }
 
-module.exports = { register, openSettings, isNum, isStr };
+module.exports = { register };

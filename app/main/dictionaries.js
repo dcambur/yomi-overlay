@@ -435,6 +435,5 @@ module.exports = {
   rebuildAsync, pruneAsync, prune, labelOf, writeManifest, dropDuplicates,
   // Exported so the catalogue can be checked for reachability without
   // downloading gigabytes: every entry must still resolve to a real URL.
-  resolveURL,
   DICTS_DIR, INDEX_PATH,
 };

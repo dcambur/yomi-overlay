@@ -58,12 +58,9 @@ app.on('second-instance', () => {
   // A second launch is a request to configure, not to run twice.
   openSettings();
 });
-const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
-
 // The watch process emits a payload, heartbeat, or idle marker every pass, so
 // prolonged TOTAL silence means it wedged — not that the target is off screen.
 const OCR_WATCHDOG_MS = 120000;
-// Last target-frame origin sent to the renderer, so it is only resent when it
 
 /**
  * One line of NDJSON from the capture child: payload, heartbeat, idle marker
@@ -105,7 +102,7 @@ const ocrChild = new SupervisedChild({
     const conf = cfg.load();
     const voting = conf.voting || {};
     console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
-    return ['--json', '--watch', '--interval', INTERVAL,
+    return ['--json', '--watch', '--interval', String(conf.interval || 0.6),
             '--engine', conf.engine || 'auto',
             '--votes', String(voting.passes ?? 3),
             '--vote-every', String(voting.everyN ?? 2),
@@ -126,8 +123,6 @@ const ocrChild = new SupervisedChild({
   logError: (m) => console.error(m),
 });
 
-// Global Shift / click monitor. Lets a lookup fire without the cursor having
-// to move — the overlay itself can only see forwarded mouse-move messages.
 /** A global modifier press or click, already in screen coordinates. */
 function onTriggerEvent(ev) {
   if (!overlayWindow.isVisible()) return;
@@ -211,11 +206,6 @@ app.whenReady().then(() => {
   // Not "no config file": saving any other tab first used to create one.
   if (!cfg.targetChosen()) openSettings();
 });
-
-// The app has no Dock icon and no menu bar (LSUIElement), so the menu-bar item
-// is the only discoverable way in — a global shortcut alone is not findable.
-// Screen Recording is required for every capture. Without it nothing works and
-
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 
