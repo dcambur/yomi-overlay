@@ -141,7 +141,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 FileHandle.standardError.write(msg.data(using: .utf8)!)
             }
 
-            cropChannel.store(shot.image, region: shot.region)
+            cropChannel.store(shot.image, geometry: shot.geometry)
             cropChannel.drain()
 
             // Skip the expensive recognition pass when neither the
@@ -158,7 +158,7 @@ func runWatchLoop(_ opts: Options) async throws {
                     voteBuf.count < opts.votes,
                     stablePasses % opts.voteEvery == 0
                 {
-                    let geom = Geometry(region: shot.region, window: shot.region)
+                    let geom = shot.geometry
                     let (pass, _) = try await recognizeAuto(
                         shot.image, geometry: geom, forced: opts.vertical,
                         session: session)
@@ -221,7 +221,7 @@ func runWatchLoop(_ opts: Options) async throws {
             // that error. The consumer places the layer at the region
             // origin, so region-relative coordinates land exactly on
             // the real glyphs whatever the window claims.
-            let geom = Geometry(region: shot.region, window: shot.region)
+            let geom = shot.geometry
             // Geometry is passed in text mode too: ruby detection
             // needs char boxes (heights + adjacency).
             var (lines, isVertical) = try await recognizeAuto(

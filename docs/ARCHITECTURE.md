@@ -69,10 +69,15 @@ So:
 - Capture is **display-scoped with all other windows excluded**. Still only the
   target's pixels (guarantee preserved by the filter), but not routed through
   the window's own rect.
-- Such a capture composites the window at the **image origin, 1:1** (verified by
-  dumping a capture of a window at (300,200): its top-left glyph landed at 0,0).
-  Normalising against the display rect therefore yields *undistorted
-  window-local* coordinates.
+- Such a capture composites the window **1:1**, at the image origin as a rule
+  (verified by dumping a capture of a window at (300,200): its top-left glyph
+  landed at 0,0) — but not always. Measured 2026-09-24 on a second display: the
+  first capture after the display appeared drew a window that sits 90pt below
+  the display's top at (0,89), and a layer mapped as if it sat at (0,0) put
+  every glyph 89pt low until the next pass. So where the window was drawn is
+  measured from the alpha channel too, like its size, and subtracted.
+  Normalising against the display rect then yields *undistorted window-local*
+  coordinates.
 - The window's true **origin** is recovered by measuring the capture's content
   extent through the **alpha channel** — with every other window excluded, only
   the target is opaque, so the extent is the window's true size. Covers a

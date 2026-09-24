@@ -26,7 +26,7 @@ final class CropChannel {
     private let lock = NSLock()
     private var pending: [Req] = []
     private var lastImage: CGImage?
-    private var lastRegion: CGRect = .zero
+    private var lastGeometry = Geometry(region: .zero, window: .zero)
 
     func startReader() {
         let t = Thread {
@@ -49,10 +49,10 @@ final class CropChannel {
         t.start()
     }
 
-    func store(_ image: CGImage, region: CGRect) {
+    func store(_ image: CGImage, geometry: Geometry) {
         lock.lock()
         lastImage = image
-        lastRegion = region
+        lastGeometry = geometry
         lock.unlock()
     }
 
@@ -62,17 +62,21 @@ final class CropChannel {
         let reqs = pending
         pending = []
         let img = lastImage
-        let region = lastRegion
+        let geometry = lastGeometry
         lock.unlock()
         guard !reqs.isEmpty else { return }
         for r in reqs {
             var ok = false
+            let region = geometry.region
             if let img, region.width > 0 {
-                // Frame points -> capture pixels (Retina: image is 2x region).
+                // Frame points -> capture pixels (Retina: image is 2x region),
+                // offset by where the window was drawn in the image.
                 let sx = Double(img.width) / region.width
                 let sy = Double(img.height) / region.height
+                let dx = geometry.window.minX - region.minX
+                let dy = geometry.window.minY - region.minY
                 let px = CGRect(
-                    x: r.rect.minX * sx, y: r.rect.minY * sy,
+                    x: (r.rect.minX + dx) * sx, y: (r.rect.minY + dy) * sy,
                     width: r.rect.width * sx, height: r.rect.height * sy
                 )
                 .intersection(CGRect(x: 0, y: 0, width: img.width, height: img.height))
