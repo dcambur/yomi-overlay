@@ -3,8 +3,8 @@
 Things noticed in passing that are **behaviour changes**, so they must not ride
 along in a structural commit (REFACTOR-INTEGRATION.md: move code, or change
 code, never both). Each needs its own commit, and a measurement before anyone
-touches it. A fixed entry is deleted, and its number is not reused: 1 and 4
-were fixed on 2026-09-24 (the commits say how).
+touches it. A fixed entry is deleted, and its number is not reused: 1, 3 and
+4 were fixed on 2026-09-24 (the commits say how).
 
 ---
 
@@ -48,28 +48,3 @@ Uncertain: whether the trigger is the cdhash, the path change
 (`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
 same step. To separate them, restore a previously-run binary at the *new* path
 and relaunch: if it captures first try, the cdhash is the trigger.
-
----
-
-## 3. The 12 s deadline cannot outrun the ScreenCaptureKit call it races
-
-[ocr/Sources/Capture/Capture.swift](../ocr/Sources/Capture/Capture.swift) and
-[ocr/Sources/Capture/WindowSelection.swift](../ocr/Sources/Capture/WindowSelection.swift)
-
-Both race the SCK call against a sleeper in a `withThrowingTaskGroup`. When
-the sleeper wins, `group.next()` throws — and then the group *waits for the
-other child to finish* before the throw propagates, because structured
-concurrency never exits with a live child. `SCScreenshotManager.captureImage`
-and `SCShareableContent.excludingDesktopWindows` are bridged
-completion-handler APIs and do not observe cancellation, so a stalled call
-stalls the deadline with it. Found by reading (2026-09-19); the effect
-depends on SCK genuinely never returning, which is the 40-minute silence
-measured 2026-08-09 — so the bound that actually ended it was main.js's
-2-minute watchdog, not this code.
-
-Fix, if measured to matter: race with an unstructured `Task` and a
-continuation the timeout resumes first, leaking the SCK call the way
-`LiveText.analyze` already leaks its watchdog-timed-out request. Changes
-the capture path, so it needs the golden baseline and a stalled-SCK repro.
-
----
