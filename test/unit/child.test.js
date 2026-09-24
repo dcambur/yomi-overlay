@@ -159,6 +159,23 @@ test('a stale process exiting cannot schedule a restart', async () => {
   live.kill();
 });
 
+test('output a stopped child already wrote is not delivered', async () => {
+  // A retarget stops the old child; a payload it wrote just before must not
+  // rebuild the old target's layer after the reset.
+  const { child, lines } = stub('echo');
+  child.start();
+  child.write('first\n');
+  await until(() => lines.length === 1, 'the stub to answer');
+  child.write('late\n');
+  // Hold the event loop while the answer lands in the pipe, as a busy main
+  // thread does; then stop, before the data event can run.
+  const t = Date.now();
+  while (Date.now() - t < 300) { /* busy */ }
+  child.stop();
+  await wait(100);
+  assert.deepStrictEqual(lines.map((l) => l.echo), ['first'], 'the stopped child spoke');
+});
+
 test('a child that ignores SIGTERM is escalated to SIGKILL', async () => {
   const { child, lines } = stub('ignore-sigterm');
   const p = child.start();

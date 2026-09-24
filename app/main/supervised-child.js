@@ -79,6 +79,10 @@ class SupervisedChild {
 
     const split = lineSplitter(this.onLine);
     proc.stdout.on('data', (chunk) => {
+      // A child we stopped is still read until its pipe drains. What it wrote
+      // before the stop describes the old target: after a retarget it would
+      // rebuild the layer the reset just cleared.
+      if (proc.deliberate) return;
       // Any stdout at all is proof of life, whatever it says — that is what
       // the watchdog is asking about.
       this.lastOutput = Date.now();
