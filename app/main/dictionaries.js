@@ -303,7 +303,10 @@ function prunable(db) {
  */
 function prune(label, onProgress = () => {}) {
   if (!fs.existsSync(INDEX_PATH)) return { pruned: false, reason: 'no index' };
-  const db = new DatabaseSync(INDEX_PATH);
+  // The main process's lookup connection may be mid-statement when this
+  // commits. It lets go within milliseconds, and this runs in the index
+  // worker, where waiting costs nothing — failing costs the ~80 s rebuild.
+  const db = new DatabaseSync(INDEX_PATH, { timeout: 5000 });
   try {
     if (!prunable(db)) return { pruned: false, reason: 'index predates per-dictionary rows' };
     onProgress({ phase: 'pruning', step: 'entries', done: 0, total: 3 });
