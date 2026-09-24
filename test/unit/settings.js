@@ -275,7 +275,9 @@ async function run() {
     await settle(2200);      // the poll runs every 2s
     assert.strictEqual(windowListCalls, before, 'yomi --list-all ran for a hidden list');
     await js("document.querySelector('[data-tab=\"window\"]').click()");
-    await settle(2200);
+    // Shown again, it catches up on the next tick — no need to sit out a
+    // whole period to see that.
+    for (let t = 0; t < 25 && windowListCalls === before; t++) await settle(100);
     assert.ok(windowListCalls > before, 'the shown list stopped tracking the windows');
   });
 
