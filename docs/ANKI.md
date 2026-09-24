@@ -61,7 +61,7 @@ editor. The Lapis note type is a free download
 | [app/renderer/popup.js](../app/renderer/popup.js) | the card mark on each headword line, and the note it asks main to build — the definitions come from the DOM it already rendered |
 | [app/renderer/renderer.js](../app/renderer/renderer.js) | when the marks are asked about (once per popup) and what a click means |
 | [app/settings/settings.js](../app/settings/settings.js) | the Anki tab: on/off, status, deck, tags, picture |
-| [app/main/tier2.js](../app/main/tier2.js) | `requestCrop`: the JS end of the watch process's crop channel, now shared by the shadow probe and the picture |
+| [app/main/crop.js](../app/main/crop.js) | `requestCrop`: the JS end of the watch process's crop channel |
 
 ## The decisions
 
@@ -98,9 +98,10 @@ audio card hides it — and everything else is HTML-escaped.
 ### 3. The picture is a crop from the watch process
 
 Re-capturing would need a second ScreenCaptureKit session, which stalls
-(CONVENTIONS, gotchas). The watch process already serves crops of its last
-frame over stdin for the tier-2 probe, so the picture is that: the sentence's
-glyph boxes, padded by one glyph size, upscaled 2× as every crop is. Main
+(CONVENTIONS, gotchas). The watch process serves crops of its last frame
+over stdin (built for the tier-2 probe, since removed), so the picture is
+that: the sentence's glyph boxes, padded by one glyph size, upscaled 2× as
+every crop is. Main
 waits up to 3s for it and adds the note without a picture if it does not
 come — a card without a picture is still a card; a card that never arrives
 is not.

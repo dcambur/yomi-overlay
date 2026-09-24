@@ -43,7 +43,7 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [ocr/Sources/Geometry/](../ocr/Sources/Geometry/) | tategaki reflow (§9), furigana stripping, the shared ink primitives |
 | [app/main/supervised-child.js](../app/main/supervised-child.js) | both helper processes: spawn, NDJSON, restart, watchdog |
 | [app/main/overlay-window.js](../app/main/overlay-window.js) | the panel; pinning it to a display and telling the renderer where the target is (§4) |
-| [app/main/tier2.js](../app/main/tier2.js) | the manga-ocr second opinion, shadow mode only |
+| [app/main/crop.js](../app/main/crop.js) | pixels of the target, cut from the watch process's last frame (the Anki picture) |
 | [app/main/ipc.js](../app/main/ipc.js) | every channel the renderer can use, and the validation on it |
 | [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + jp-verbs deinflection (main process: `node:sqlite` is sync) |
 | [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |

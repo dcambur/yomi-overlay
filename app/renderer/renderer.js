@@ -72,7 +72,6 @@
   window.overlay.onDismiss(() => dismiss());
 
   let pageVertical = false;   // tategaki page: popup goes left of the column
-  let lastTier2Surface = '';  // last word sent to the tier-2 shadow probe
   let lastHit = null;         // {li, ci} of the glyph the open popup answers for
   let ankiSeq = 0;            // discards Anki replies for a popup since replaced
   // Removal takes two clicks: the second must come within this long, or the
@@ -306,23 +305,6 @@
 
     // Highlight exactly the glyphs the match covers.
     glyphLayer.highlight(li, ci, res.matchLength);
-
-    // Tier-2 shadow probe (Phase 3): ship the matched word's EXACT glyph-box
-    // union — word-sized crops are the one granularity manga-ocr reads well
-    // (whole lines make it hallucinate; measured). Once per surface, not per
-    // hover jitter.
-    if (res.surface !== lastTier2Surface) {
-      lastTier2Surface = res.surface;
-      const cs = ((glyphLayer.lineAt(li) || {}).chars || []).slice(ci, ci + res.matchLength);
-      if (cs.length) {
-        const x0 = Math.min(...cs.map(c => c.x)), y0 = Math.min(...cs.map(c => c.y));
-        const x1 = Math.max(...cs.map(c => c.x + c.w));
-        const y1 = Math.max(...cs.map(c => c.y + c.h));
-        const conf = Math.min(...cs.map(c => c.f !== undefined ? Number(c.f) : 1));
-        window.overlay.tier2({ x: x0 - 2, y: y0 - 2, w: x1 - x0 + 4, h: y1 - y0 + 4,
-                               text: res.surface, conf });
-      }
-    }
 
     // Placement follows the orientation of the LINE actually hit, not the page
     // majority: a native vertical read carries the page's horizontal furniture

@@ -24,7 +24,7 @@ yomi (Swift CLI)                Yomi Overlay (Electron)
 - Xcode command line tools, for swiftc: `xcode-select --install`
 - Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node 22 (it uses node:sqlite).
 - Python 3.8+, stdlib only. Used to fetch dictionaries and build the index.
-- Disk space: the index is about 370 MB and the dictionary zips another 260 MB. The optional manga-ocr second-opinion tier adds around 2 GB of wheels plus a ~450 MB model.
+- Disk space: the index is about 370 MB and the dictionary zips another 260 MB.
 - Two macOS permissions: Screen Recording (required) and Accessibility (for the trigger).
 
 ## Install
@@ -83,7 +83,6 @@ data/config.json is written on first launch; the defaults live in app/main/confi
 - `engine` — auto, vision, or livetext. Default auto.
 - `voting.passes` — re-OCR a static page N times and majority-vote per character (default 3; 1 disables)
 - `voting.everyN` — vote on every Nth unchanged pass (default 2)
-- `tier2.mode` — the manga-ocr second opinion. `shadow` logs disagreements, `off` disables it. Default shadow.
 - `anki.url`, `anki.key` — where AnkiConnect listens (default `http://127.0.0.1:8765`) and its API key if you set one (default none). The deck, tags and picture switch are in Settings → Anki.
 
 ## Deploying a change

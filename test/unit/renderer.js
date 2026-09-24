@@ -33,7 +33,7 @@ const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 let win;
 let lookupReply = null;          // what ipcMain.handle('lookup') returns
 let lookupDelay = 0;             // how long main takes to answer it
-const ipcSeen = { interactive: [], tier2: [], ankiFind: [], ankiAdd: [], ankiRemove: [],
+const ipcSeen = { interactive: [], ankiFind: [], ankiAdd: [], ankiRemove: [],
                   lookups: 0 };
 // What main/anki.js answers: nothing in the deck yet, then note 42 once added.
 let ankiIds = [];
@@ -480,7 +480,6 @@ module.exports = async () => {
     return reply;
   });
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
-  ipcMain.on('tier2', (_e, r) => ipcSeen.tier2.push(r));
   ipcMain.handle('anki:find', (_e, words) => {
     ipcSeen.ankiFind.push(words);
     return { ok: true, ids: words.map((_w, i) => ankiIds[i] || null) };

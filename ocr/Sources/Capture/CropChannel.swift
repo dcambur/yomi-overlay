@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - Crop command channel (INTEGRATION.md Phase 3)
 //
-// The overlay's Tier-2 path needs pixels for the region under the cursor.
+// The Anki card's picture needs pixels of the region around the word.
 // Re-capturing would need a second SCK session — concurrent sessions stall
 // (measured; see CONVENTIONS) — so the watch process serves crops of its own
 // LAST captured frame. Protocol: one line on stdin,

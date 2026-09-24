@@ -6,7 +6,7 @@ __pycache__/
 # Everything generated lives in two directories, so "what is source" is a
 # property of the layout rather than a list that has to be maintained.
 #
-#   data/  index.db, dictionaries.json, config.json, dicts/, .venv/
+#   data/  index.db, dictionaries.json, config.json, dicts/
 #          Rebuilt by setup.sh. The dictionary zips are licensed content, none
 #          of it ours to redistribute: tools/fetch-dicts.py downloads the
 #          freely licensed set, and commercial monolinguals are the user's own

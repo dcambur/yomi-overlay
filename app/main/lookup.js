@@ -313,8 +313,8 @@ function lookup(input, maxLen = 12, hint = null) {
       a.steps - b.steps ||
       a.minFreq - b.minFreq ||
       b.score - a.score);
-    // Primary fields stay at the top level so the highlight and tier-2 paths
-    // keep reading the same shape as before; groups carries the full list.
+    // Primary fields stay at the top level so the highlight path keeps
+    // reading the same shape as before; groups carries the full list.
     return { ...groups[0], groups };
   }
 

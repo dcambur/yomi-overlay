@@ -18,7 +18,6 @@ APP_DIR = PROJECT_ROOT / "app"
 DATA_DIR = PROJECT_ROOT / "data"
 TOOLS_DIR = PROJECT_ROOT / "tools"
 BIN_DIR = PROJECT_ROOT / "bin"
-VENV_DIR = DATA_DIR / ".venv"
 
 DICTS = DATA_DIR / "dicts"
 INDEX_DB = DATA_DIR / "index.db"

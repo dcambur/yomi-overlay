@@ -103,7 +103,7 @@ it is worth keeping.
   shutdown. It holds no mutable module state — if you are adding a `let` there,
   it belongs in one of the modules.
 - A module owns its own state and exposes a verb-shaped surface. Take
-  dependencies as arguments (`createTier2({ ocrChild })`) rather than reaching
+  dependencies as arguments (`createCropChannel({ ocrChild })`) rather than reaching
   for them, so the real coupling is visible.
 - Heavy/synchronous work (SQLite) lives here, not the renderer, so hover never
   janks.

@@ -136,7 +136,7 @@ function explain(message, deck) {
 /**
  * The client. `cfg.anki()` is read per call, so a change in Settings applies
  * to the next request; `requestCrop(rect, file, waitMs)` is the watch
- * process's crop channel (tier2.js), and may be absent in a test.
+ * process's crop channel (crop.js), and may be absent in a test.
  */
 function createAnki({ cfg, requestCrop }) {
   async function invoke(action, params, timeoutMs = TIMEOUT_MS) {

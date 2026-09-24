@@ -12,7 +12,7 @@ const { open: openDict } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { openSettings } = require('./main/settings-window.js');
-const { createTier2 } = require('./main/tier2.js');
+const { createCropChannel } = require('./main/crop.js');
 const { createAnki } = require('./main/anki.js');
 const overlayWindow = require('./main/overlay-window.js');
 const permissions = require('./main/permissions.js');
@@ -135,8 +135,8 @@ function onTriggerEvent(ev) {
   overlayWindow.send('trigger', { type: ev.type, x, y });
 }
 
-const { onCropReply, requestCrop } = createTier2({ ocrChild });
-// The card's picture is a crop from the watch process, like the probe's.
+const { onCropReply, requestCrop } = createCropChannel({ ocrChild });
+// The card's picture is a crop of the watch process's last frame.
 const anki = createAnki({ cfg, requestCrop });
 
 // Global modifier / click monitor. Lets a lookup fire without the cursor

@@ -65,10 +65,6 @@ const DEFAULTS = {
   // (every `everyN`th unchanged capture) and majority-vote per character.
   // passes: 1 disables.
   voting: { passes: 3, everyN: 2 },
-  // Tier-2 second opinion (Phase 3): manga-ocr sidecar on the looked-up
-  // word's region. 'shadow' = log disagreements only (popup unaffected);
-  // 'off' disables. The sidecar is lazy and killed after idleKillMin idle.
-  tier2: { mode: 'shadow', idleKillMin: 10 },
   // Dictionary images. On, because a dictionary that ships them means
   // them; off for a reader who wants the popup to stay text.
   images: true,

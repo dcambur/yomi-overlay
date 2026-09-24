@@ -105,18 +105,6 @@ else
   python3 "$TOOLS_DIR/build-index.py"
 fi
 
-# --- 4.5 Tier-2 sidecar (manga-ocr) -------------------------------------------
-# Optional: the overlay runs fine without it (tier2 disables itself with a log
-# line). ~2GB of wheels + a ~450MB model download on first use.
-if [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -c 'import manga_ocr' 2>/dev/null; then
-  step "manga-ocr sidecar present — skipping"
-else
-  step "Installing manga-ocr sidecar venv (Tier-2 second opinion; ~2GB)"
-  python3 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/pip" install --quiet manga-ocr || \
-    step "manga-ocr install failed — tier2 will stay off (rerun setup.sh to retry)"
-fi
-
 # --- 5. Package, sign, install ------------------------------------------------
 step "Building and installing Yomi Overlay.app (signed with \"$IDENTITY\")"
 "$TOOLS_DIR/build-app.sh"

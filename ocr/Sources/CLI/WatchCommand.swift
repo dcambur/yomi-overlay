@@ -92,7 +92,7 @@ func runWatchLoop(_ opts: Options) async throws {
     var voteBuf: [[Line]] = []
     var lastVertical = false
     var stablePasses = 0
-    // Tier-2 crop requests arrive on stdin (Phase 3).
+    // Crop requests arrive on stdin: the Anki card's picture (docs/ANKI.md).
     if opts.json && opts.watch { cropChannel.startReader() }
     repeat {
         // Set below when this pass emitted text that really changed — not a
