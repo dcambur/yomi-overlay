@@ -91,6 +91,11 @@ function onOcrLine(payload) {
   overlayWindow.sendCapture(payload);
 }
 
+/** A child's stderr chunk into the log, a line per line. */
+function logLines(tag, text) {
+  for (const line of text.split('\n')) if (line.trim()) logf(`${tag} ${line.trim()}`);
+}
+
 const ocrChild = new SupervisedChild({
   name: 'ocr',
   bin: YOMI_BIN,
@@ -110,14 +115,12 @@ const ocrChild = new SupervisedChild({
   watchdog: { silenceMs: OCR_WATCHDOG_MS, checkMs: 30000 },
   exitHint: 'its stderr above says why (revoked Screen Recording is one cause)',
   onLine: onOcrLine,
-  onStderr: (text) => {
-    const t = text.trim();
-    // Capture failures are expected while another Space is active; only the
-    // first of a run is interesting. logf, not process.stderr: launched from
-    // Spotlight stderr goes nowhere, and engine/vote diagnostics were
-    // invisible exactly when needed.
-    if (/failed \(1x/.test(t) || !/failed \(/.test(t)) logf(`[ocr] ${t}`);
-  },
+  // Every line, into the log: launched from Spotlight stderr goes nowhere,
+  // and engine and vote diagnostics were invisible exactly when needed. The
+  // helper already throttles its own failures (the 1st, then every 10th); a
+  // second filter here, per chunk, dropped all but the first for good. A
+  // target on another Space is an idle marker now, not a failure.
+  onStderr: (text) => logLines('[ocr]', text),
   onSpawnError: (err) => reportSpawnFailure('ocr', err),
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
@@ -150,7 +153,7 @@ const eventsChild = new SupervisedChild({
   // it does not, so there is nothing for a growing backoff to wait out.
   backoff: { initial: 2000, max: 2000, factor: 1 },
   onLine: onTriggerEvent,
-  onStderr: (t) => process.stderr.write('[events] ' + t),
+  onStderr: (text) => logLines('[events]', text),
   onSpawnError: (err) => reportSpawnFailure('events', err),
   log: (m) => console.log(m),
   logError: (m) => console.error(m),

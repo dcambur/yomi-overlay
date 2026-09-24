@@ -81,6 +81,17 @@ func runWatchLoop(_ opts: Options) async throws {
     let session = RecognitionSession(opts)
     var lastText = ""
     var failures = 0
+    /// A pass got all the way through. If the ones before it failed, say that
+    /// it is over — once — and restart the 1st/10th/20th throttle below. Every
+    /// way out of a good pass calls this: it used to sit on the text-mode path
+    /// only, so in JSON watch mode the count never reset, and after one
+    /// transient failure no later one was logged at all (FOUND-BUGS 1).
+    func recovered() {
+        guard failures > 0 else { return }
+        FileHandle.standardError.write(
+            "capture recovered after \(failures) failure(s)\n".data(using: .utf8)!)
+        failures = 0
+    }
     // The window the last pass captured, re-checked between passes so
     // a swipe to another Space is noticed in ~150ms instead of at the
     // top of the next pass.
@@ -181,6 +192,7 @@ func runWatchLoop(_ opts: Options) async throws {
                             FileHandle.standardError.write(
                                 "voted pass \(voteBuf.count)/\(opts.votes)\n"
                                     .data(using: .utf8)!)
+                            recovered()
                             if opts.watch {
                                 await waitNextPass(
                                     opts.interval,
@@ -204,6 +216,7 @@ func runWatchLoop(_ opts: Options) async throws {
                                 size: shot.size)))
                     fflush(stdout)
                 }
+                recovered()
                 if opts.watch {
                     await waitNextPass(
                         opts.interval,
@@ -273,6 +286,7 @@ func runWatchLoop(_ opts: Options) async throws {
                     print(heartbeatJSON(frame: f))
                     fflush(stdout)
                 }
+                recovered()
                 if opts.watch {
                     settlePasses =
                         producedNewText && settlePasses < maxSettlePasses
@@ -299,11 +313,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 : order(textLines, vertical: opts.vertical && !isVertical))
                 .joined(separator: "\n")
 
-            if failures > 0 {
-                FileHandle.standardError.write(
-                    "capture recovered after \(failures) failure(s)\n".data(using: .utf8)!)
-                failures = 0
-            }
+            recovered()
 
             if text != lastText {
                 emit(text, to: opts.outPath)
