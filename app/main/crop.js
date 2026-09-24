@@ -5,6 +5,8 @@
 // captured, over its stdin (ocr/Sources/Capture/CropChannel.swift). The Anki
 // card's picture is what asks (docs/ANKI.md).
 
+const fs = require('fs');
+
 /**
  * The crop channel on the capture child: `onCropReply` is fed the child's
  * `{crop: …}` lines, and `requestCrop` asks for one.
@@ -39,7 +41,11 @@ function createCropChannel({ ocrChild }) {
 
   function onCropReply(c) {
     const waiter = cropWaiters.get(c.id);
-    if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); }
+    if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); return; }
+    // Nobody is waiting: the asker timed out, and the watch process — which
+    // answers once per pass, and not at all while the target is idle — wrote
+    // the file anyway. Nothing else knows the path.
+    if (c.ok && c.path) fs.unlink(c.path, () => {});
   }
 
   return { onCropReply, requestCrop };
