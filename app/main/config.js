@@ -72,6 +72,12 @@ const DEFAULTS = {
 };
 
 let cached = null;
+// What the user has chosen: config.json as read, and as written. Kept apart
+// from `cached`, which fills in DEFAULTS, because a save used to write those
+// too — and a default written out is frozen for that install: a later version
+// that changes it (the documented `engine: 'vision'` revert included) never
+// reaches it.
+let chosen = {};
 
 /**
  * The dictionaries actually present in index.db, in build order.
@@ -100,6 +106,7 @@ function load() {
   const known = knownDictionaries();
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    chosen = raw;
     // The saved list carries the user's order and which are switched off. The
     // manifest says what the index actually holds. Keep the first, bounded by
     // the second: dictionaries added since appear, and a dictionary that has
@@ -122,6 +129,7 @@ function load() {
                trigger: { ...DEFAULT_TRIGGER, ...(raw.trigger || {}) },
                anki: { ...DEFAULT_ANKI, ...(raw.anki || {}) } };
   } catch {
+    chosen = {};
     cached = { ...JSON.parse(JSON.stringify(DEFAULTS)), dictionaries: known || [] };
   }
   return cached;
@@ -195,15 +203,22 @@ function sanitize(next, current) {
 
 function save(next) {
   const current = load();
-  cached = { ...current, ...sanitize(next, current) };
+  const written = { ...chosen, ...sanitize(next, current) };
   // A release install writes to Application Support, which may not exist yet.
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   // Write-then-rename: a crash partway through a direct write leaves unparseable
   // JSON, and load() silently falls back to defaults — losing the user's target.
   const tmp = CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cached, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(written, null, 2));
   fs.renameSync(tmp, CONFIG_PATH);
-  return cached;
+  cached = null;
+  return load();
+}
+
+/** Whether a target was ever chosen. Until one is, settings opens at launch. */
+function targetChosen() {
+  load();
+  return !!chosen.target;
 }
 
 /** Ordered list of enabled dictionary names — the popup's display priority. */
@@ -249,7 +264,8 @@ function manifestPath() {
 }
 
 module.exports = {
-  load, save, enabledDictionaries, targetArgs, trigger, anki, refreshDictionaries,
+  load, save, targetChosen, enabledDictionaries, targetArgs, trigger, anki,
+  refreshDictionaries,
   manifestPath,
   CONFIG_PATH, DEFAULT_DICTIONARIES, DEFAULT_TRIGGER, DEFAULT_ANKI, sanitize,
 };

@@ -8,9 +8,15 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { sanitize, load } = require(
-  path.resolve(__dirname, '..', '..', 'app', 'main', 'config.js'));
+
+// Its own user directory: in a checkout USER_DIR is data/, and this suite
+// used to read the real config.json there.
+process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-config-'));
+const cfg = require(path.resolve(__dirname, '..', '..', 'app', 'main', 'config.js'));
+const { sanitize, load } = cfg;
 
 const cur = load();
 
@@ -84,4 +90,21 @@ test('anki settings are normalised and merged over what was there', () => {
 
 test('unknown keys pass through, so settings can grow', () => {
   assert.strictEqual(sanitize({ somethingNew: 7 }, cur).somethingNew, 7);
+});
+
+test('a save writes what was chosen, not every default', () => {
+  cfg.save({ anki: { enabled: true, deck: 'Mining' } });
+  const onDisk = JSON.parse(fs.readFileSync(cfg.CONFIG_PATH, 'utf8'));
+  assert.deepStrictEqual(Object.keys(onDisk), ['anki'],
+                         'defaults written out are frozen for this install');
+  assert.strictEqual(cfg.load().engine, 'auto', 'unchosen settings still come from defaults');
+  assert.strictEqual(cfg.load().anki.deck, 'Mining');
+});
+
+test('saving anything but the target keeps the first-run prompt', () => {
+  assert.strictEqual(cfg.targetChosen(), false);
+  cfg.save({ target: { bundle: 'com.apple.Safari', windowId: null, label: 'Safari' } });
+  assert.strictEqual(cfg.targetChosen(), true);
+  const onDisk = JSON.parse(fs.readFileSync(cfg.CONFIG_PATH, 'utf8'));
+  assert.deepStrictEqual(Object.keys(onDisk).sort(), ['anki', 'target']);
 });

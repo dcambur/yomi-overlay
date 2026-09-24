@@ -203,9 +203,10 @@ app.whenReady().then(() => {
     console.error('[shortcut] ⌘⌥S is taken by another app — use the 読 menu-bar item');
   }
 
-  // First run: no config yet, so open settings rather than silently defaulting
-  // to Kindle — the target is the one thing the user must choose.
-  if (!require('fs').existsSync(cfg.CONFIG_PATH)) openSettings();
+  // First run: no target chosen yet, so open settings rather than silently
+  // defaulting to Kindle — the target is the one thing the user must choose.
+  // Not "no config file": saving any other tab first used to create one.
+  if (!cfg.targetChosen()) openSettings();
 });
 
 // The app has no Dock icon and no menu bar (LSUIElement), so the menu-bar item
