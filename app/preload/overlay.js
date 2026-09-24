@@ -36,4 +36,7 @@ contextBridge.exposeInMainWorld('overlay', {
   ankiFind: (expressions) => ipcRenderer.invoke('anki:find', expressions),
   ankiAdd: (note) => ipcRenderer.invoke('anki:add', note),
   ankiRemove: (noteId) => ipcRenderer.invoke('anki:remove', noteId),
+  // Open Settings on a tab: a mark that cannot make a card sends the reader
+  // to where that is fixed. Only 'anki' is accepted.
+  openSettings: (tab) => ipcRenderer.send('settings:open', tab),
 });

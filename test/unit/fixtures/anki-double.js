@@ -13,9 +13,15 @@ const http = require('http');
 
 const MODEL = 'Lapis';
 
-/** What plugin/__init__.py answers, for the actions the client uses. */
+/**
+ * What plugin/__init__.py answers, for the actions the client uses. It also
+ * serves `lapis` under /lapis/, standing in for GitHub's raw host.
+ */
 function ankiDouble() {
   const notes = new Map();   // id -> {deck, fields, tags, picture}
+  const models = ['Basic', MODEL];
+  const created = [];        // createModel's params, as received
+  const lapis = {};          // file name -> body served under /lapis/
   let nextId = 1000;
   const log = [];
   const one = (req) => {
@@ -24,7 +30,7 @@ function ankiDouble() {
     if (req.version !== 6) throw new Error('version 6 expected on every action');
     switch (req.action) {
       case 'version': return 6;
-      case 'modelNames': return ['Basic', MODEL];
+      case 'modelNames': return models.slice();
       case 'deckNames': return ['Default', 'Mining', 'Mining::Novels'];
       case 'findNotes': {
         const m = /^"deck:(.+?)" "note:Lapis" "expression:(.+)"$/.exec(p.query);
@@ -36,7 +42,9 @@ function ankiDouble() {
       }
       case 'addNote': {
         const n = p.note;
-        if (n.modelName !== MODEL) throw new Error(`model was not found: ${n.modelName}`);
+        if (!models.includes(n.modelName)) {
+          throw new Error(`model was not found: ${n.modelName}`);
+        }
         if (!['Default', 'Mining', 'Mining::Novels'].includes(n.deckName)) {
           throw new Error(`deck was not found: ${n.deckName}`);
         }
@@ -53,6 +61,11 @@ function ankiDouble() {
         notes.set(id, { deck: n.deckName, fields: n.fields, tags: n.tags, picture });
         return id;
       }
+      case 'createModel':
+        if (models.includes(p.modelName)) throw new Error('Model name already exists');
+        created.push(p);
+        models.push(p.modelName);
+        return { name: p.modelName };
       case 'deleteNotes':
         for (const id of p.notes) notes.delete(id);
         return null;
@@ -65,6 +78,12 @@ function ankiDouble() {
     }
   };
   const server = http.createServer((req, res) => {
+    if (req.method === 'GET') {
+      const name = req.url.replace(/^\/lapis\//, '');
+      if (!(name in lapis)) { res.statusCode = 404; res.end(); return; }
+      res.end(lapis[name]);
+      return;
+    }
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
@@ -75,7 +94,7 @@ function ankiDouble() {
       res.end(JSON.stringify(out));
     });
   });
-  return { server, notes, log };
+  return { server, notes, log, models, created, lapis };
 }
 
 module.exports = { ankiDouble };

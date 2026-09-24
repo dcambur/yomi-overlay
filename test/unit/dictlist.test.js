@@ -113,9 +113,13 @@ function load(config) {
     dictInstalled: async () => [],
     dictImport: async (job) => { imported.push(job); return { ok: true }; },
     onDictProgress: (fn) => { onProgress = fn; },
+    onShowTab: () => {},
     close: () => {},
   };
-  const api = make(document, { settings }, config);
+  // A page's window has a location; the script reads a ?tab= from it.
+  const { URLSearchParams } = require('url');
+  const page = { settings, location: { search: '' }, URLSearchParams };
+  const api = make(document, page, config);
   // The script's own progress listener, callable from out here: the harness
   // records it when the script registers it, and the wrapper cannot reach a
   // binding in this scope.

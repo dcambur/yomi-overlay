@@ -31,6 +31,9 @@ let ankiBridgeDown = false;
 // Set to make main refuse a save, as a throw anywhere in ipc.js's handler does.
 let savesRefused = false;
 let windowListCalls = 0;
+// What anki:install does: resolves when the test says so, with what it says.
+let installGate = null;
+let installs = 0;
 
 const results = [];
 async function test(name, fn) {
@@ -244,6 +247,69 @@ async function run() {
                        'the chosen deck is still listed, alone');
   });
 
+  const displayed = (id) => js(`getComputedStyle(document.getElementById('${id}')).display`
+                           + " !== 'none'");
+  const text = (id) => js(`document.getElementById('${id}').textContent`);
+
+  await test('Ready: no install row', async () => {
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    assert.strictEqual(await text('anki-state'), 'Ready');
+    assert.strictEqual(await displayed('anki-install-row'), false);
+  });
+
+  await test('No Lapis: the row says what installing adds, and a click installs', async () => {
+    ANKI.model = false;
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    assert.strictEqual(await text('anki-state'), 'No Lapis');
+    assert.strictEqual(await displayed('anki-install-row'), true);
+    assert.match(await text('anki-install-text'), /github\.com\/donkuri\/lapis.*No deck, no notes/);
+    assert.strictEqual(await displayed('anki-install-prog'), false, 'no bar before a click');
+
+    let finish;
+    installGate = new Promise((r) => { finish = r; });
+    await js("document.getElementById('anki-install').click()");
+    await settle();
+    assert.strictEqual(installs, 1);
+    assert.strictEqual(await displayed('anki-install-prog'), true, 'a bar while installing');
+    assert.ok(await js("document.getElementById('anki-install').disabled"));
+    assert.match(await text('anki-install-text'), /Downloading/);
+
+    ANKI.model = true;
+    finish({ ok: true });
+    await settle(120);
+    assert.strictEqual(await text('anki-state'), 'Ready', 'checked again after');
+    assert.strictEqual(await displayed('anki-install-row'), false);
+  });
+
+  await test('an install that fails says why, and the button stays to try again', async () => {
+    ANKI.model = false;
+    installGate = Promise.resolve({ ok: false, error: 'GitHub did not answer for back.html' });
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    await js("document.getElementById('anki-install').click()");
+    await settle(120);
+    assert.strictEqual(await text('anki-install-text'),
+                       'Not installed: GitHub did not answer for back.html');
+    assert.strictEqual(await displayed('anki-install-prog'), false);
+    assert.strictEqual(await js("document.getElementById('anki-install').disabled"), false);
+    assert.strictEqual(await text('anki-install'), 'Install Lapis', 'the same name throughout');
+    ANKI.model = true;
+    installGate = null;
+  });
+
+  await test('main can ask for a tab, as a popup mark does', async () => {
+    await js("document.querySelector('[data-tab=\"window\"]').click()");
+    win.webContents.send('settings:tab', 'anki');
+    await settle();
+    const ankiTabOn = "document.querySelector('[data-tab=\"anki\"]').classList.contains('on')";
+    assert.ok(await js(ankiTabOn));
+    win.webContents.send('settings:tab', 'nonsense');
+    await settle();
+    assert.ok(await js(ankiTabOn), 'an unknown tab changes nothing');
+  });
+
   await test('tags are split on spaces and shown back tidy', async () => {
     await js("(() => { const t = document.getElementById('anki-tags');"
              + " t.value = '  novel   yomi-overlay '; t.onchange(); })()");
@@ -309,6 +375,7 @@ module.exports = async () => {
     if (ankiBridgeDown) throw new Error('No handler registered for anki:status');
     return ANKI;
   });
+  ipcMain.handle('anki:install', () => { installs++; return installGate; });
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);
   ipcMain.on('cfg:close', () => {});

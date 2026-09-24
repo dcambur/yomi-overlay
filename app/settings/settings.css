@@ -251,7 +251,8 @@ footer .grow { flex: 1 1 auto; }
 
 /* Progress sits with the button that started it, so it is obvious WHICH
    dictionary is working when a list of them is on screen. */
-.dict .prog {
+.dict .prog,
+#anki-install-row .prog {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -264,7 +265,8 @@ footer .grow { flex: 1 1 auto; }
   white-space: nowrap;
 }
 
-.dict .prog .bar {
+.dict .prog .bar,
+#anki-install-row .prog .bar {
   overflow: hidden;
   width: 96px;
   height: 4px;
@@ -272,7 +274,8 @@ footer .grow { flex: 1 1 auto; }
   background: var(--line);
 }
 
-.dict .prog .fill {
+.dict .prog .fill,
+#anki-install-row .prog .fill {
   display: block;
   height: 100%;
   background: var(--accent-bright);
@@ -281,7 +284,8 @@ footer .grow { flex: 1 1 auto; }
 
 /* A step whose size is not knowable in advance — an unmeasured download, a
    step that reports no total. It moves without claiming a percentage. */
-.dict .prog .fill.indeterminate {
+.dict .prog .fill.indeterminate,
+#anki-install-row .prog .fill.indeterminate {
   width: 35%;
   animation: slide 1.1s ease-in-out infinite;
 }
@@ -292,6 +296,12 @@ footer .grow { flex: 1 1 auto; }
 }
 
 /* --- anki ------------------------------------------------------------------ */
+
+/* The install row and its bar are hidden by the id, not by .hidden alone:
+   `#anki-install-row .prog` outranks a bare class, and would show the bar
+   whether or not anything is installing. */
+#anki-install-row.hidden,
+#anki-install-row .prog.hidden { display: none; }
 
 /* The status row: dot, then the state in a word or two, then what to do. */
 .row .state {

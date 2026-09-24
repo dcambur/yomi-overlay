@@ -6,6 +6,7 @@
 // so there is no permission dialog and no CORS list to edit — and the
 // renderer's CSP stays default-src 'none'.
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -13,6 +14,36 @@ const { logf } = require('./log.js');
 
 /** The note type, by name. The field names below are Lapis's own. */
 const MODEL = 'Lapis';
+/** Lapis's fields in its own order (build/anki_fields.yaml at 1.7.0). */
+const LAPIS_FIELDS = [
+  'Expression', 'ExpressionFurigana', 'ExpressionReading', 'ExpressionAudio',
+  'SelectionText', 'MainDefinition', 'DefinitionPicture', 'Sentence',
+  'SentenceFurigana', 'SentenceAudio', 'Picture', 'Glossary', 'Hint',
+  'IsWordAndSentenceCard', 'IsClickCard', 'IsSentenceCard', 'IsAudioCard',
+  'PitchPosition', 'PitchCategories', 'Frequency', 'FreqSort', 'MiscInfo',
+];
+// Where the Lapis note type comes from when Settings installs it: the three
+// files its release is built from (build/genapkg.py — one template, "Mining",
+// from front.html and back.html, and styling.css), at a tag, each checked
+// against its digest. Not Lapis.apkg: AnkiConnect's importPackage runs Anki's
+// legacy importer, which reads collection.anki2 from the package, and in
+// 1.7.0 that file holds no Lapis at all — only a note saying "Please update
+// to the latest Anki version" (measured 2026-09-24). The package would also
+// bring a "Lapis" deck with an example note. The files are GPL-3.0 and are
+// fetched from the project, never shipped with the app. Measured the same
+// day: they are the release's note type byte for byte, but for the trailing
+// whitespace Anki trims.
+const LAPIS_SOURCE = {
+  tag: '1.7.0',
+  base: 'https://raw.githubusercontent.com/donkuri/lapis/1.7.0/src/',
+  sha256: {
+    'front.html': '7bb9993df961d35e7f49b3edec9f7b0f43987f114f3cfdc627a10219c62aef49',
+    'back.html': '1d92182a7626b8a14fd80bc82ee07e71a7a387533be3a4124d25fe8b3090a137',
+    'styling.css': '51590e7545d43896cb15e494db49b611a9c6e7bbf05c8e0debbf1f98f7ae8920',
+  },
+};
+// Three files of 3-26 KB from GitHub's raw host.
+const SOURCE_TIMEOUT_MS = 15000;
 /** Yomitan's rank for "no frequency list knows this word"; Lapis sorts on it. */
 const NO_FREQUENCY = 9999999;
 // A running Anki answers deckNames in well under a second; 3s is for a machine
@@ -124,13 +155,22 @@ function lapisFields(note) {
   };
 }
 
-/** AnkiConnect's error, in the words of the thing that is actually wrong. */
-function explain(message, deck) {
-  if (/model was not found/.test(message)) {
-    return `the ${MODEL} note type is not in Anki — import Lapis.apkg first`;
+const NO_MODEL = `the ${MODEL} note type is not in Anki — install it in Settings → Anki`;
+const noDeck = (deck) => `deck "${deck}" is not in Anki`;
+
+/**
+ * What stands between the user and a card, as the popup's mark shows it:
+ * `offline` (Anki is not running), `model` (no Lapis), `deck` (no deck
+ * chosen, or the chosen one is gone), `off` (Anki is off in Settings), or
+ * `error` for anything else, which is shown in the client's own words.
+ */
+function failure(e, deck) {
+  if (e.reason) return { ok: false, reason: e.reason, error: e.message };
+  if (/model was not found/.test(e.message)) return { ok: false, reason: 'model', error: NO_MODEL };
+  if (/deck was not found/.test(e.message)) {
+    return { ok: false, reason: 'deck', error: noDeck(deck) };
   }
-  if (/deck was not found/.test(message)) return `deck "${deck}" is not in Anki`;
-  return message;
+  return { ok: false, reason: 'error', error: e.message };
 }
 
 /**
@@ -138,7 +178,7 @@ function explain(message, deck) {
  * to the next request; `requestCrop(rect, file, waitMs)` is the watch
  * process's crop channel (crop.js), and may be absent in a test.
  */
-function createAnki({ cfg, requestCrop }) {
+function createAnki({ cfg, requestCrop, lapisSource = LAPIS_SOURCE }) {
   async function invoke(action, params, timeoutMs = TIMEOUT_MS) {
     const a = cfg.anki();
     const body = { action, version: 6, params: params || {} };
@@ -158,8 +198,11 @@ function createAnki({ cfg, requestCrop }) {
         throw new Error(`Anki did not answer within ${timeoutMs / 1000}s`);
       }
       const code = e.cause && e.cause.code;
-      throw new Error(code === 'ECONNREFUSED'
-        ? `Anki is not running (nothing at ${a.url})` : `Anki: ${e.message}`);
+      if (code === 'ECONNREFUSED') {
+        throw Object.assign(new Error(`Anki is not running (nothing at ${a.url})`),
+                            { reason: 'offline' });
+      }
+      throw new Error(`Anki: ${e.message}`);
     } finally {
       clearTimeout(timer);
     }
@@ -205,18 +248,28 @@ function createAnki({ cfg, requestCrop }) {
     if (!a.deck) return 'no deck chosen in Settings → Anki';
     return null;
   }
+  const refusal = (why) =>
+    ({ ok: false, reason: cfg.anki().enabled ? 'deck' : 'off', error: why });
 
-  /** The note id each word already has in the chosen deck, or null. */
+  /**
+   * The note id each word already has in the chosen deck, or null — or what
+   * stops a card being made at all. That is asked in the same round trip: a
+   * search for `note:Lapis` in a collection without Lapis answers "none", and
+   * the mark would offer an add that can only fail.
+   */
   async function find(expressions) {
     const refused = gate();
-    if (refused) return { ok: false, error: refused };
+    if (refused) return refusal(refused);
     const a = cfg.anki();
     try {
-      const lists = await multi(expressions.map((x) =>
-        ['findNotes', { query: query(a.deck, x) }]));
+      const searches = expressions.map((x) => ['findNotes', { query: query(a.deck, x) }]);
+      const [models, decks, ...lists] =
+        await multi([['modelNames'], ['deckNames'], ...searches]);
+      if (!models.includes(MODEL)) return { ok: false, reason: 'model', error: NO_MODEL };
+      if (!decks.includes(a.deck)) return { ok: false, reason: 'deck', error: noDeck(a.deck) };
       return { ok: true, ids: lists.map((l) => (Array.isArray(l) && l.length ? l[0] : null)) };
     } catch (e) {
-      return { ok: false, error: e.message };
+      return failure(e, a.deck);
     }
   }
 
@@ -237,7 +290,7 @@ function createAnki({ cfg, requestCrop }) {
   /** Add one Lapis note. Resolves to what happened; never rejects. */
   async function add(note) {
     const refused = gate();
-    if (refused) return { ok: false, error: refused };
+    if (refused) return refusal(refused);
     const a = cfg.anki();
     const fields = lapisFields(note);
     const wantPicture = a.picture && note.region && requestCrop;
@@ -261,9 +314,9 @@ function createAnki({ cfg, requestCrop }) {
         const found = await find([fields.Expression]);
         if (found.ok && found.ids[0]) return { ok: true, noteId: found.ids[0], existed: true };
       }
-      const why = explain(e.message, a.deck);
-      logf(`[anki] add ${fields.Expression} failed: ${why}`);
-      return { ok: false, error: why };
+      const why = failure(e, a.deck);
+      logf(`[anki] add ${fields.Expression} failed: ${why.error}`);
+      return why;
     } finally {
       // AnkiConnect copied it into the media folder while answering.
       if (picture) fs.unlink(picture.path, () => {});
@@ -275,7 +328,7 @@ function createAnki({ cfg, requestCrop }) {
     // Anki was switched off keeps its marks, and its remove must not reach
     // the collection.
     const refused = gate();
-    if (refused) return { ok: false, error: refused };
+    if (refused) return refusal(refused);
     try {
       await invoke('deleteNotes', { notes: [noteId] });
       logf(`[anki] removed note ${noteId}`);
@@ -286,9 +339,61 @@ function createAnki({ cfg, requestCrop }) {
     }
   }
 
-  return { status, find, add, remove };
+  /** The three Lapis files at the pinned tag, each checked against its digest. */
+  async function fetchLapis() {
+    const out = {};
+    for (const [name, digest] of Object.entries(lapisSource.sha256)) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), SOURCE_TIMEOUT_MS);
+      let body;
+      try {
+        const res = await fetch(lapisSource.base + name, {
+          headers: { 'User-Agent': 'yomi-overlay' }, signal: ctl.signal,
+        });
+        if (!res.ok) throw new Error(`GitHub answered ${res.status} for ${name}`);
+        body = Buffer.from(await res.arrayBuffer());
+      } catch (e) {
+        if (e.name === 'AbortError') throw new Error(`GitHub did not answer for ${name}`);
+        if (e.message.startsWith('GitHub')) throw e;
+        throw new Error(`could not download Lapis: ${e.message}`);
+      } finally {
+        clearTimeout(timer);
+      }
+      // A file that changed under the tag is not the note type this client's
+      // fields were checked against: refuse it rather than install it.
+      if (crypto.createHash('sha256').update(body).digest('hex') !== digest) {
+        throw new Error(`${name} is not the one Lapis ${lapisSource.tag} released`);
+      }
+      out[name] = body.toString('utf8');
+    }
+    return out;
+  }
+
+  /**
+   * Put the Lapis note type in Anki: fields, template, and stylesheet — no
+   * deck, no note. Resolves to what happened; never rejects. Asked for by a
+   * button in Settings, so it is not gated on Anki being on.
+   */
+  async function installLapis() {
+    try {
+      if ((await invoke('modelNames')).includes(MODEL)) return { ok: true, existed: true };
+      const src = await fetchLapis();
+      await invoke('createModel', {
+        modelName: MODEL, inOrderFields: LAPIS_FIELDS, css: src['styling.css'], isCloze: false,
+        cardTemplates: [{ Name: 'Mining', Front: src['front.html'], Back: src['back.html'] }],
+      }, ADD_TIMEOUT_MS);
+      logf(`[anki] installed the ${MODEL} note type (${lapisSource.tag})`);
+      return { ok: true };
+    } catch (e) {
+      logf(`[anki] installing ${MODEL} failed: ${e.message}`);
+      return failure(e);
+    }
+  }
+
+  return { status, find, add, remove, installLapis };
 }
 
 module.exports = {
   createAnki, lapisFields, furiganaPlain, harmonicRank, searchValue, MODEL, NO_FREQUENCY,
+  LAPIS_FIELDS, LAPIS_SOURCE,
 };

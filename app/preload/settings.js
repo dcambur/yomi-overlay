@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('settings', {
   saveAnki: (next) => ipcRenderer.invoke('cfg:anki', next),
   // Is Anki running, does it have the Lapis note type, which decks exist.
   ankiStatus: () => ipcRenderer.invoke('anki:status'),
+  // Make the Lapis note type in Anki: fetched at a pinned tag, checked, and
+  // created with AnkiConnect. Resolves to {ok, error?}; never rejects.
+  ankiInstall: () => ipcRenderer.invoke('anki:install'),
+  // Main asking for a tab — the popup's "no Lapis" mark opens this one.
+  onShowTab: (fn) => ipcRenderer.on('settings:tab', (_e, name) => fn(name)),
   listWindows: () => ipcRenderer.invoke('cfg:windows'),
   close: () => ipcRenderer.send('cfg:close'),
 

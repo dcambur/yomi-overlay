@@ -22,7 +22,7 @@ const dictionaries = require('./dictionaries.js');
 const { createQueue } = require('./job-queue.js');
 const media = require('./media.js');
 const lookupModule = require('./lookup.js');
-const { closeSettings } = require('./settings-window.js');
+const { openSettings, closeSettings } = require('./settings-window.js');
 
 // Lookup scans at most 12 glyphs; the renderer sends the rest of the line.
 // A cap well above that is a guard against a runaway payload, not a limit.
@@ -187,6 +187,15 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
       return reject('anki:remove', 'not a note id');
     }
     return anki.remove(noteId);
+  });
+  // Settings' "Install Lapis": the note type, fetched from its project at a
+  // pinned tag and made with createModel (anki.js says why not the .apkg).
+  ipcMain.handle('anki:install', () => anki.installLapis());
+  // A card mark that cannot make a card ("no Lapis", "no deck") opens the
+  // place where that is fixed.
+  ipcMain.on('settings:open', (_e, tab) => {
+    if (tab !== 'anki') return reject('settings:open', 'unknown tab');
+    openSettings(tab);
   });
 
   // --- dictionaries ---------------------------------------------------

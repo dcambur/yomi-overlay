@@ -88,6 +88,15 @@
         <span class="unit grow" id="anki-detail"></span>
         <button id="anki-refresh">Check again</button>
       </div>
+      <!-- Only while Anki is running without Lapis: what the install puts in
+           the collection, said before it is clicked, and the one button. -->
+      <div class="row hidden" id="anki-install-row"><span>Lapis</span>
+        <span class="unit grow" id="anki-install-text"></span>
+        <span class="prog hidden" id="anki-install-prog">
+          <span class="bar"><span class="fill indeterminate"></span></span>
+        </span>
+        <button id="anki-install" class="primary">Install Lapis</button>
+      </div>
       <p class="hint group-head">Deck — new notes go here</p>
       <!-- Anki's deck names are paths (a::b::c). The list is drawn as that
            tree: a parent folds its subdecks away, and only the chosen deck's

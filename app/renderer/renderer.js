@@ -73,6 +73,7 @@
 
   let pageVertical = false;   // tategaki page: popup goes left of the column
   let lastHit = null;         // {li, ci} of the glyph the open popup answers for
+  let lastAnswer = null;      // the lookup the open popup shows, for a re-check
   let ankiSeq = 0;            // discards Anki replies for a popup since replaced
   // Removal takes two clicks: the second must come within this long, or the
   // mark goes back to saying the word is in the deck. A deleted note takes its
@@ -159,6 +160,7 @@
     pinned = false;
     turnCandidate = null;
     lastHit = null;
+    lastAnswer = null;
     ankiSeq++;
     lookupSeq++;              // a reply still in flight must not reopen it
     setInteractive(false);
@@ -314,6 +316,7 @@
     popupView.render(res, el.getBoundingClientRect(), lineVertical);
     pinned = true;
     lastHit = { li, ci };
+    lastAnswer = res;
     ankiMarks(res);
   }
 
@@ -326,6 +329,15 @@
   const ankiOn = () => !!(window.viewOptions && window.viewOptions.anki
                           && window.viewOptions.anki.enabled);
 
+  // What stops any card being made, as main/anki.js names it, and the mark
+  // that says so. Anything else is an error in the client's own words.
+  const ANKI_BLOCKED = { offline: 'offline', model: 'nolapis', deck: 'nodeck' };
+
+  function ankiFailed(gi, r) {
+    const state = (r && ANKI_BLOCKED[r.reason]) || 'error';
+    popupView.setAnkiState(gi, state, r ? r.error : 'Anki did not answer');
+  }
+
   /** Which of the popup's words are already in the deck — one round trip. */
   async function ankiMarks(res) {
     if (!ankiOn()) return;
@@ -337,7 +349,7 @@
     if (seq !== ankiSeq) return;
     for (let k = 0; k < cards.length; k++) {
       const { gi } = cards[k];
-      if (!r || !r.ok) popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
+      if (!r || !r.ok) ankiFailed(gi, r);
       else popupView.setAnkiState(gi, r.ids[k] ? 'present' : 'absent', r.ids[k]);
     }
   }
@@ -362,7 +374,7 @@
     const r = await window.overlay.ankiAdd(note);
     if (seq !== ankiSeq) return;
     if (r && r.ok) popupView.setAnkiState(gi, 'present', r.noteId);
-    else popupView.setAnkiState(gi, 'error', r ? r.error : 'Anki did not answer');
+    else ankiFailed(gi, r);
   }
 
   async function ankiRemove(b, gi) {
@@ -401,6 +413,19 @@
         break;
       case 'confirm':
         ankiRemove(b, gi);
+        break;
+      case 'offline':
+        // Anki may have been opened since: ask again, for every card at once.
+        if (lastAnswer) {
+          for (const m of document.querySelectorAll('#popup .anki')) {
+            popupView.setAnkiState(Number(m.dataset.gi), 'unknown');
+          }
+          ankiMarks(lastAnswer);
+        }
+        break;
+      case 'nolapis':
+      case 'nodeck':
+        window.overlay.openSettings('anki');
         break;
       default:   // unknown, adding, removing: a click while waiting means nothing
         break;

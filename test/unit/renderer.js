@@ -34,7 +34,10 @@ let win;
 let lookupReply = null;          // what ipcMain.handle('lookup') returns
 let lookupDelay = 0;             // how long main takes to answer it
 const ipcSeen = { interactive: [], ankiFind: [], ankiAdd: [], ankiRemove: [],
-                  lookups: 0 };
+                  lookups: 0, settingsOpen: [] };
+// Set to answer anki:find / anki:add with a refusal instead ({ok:false, reason}).
+let ankiFindRefusal = null;
+let ankiAddRefusal = null;
 // What main/anki.js answers: nothing in the deck yet, then note 42 once added.
 let ankiIds = [];
 
@@ -472,6 +475,56 @@ async function run() {
     send('dismiss'); await settle();
   });
 
+  const ankiLabel = () => js("document.querySelector('#popup .anki .anki-label').textContent");
+  // The strike across the card, as the page drew it — not the class name.
+  const ankiStruck = () => js("getComputedStyle(document.querySelector('#popup .anki-card'),"
+                              + " '::after').content !== 'none'");
+
+  await test('no Lapis: the mark says so before a click; a click opens Settings', async () => {
+    ankiFindRefusal = { ok: false, reason: 'model', error: 'no Lapis note type in Anki' };
+    const adds = ipcSeen.ankiAdd.length;
+    await lookUpWagahai();
+    await settle();
+    assert.strictEqual(await ankiState(), 'nolapis');
+    assert.strictEqual(await ankiLabel(), 'no Lapis');
+    assert.ok(await ankiStruck(), 'the card is struck through');
+    await js("document.querySelector('#popup .anki').click()");
+    await settle();
+    assert.deepStrictEqual(ipcSeen.settingsOpen, ['anki']);
+    assert.strictEqual(ipcSeen.ankiAdd.length, adds, 'nothing was added');
+    ankiFindRefusal = null;
+    send('dismiss'); await settle();
+  });
+
+  await test('Anki closed: the mark says so, and a click asks again', async () => {
+    ankiIds = [];                      // the word is not in the deck
+    ankiFindRefusal = { ok: false, reason: 'offline', error: 'Anki is not running' };
+    await lookUpWagahai();
+    await settle();
+    assert.strictEqual(await ankiState(), 'offline');
+    assert.strictEqual(await ankiLabel(), 'Anki closed');
+    ankiFindRefusal = null;            // Anki was opened
+    const asked = ipcSeen.ankiFind.length;
+    await js("document.querySelector('#popup .anki').click()");
+    await settle(120);
+    assert.strictEqual(ipcSeen.ankiFind.length, asked + 1, 'asked once more');
+    assert.strictEqual(await ankiState(), 'absent');
+    assert.ok(!(await ankiStruck()), 'an addable card is not struck through');
+    send('dismiss'); await settle();
+  });
+
+  await test('an add refused for its deck turns the mark to "no deck"', async () => {
+    ankiAddRefusal = { ok: false, reason: 'deck', error: 'deck "Mining" is not in Anki' };
+    await lookUpWagahai();
+    await settle();
+    await js("document.querySelector('#popup .anki').click()");
+    await settle(120);
+    assert.strictEqual(await ankiState(), 'nodeck');
+    assert.strictEqual(await ankiLabel(), 'no deck');
+    ankiAddRefusal = null;
+    send('dismiss'); await settle();
+  });
+
   const failed = results.filter(r => !r[0]);
   console.log('== renderer ==');
   for (const [ok, name, err] of results) {
@@ -492,12 +545,14 @@ module.exports = async () => {
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
   ipcMain.handle('anki:find', (_e, words) => {
     ipcSeen.ankiFind.push(words);
+    if (ankiFindRefusal) return ankiFindRefusal;
     return { ok: true, ids: words.map((_w, i) => ankiIds[i] || null) };
   });
   ipcMain.handle('anki:add', (_e, note) => {
     ipcSeen.ankiAdd.push(note);
-    return { ok: true, noteId: 42 };
+    return ankiAddRefusal || { ok: true, noteId: 42 };
   });
+  ipcMain.on('settings:open', (_e, tab) => ipcSeen.settingsOpen.push(tab));
   ipcMain.handle('anki:remove', (_e, id) => {
     ipcSeen.ankiRemove.push(id);
     return { ok: true };

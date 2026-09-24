@@ -238,9 +238,14 @@
   // outline that fills when the word is in the chosen deck (docs/ANKI.md).
   // Drawn only while Anki is on in Settings; renderer.js decides what a
   // click means and tells this file which state to show.
+  // The last three are what stands between the reader and any card: the
+  // label names the cause in the popup itself — a title only shows after a
+  // hover, and a reader who never hovers learnt nothing from a mark that
+  // just said "Anki" and failed on click.
   const ANKI_LABEL = {
     unknown: 'Anki', absent: 'Anki', adding: 'adding…', present: 'in Anki',
     confirm: 'remove?', removing: 'removing…', error: 'Anki',
+    offline: 'Anki closed', nolapis: 'no Lapis', nodeck: 'no deck',
   };
 
   function ankiMarkHtml(gi) {
@@ -256,7 +261,7 @@
     const deck = (window.viewOptions && window.viewOptions.anki || {}).deck || 'the deck';
     b.dataset.state = state;
     if (state === 'present') b.dataset.note = String(detail);
-    if (state === 'absent' || state === 'error' || state === 'unknown') delete b.dataset.note;
+    if (state !== 'present' && state !== 'confirm') delete b.dataset.note;
     b.querySelector('.anki-label').textContent = ANKI_LABEL[state] || state;
     b.title = {
       unknown: 'Checking the deck…',
@@ -266,6 +271,9 @@
       confirm: 'Click again to remove it from Anki',
       removing: 'Removing…',
       error: String(detail || 'Anki did not answer'),
+      offline: 'Anki is not running — open it, then click to check again',
+      nolapis: 'Anki has no Lapis note type — click to install it in Settings',
+      nodeck: 'No deck to add to — click to choose one in Settings',
     }[state] || '';
   }
 
