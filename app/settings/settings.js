@@ -233,10 +233,23 @@ function renderTrigger() {
   syncTriggerRows();
 }
 
+/**
+ * Say what became of a save once main has answered. Printing "saved" before
+ * the answer said so for saves main refused, and a refused footer Save sat on
+ * "applying…" for good.
+ */
+async function report(save, line = 'status', done = 'saved') {
+  try {
+    await save;
+    $(line).textContent = done;
+  } catch (e) {
+    $(line).textContent = 'not saved — ' + e.message;
+  }
+}
+
 /** Save the trigger as it changes; nothing here needs the overlay restarting. */
 function saveTrigger() {
-  window.settings.saveTrigger(currentTrigger());
-  $('status').textContent = 'saved';
+  report(window.settings.saveTrigger(currentTrigger()));
 }
 
 /** Only show the setting that applies to the chosen mode. */
@@ -284,8 +297,7 @@ function currentTrigger() {
  * ambiguity, not the button.
  */
 function saveDictionaryOrder() {
-  window.settings.saveDictionaries(config.dictionaries);
-  $('dictstatus').textContent = 'saved';
+  report(window.settings.saveDictionaries(config.dictionaries), 'dictstatus');
 }
 
 async function refreshDictionaries() {
@@ -560,8 +572,7 @@ function ankiConfig() {
 }
 
 function saveAnki() {
-  window.settings.saveAnki(ankiConfig());
-  $('status').textContent = 'saved';
+  report(window.settings.saveAnki(ankiConfig()));
 }
 
 function renderAnki() {
@@ -765,8 +776,7 @@ for (const id of ['mode', 'modifier', 'delay']) {
 // images are read from the archives at the moment they are shown.
 $('images').onchange = () => {
   config.images = $('images').checked;
-  window.settings.saveView({ images: config.images });
-  $('status').textContent = 'saved';
+  report(window.settings.saveView({ images: config.images }));
 };
 // Nothing blocks an import: pick as many archives as you like, whenever. Each
 // gets its own key so they queue behind each other rather than colliding.
@@ -775,30 +785,28 @@ $('import').onclick = () => {
   dictAction(job, () => window.settings.dictImport(job));
 };
 $('close').onclick = () => window.settings.close();
-$('save').onclick = async () => {
+$('save').onclick = () => {
   $('status').textContent = 'applying…';
   // Only the target: the other two tabs have already saved themselves.
-  await window.settings.saveConfig({ target: selected });
-  $('status').textContent = 'now watching ' + (selected.label || 'the chosen window');
+  return report(window.settings.saveConfig({ target: selected }), 'status',
+                'now watching ' + (selected.label || 'the chosen window'));
 };
 
-// Every progress event names the job it belongs to, because with a queue the
-// window can no longer assume that whatever is happening is the thing it last
-// clicked. A job with a row shows its state on that row; anything else — a
-// rebuild the main process started on its own — goes to the status line.
+// Every progress event names the job it belongs to (the queue stamps it, and
+// it is the only sender), because with a queue the window can no longer
+// assume that whatever is happening is the thing it last clicked. A job shows
+// its state on its row; the status line says how much is behind it.
 window.settings.onDictProgress((p) => {
-  if (p.job) {
-    const bar = bars.get(p.job);
-    if (p.phase === 'done' || p.phase === 'error') {
-      dictJobs.delete(p.job);
-      renderDictionaries();
-    } else {
-      dictJobs.set(p.job, p);
-      // Write into the bar already on screen; only draw the list again when
-      // there is no bar yet — that is, when this job's row is new.
-      if (bar) paintProgress(bar, p);
-      else renderDictionaries();
-    }
+  const bar = bars.get(p.job);
+  if (p.phase === 'done' || p.phase === 'error') {
+    dictJobs.delete(p.job);
+    renderDictionaries();
+  } else {
+    dictJobs.set(p.job, p);
+    // Write into the bar already on screen; only draw the list again when
+    // there is no bar yet — that is, when this job's row is new.
+    if (bar) paintProgress(bar, p);
+    else renderDictionaries();
   }
 
   const { what, pct } = progressOf(p);
@@ -812,26 +820,20 @@ window.settings.onDictProgress((p) => {
     // until it lands — so its progress belongs beside the button that started
     // it, which is where this line sits.
     $('dictstatus').textContent = `${what}${shown}`;
-  } else if (p.job) {
+  } else {
     // The row is showing the detail; the line just says how much is behind it.
     const rest = dictJobs.size - 1;
     $('dictstatus').textContent = rest > 0 ? `${rest} more waiting` : '';
-  } else if (p.phase === 'downloading') {
-    const of = p.total ? ' / ' + inMB(p.total) : '';
-    $('dictstatus').textContent = `downloading ${p.name} ${inMB(p.got)}${of} MB`;
-  } else if (p.phase === 'indexing') {
-    const at = p.total ? ` (${p.done || 0}/${p.total})` : '';
-    $('dictstatus').textContent = `indexing ${p.name || ''}${at}${shown}`;
-  } else if (p.phase === 'pruning') {
-    $('dictstatus').textContent = `removing: ${p.step}${shown}`;
-  } else {
-    $('dictstatus').textContent = what;
   }
 });
 
-// The window list tracks reality on its own — no manual refresh. 2s is far
-// below human window-shuffling speed and the scan is ~50ms of CGWindowList.
-setInterval(() => { refreshWindows(true).catch(() => {}); }, 2000);
+// The window list tracks reality on its own — no manual refresh — while it is
+// on screen. 2s is far below human window-shuffling speed and the scan is ~50ms
+// of CGWindowList, but each one is a process spawn, and a list nobody is
+// looking at needs none.
+setInterval(() => {
+  if ($('p-window').classList.contains('on')) refreshWindows(true).catch(() => {});
+}, 2000);
 
 async function init() {
   config = await window.settings.getConfig();

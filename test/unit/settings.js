@@ -28,6 +28,9 @@ const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null
 
 // Set to make the bridge itself fail, as a main process older than the page does.
 let ankiBridgeDown = false;
+// Set to make main refuse a save, as a throw anywhere in ipc.js's handler does.
+let savesRefused = false;
+let windowListCalls = 0;
 
 const results = [];
 async function test(name, fn) {
@@ -250,6 +253,32 @@ async function run() {
                        'novel yomi-overlay');
   });
 
+  await test('a save main refuses says so, instead of "saved"', async () => {
+    savesRefused = true;
+    await js("document.querySelector('[data-tab=\"trigger\"]').click()");
+    await js("(() => { const m = document.getElementById('mode');"
+             + " m.value = 'hold'; m.onchange(); })()");
+    await settle(120);
+    const trig = await js("document.getElementById('status').textContent");
+    await js("document.querySelector('[data-tab=\"window\"]').click()");
+    await js("document.getElementById('save').click()");
+    await settle(120);
+    const apply = await js("document.getElementById('status').textContent");
+    savesRefused = false;
+    assert.match(trig, /not saved.*disk full/, `the trigger tab says: ${trig}`);
+    assert.match(apply, /not saved.*disk full/, `the footer says: ${apply}`);
+  });
+
+  await test('the window list is polled only while its tab is shown', async () => {
+    await js("document.querySelector('[data-tab=\"anki\"]').click()");
+    const before = windowListCalls;
+    await settle(2200);      // the poll runs every 2s
+    assert.strictEqual(windowListCalls, before, 'yomi --list-all ran for a hidden list');
+    await js("document.querySelector('[data-tab=\"window\"]').click()");
+    await settle(2200);
+    assert.ok(windowListCalls > before, 'the shown list stopped tracking the windows');
+  });
+
   const failed = results.filter(([ok]) => !ok);
   console.log('== settings ==');
   for (const [ok, name, err] of results) {
@@ -262,11 +291,15 @@ async function run() {
 /** Run the suite in this (ready) Electron process; resolves to its failures. */
 module.exports = async () => {
   ipcMain.handle('cfg:get', () => CONFIG);
-  ipcMain.handle('cfg:windows', () => WINDOWS);
+  ipcMain.handle('cfg:windows', () => { windowListCalls++; return WINDOWS; });
   ipcMain.handle('cfg:save', (_e, v) => {
+    if (savesRefused) throw new Error('disk full');
     saved.config++; saved.target = v.target; return CONFIG;
   });
-  ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
+  ipcMain.handle('cfg:trigger', () => {
+    if (savesRefused) throw new Error('disk full');
+    saved.trigger++; return CONFIG;
+  });
   ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
   ipcMain.handle('cfg:anki', (_e, v) => { saved.anki = v; return CONFIG; });
