@@ -93,9 +93,9 @@ func mapFlatLines(
         let t = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return nil }
 
-        // Line.box stays bottom-left normalized: order() sorts with it. Its
-        // midX is pinned to the char-quad column x so order()'s vertical sort
-        // agrees with the pre-sort below (LT line boxes alone misorder).
+        // Line.box stays bottom-left normalized: plainText() sorts with it.
+        // Its midX is pinned to the char-quad column x so it agrees with the
+        // pre-sort below (LT line boxes alone misorder).
         var line = Line(
             text: t,
             box: CGRect(

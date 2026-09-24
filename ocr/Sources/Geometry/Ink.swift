@@ -55,19 +55,6 @@ func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
     return (w, h, ink)
 }
 
-/// Ink cells no recognised line accounts for.
-///
-/// The mixed-content merge (`verticalRemainder`) exists because Vision reads
-/// no vertical Japanese at all, so a page committed horizontal can hold whole
-/// columns it never saw. It costs one full Live Text pass — measured 1.35 s
-/// against the 0.85 s Vision read it supplements on a 37-line page, i.e. it
-/// more than doubled every changed pass whether or not there was anything to
-/// find, and on an ordinary novel page there never is.
-///
-/// This is the "or not" test, and it is a measurement rather than a guess
-/// about the app: paint out every cell a recogniser already explained, and
-/// whatever ink survives is something it could not read. Only then is the
-/// second engine worth its second and a half.
 /// Marks that stand out from the page, whatever the page's polarity.
 ///
 /// NOT `inkMask`, which asks a different question — "where is the dark ink" —
@@ -150,6 +137,19 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
     return (w, h, mark)
 }
 
+/// Ink cells no recognised line accounts for.
+///
+/// The mixed-content merge (`verticalRemainder`) exists because Vision reads
+/// no vertical Japanese at all, so a page committed horizontal can hold whole
+/// columns it never saw. It costs one full Live Text pass — measured 1.35 s
+/// against the 0.85 s Vision read it supplements on a 37-line page, i.e. it
+/// more than doubled every changed pass whether or not there was anything to
+/// find, and on an ordinary novel page there never is.
+///
+/// This is the "or not" test, and it is a measurement rather than a guess
+/// about the app: paint out every cell a recogniser already explained, and
+/// whatever ink survives is something it could not read. Only then is the
+/// second engine worth its second and a half.
 func unexplainedInkCells(
     _ image: CGImage, explainedBy lines: [RecognizedLine],
     step: Int = 8

@@ -187,13 +187,12 @@ func runWatchLoop(_ opts: Options) async throws {
                         let voted = voteLines(voteBuf)
                         let f = CGRect(origin: shot.origin, size: shot.size)
                         let payload = buildPayload(
-                            voted, frame: f, window: current.frame,
+                            voted, frame: f, window: current.frame, covers: current.covers,
                             vertical: lastVertical, vote: voteBuf.count,
                             engine: session.lastLoggedEngine)
                         if payload != lastText {
-                            emit(payload, to: opts.outPath)
+                            emit(payload)
                             lastText = payload
-                            if opts.outPath == nil { fflush(stdout) }
                             FileHandle.standardError.write(
                                 "voted pass \(voteBuf.count)/\(opts.votes)\n"
                                     .data(using: .utf8)!)
@@ -216,9 +215,8 @@ func runWatchLoop(_ opts: Options) async throws {
                 if opts.json {
                     print(
                         heartbeatJSON(
-                            frame: CGRect(
-                                origin: shot.origin,
-                                size: shot.size)))
+                            frame: CGRect(origin: shot.origin, size: shot.size),
+                            covers: current.covers))
                     fflush(stdout)
                 }
                 recovered()
@@ -272,15 +270,14 @@ func runWatchLoop(_ opts: Options) async throws {
                 // rect goes out separately, for diagnostics only.
                 let f = CGRect(origin: shot.origin, size: shot.size)
                 let payload = buildPayload(
-                    lines, frame: f, window: current.frame,
+                    lines, frame: f, window: current.frame, covers: current.covers,
                     vertical: isVertical, vote: 1,
                     engine: session.lastLoggedEngine)
                 let parts = lines.filter { !$0.chars.isEmpty }
                 if payload != lastText {
-                    emit(payload, to: opts.outPath)
+                    emit(payload)
                     lastText = payload
                     producedNewText = turned
-                    if opts.outPath == nil { fflush(stdout) }
                     FileHandle.standardError.write(
                         "emitted \(parts.count) lines\n".data(using: .utf8)!)
                 } else {
@@ -290,7 +287,7 @@ func runWatchLoop(_ opts: Options) async throws {
                     // without one the consumer cannot tell this apart
                     // from a vanished window and hides the overlay
                     // mid-read.
-                    print(heartbeatJSON(frame: f))
+                    print(heartbeatJSON(frame: f, covers: current.covers))
                     fflush(stdout)
                 }
                 recovered()
@@ -305,30 +302,13 @@ func runWatchLoop(_ opts: Options) async throws {
                 continue
             }
 
-            // Rotation already returns columns in reading order, so a
-            // detected-vertical page needs no re-sorting. Ruby lines
-            // are dropped from text output — that is the filter's
-            // whole point (readings are hints, not text).
-            let textLines = lines.filter { !$0.ruby }
-            let text =
-                (session.orientation == .verticalNative
-                // Native-vertical lines are pre-sorted by their char
-                // quads; order()'s 0.04 column-tie threshold exceeds a
-                // dense page's column spacing (kakuyomu: 0.033) and
-                // re-swaps adjacent columns. Do not re-sort them.
-                ? textLines.map(\.text)
-                : order(textLines, vertical: opts.vertical && !isVertical))
-                .joined(separator: "\n")
+            let text = plainText(lines, session: session)
 
             recovered()
 
             if text != lastText {
-                emit(text, to: opts.outPath)
+                emit(text)
                 lastText = text
-                if opts.outPath != nil {
-                    FileHandle.standardError.write(
-                        "captured \(lines.count) lines\n".data(using: .utf8)!)
-                }
             }
         } catch {
             // In watch mode a failure is usually transient: the target

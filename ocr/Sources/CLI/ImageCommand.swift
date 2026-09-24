@@ -49,26 +49,11 @@ func runImageCommand(_ opts: Options, path imgPath: String) async -> Never {
         if opts.json {
             emit(
                 buildPayload(
-                    lines, frame: bounds, window: bounds,
+                    lines, frame: bounds, window: bounds, covers: [],
                     vertical: isVertical, vote: 1,
-                    engine: session.lastLoggedEngine),
-                to: opts.outPath)
+                    engine: session.lastLoggedEngine))
         } else {
-            // Reflowed vertical lines are already in reading order
-            // (same rule as the capture path). Ruby lines are
-            // dropped from text output — readings are hints, not
-            // text.
-            let textLines = lines.filter { !$0.ruby }
-            let text =
-                (session.orientation == .verticalNative
-                // Native-vertical lines are pre-sorted by their char
-                // quads; order()'s 0.04 column-tie threshold exceeds a
-                // dense page's column spacing (kakuyomu: 0.033) and
-                // re-swaps adjacent columns. Do not re-sort them.
-                ? textLines.map(\.text)
-                : order(textLines, vertical: opts.vertical && !isVertical))
-                .joined(separator: "\n")
-            emit(text, to: opts.outPath)
+            emit(plainText(lines, session: session))
         }
     } catch {
         FileHandle.standardError.write(

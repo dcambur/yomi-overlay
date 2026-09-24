@@ -127,24 +127,22 @@ func recognize(
     return result
 }
 
-func order(_ lines: [Line], vertical: Bool) -> [String] {
-    let sorted: [Line]
-    if vertical {
-        // Tategaki: columns run right-to-left, characters top-to-bottom.
-        sorted = lines.sorted { a, b in
-            let ax = a.box.midX
-            let bx = b.box.midX
-            if abs(ax - bx) > 0.04 { return ax > bx }
-            return a.box.midY > b.box.midY
-        }
-    } else {
-        // Yokogaki: lines top-to-bottom, then left-to-right.
-        sorted = lines.sorted { a, b in
-            let ay = a.box.midY
-            let by = b.box.midY
-            if abs(ay - by) > 0.015 { return ay > by }
-            return a.box.midX < b.box.midX
-        }
+/// A page as plain text, for the modes without --json. Ruby lines are dropped
+/// (readings are hints, not text). Native-vertical lines are pre-sorted by
+/// their char quads and are left as they are: a column-tie threshold wider
+/// than a dense page's column spacing (kakuyomu: 0.033) re-swapped adjacent
+/// columns. Everything else is sorted top-to-bottom, then left-to-right.
+func plainText(_ lines: [Line], session: RecognitionSession) -> String {
+    let textLines = lines.filter { !$0.ruby }
+    guard session.orientation != .verticalNative else {
+        return textLines.map(\.text).joined(separator: "\n")
     }
-    return sorted.map(\.text)
+    // Line.box is bottom-left normalised, so a larger midY is higher up.
+    return textLines.sorted { a, b in
+        let ay = a.box.midY
+        let by = b.box.midY
+        if abs(ay - by) > 0.015 { return ay > by }
+        return a.box.midX < b.box.midX
+    }
+    .map(\.text).joined(separator: "\n")
 }

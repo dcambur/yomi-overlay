@@ -28,8 +28,6 @@ struct Main {
 
         do {
             let windows = try await targetWindows()
-
-            if opts.debug { try await runDebugCommand() }
             if opts.list { runListCommand(windows) }
 
             // Watch mode must not die here: launched before the target app
@@ -49,8 +47,6 @@ struct Main {
                     "target has no window yet — watching until one appears\n"
                         .data(using: .utf8)!)
             }
-
-            if opts.frame { try await runFrameCommand(opts) }
 
             try await runWatchLoop(opts)
         } catch {

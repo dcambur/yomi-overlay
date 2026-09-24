@@ -47,8 +47,8 @@ func jsonEscape(_ s: String) -> String {
 /// Shipped with every payload AND every heartbeat: a window can be covered or
 /// uncovered without one pixel of the target changing, and the consumer must
 /// stop hit-testing glyphs the user cannot see the moment that happens.
-func coversJSON(frame f: CGRect) -> String {
-    let items = lastOccluders.compactMap { r -> String? in
+func coversJSON(_ covers: [CGRect], frame f: CGRect) -> String {
+    let items = covers.compactMap { r -> String? in
         let hit = r.intersection(f)
         guard !hit.isNull, hit.width > 1, hit.height > 1 else { return nil }
         let pos =
@@ -71,18 +71,19 @@ func emitIdle(json: Bool) {
 
 /// The every-pass "still here, nothing new" line. Carries the frame origin and
 /// the cover regions, because both move while the recognised text does not.
-func heartbeatJSON(frame f: CGRect) -> String {
+func heartbeatJSON(frame f: CGRect, covers: [CGRect]) -> String {
     let frameJson =
         "{\"x\":\(Int(f.origin.x)),\"y\":\(Int(f.origin.y)),"
         + "\"width\":\(Int(f.width)),\"height\":\(Int(f.height))}"
-    return "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),\"unchanged\":true}"
+    let coversJson = coversJSON(covers, frame: f)
+    return "{\"frame\":\(frameJson),\"covers\":\(coversJson),\"unchanged\":true}"
 }
 
 /// The watch payload. `vote` counts the passes behind this text (1 = single
 /// read); the renderer uses it to update voted corrections in place. `f` per
 /// char is the voting confidence, present only after a vote.
 func buildPayload(
-    _ lines: [Line], frame f: CGRect, window w: CGRect,
+    _ lines: [Line], frame f: CGRect, window w: CGRect, covers: [CGRect],
     vertical: Bool, vote: Int, engine: String
 ) -> String {
     // Long interpolations split into locals: the type-checker has timed out
@@ -94,7 +95,7 @@ func buildPayload(
         "{\"x\":\(Int(w.origin.x)),\"y\":\(Int(w.origin.y)),"
         + "\"width\":\(Int(w.width)),\"height\":\(Int(w.height))}"
     let head =
-        "{\"frame\":\(frameJson),\"covers\":\(coversJSON(frame: f)),"
+        "{\"frame\":\(frameJson),\"covers\":\(coversJSON(covers, frame: f)),"
         + "\"window\":\(windowJson),"
     let meta = "\"vertical\":\(vertical),\"engine\":\"\(engine)\",\"vote\":\(vote),"
 
@@ -132,27 +133,7 @@ func twoDecimals(_ x: Double) -> String {
     return "\(n / 100).\(n % 100 < 10 ? "0" : "")\(n % 100)"
 }
 
-func emit(_ text: String, to path: String?) {
-    guard let path else {
-        print(text)
-        return
-    }
-    // replaceItemAt requires the destination to already exist, so a first write
-    // to a fresh path would silently do nothing and strand the .tmp file.
-    // Foundation's atomic write covers that case on its own.
-    guard FileManager.default.fileExists(atPath: path) else {
-        try? text.write(toFile: path, atomically: true, encoding: .utf8)
-        return
-    }
-    let tmp = path + ".tmp"
-    guard (try? text.write(toFile: tmp, atomically: true, encoding: .utf8)) != nil else {
-        return
-    }
-    // Atomic replace so the web page never reads a half-written file.
-    if (try? FileManager.default.replaceItemAt(
-        URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))) == nil
-    {
-        try? FileManager.default.removeItem(atPath: tmp)
-        try? text.write(toFile: path, atomically: true, encoding: .utf8)
-    }
+func emit(_ text: String) {
+    print(text)
+    fflush(stdout)
 }
