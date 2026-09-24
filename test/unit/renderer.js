@@ -293,6 +293,16 @@ async function run() {
     assert.strictEqual(await hitCount(), 0, 'a stale reply highlighted the new page');
   });
 
+  await test('a rebuild under an open popup closes it', async () => {
+    // The popup answers for glyph indices of the layer it was opened on.
+    await openOn(X);
+    send('capture', A); await settle();       // turn-like: parked, pinned
+    // A trigger applies the parked page first; nothing is under (5,5).
+    send('trigger', { type: 'click', x: 5, y: 5 }); await settle(120);
+    assert.strictEqual(await popupShown(), false,
+                       'the popup still answers for a page that is gone');
+  });
+
   await test('a reply that lands after a dismiss does not reopen the popup', async () => {
     send('capture', A); await settle();
     const before = ipcSeen.lookups;
