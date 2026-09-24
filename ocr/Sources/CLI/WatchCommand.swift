@@ -225,9 +225,6 @@ func runWatchLoop(_ opts: Options) async throws {
                 continue
             }
 
-            lastHash = hash
-            lastFrame = current.frame
-
             // Positions are expressed against the captured region, not
             // the window: a window's self-reported frame is stale while
             // it is fullscreen, and anything derived from it inherits
@@ -240,6 +237,11 @@ func runWatchLoop(_ opts: Options) async throws {
             var (lines, isVertical) = try await recognizeAuto(
                 shot.image, geometry: geom, forced: opts.vertical,
                 session: session)
+            // Only now is this frame's hash the page's: committed before the
+            // read, a recognition that threw left the previous page's text
+            // standing as "unchanged" over the new one.
+            lastHash = hash
+            lastFrame = current.frame
             markRuby(&lines, vertical: isVertical)
 
             // A different page, or the same one read again with jitter? An
