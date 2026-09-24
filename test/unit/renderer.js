@@ -243,8 +243,10 @@ async function run() {
 
   // --- what may and may not start a lookup ------------------------------------
 
-  /** Page B's first glyph at (100,100), and a popup open on it. */
+  /** Page B's first glyph at (100,100), and a popup open on it — whatever an
+   *  earlier test left open (a failed one never reaches its own dismiss). */
   async function openOn(reply) {
+    send('dismiss');
     send('capture', B); await settle();
     const c = B.lines[0].chars[0];
     const [sx, sy] = await js('[window.screenX, window.screenY]');
@@ -432,6 +434,31 @@ async function run() {
                        'the first card stayed armed: one stray click deletes it');
     assert.strictEqual(ipcSeen.ankiRemove.filter((id) => id === 42).length, 1,
                        'only the earlier two-click removal reached main');
+    send('dismiss'); await settle();
+  });
+
+  await test('a word with more frequency rows than main takes can still be added', async () => {
+    // ipc.js takes at most 8 (validNote), and refuses the whole note beyond.
+    const freq = Array.from({ length: 9 }, (_, i) => ({ source: `F${i}`, value: i + 1 }));
+    ankiIds = [];
+    await openOn({ ...WAGAHAI, freq, groups: [{ ...WAGAHAI, freq }] });
+    await settle(120);
+    await js("document.querySelector('#popup .anki').click()");
+    await settle(120);
+    const note = ipcSeen.ankiAdd[ipcSeen.ankiAdd.length - 1];
+    assert.strictEqual(note.freq.length, 8, `${note.freq.length} rows sent`);
+    assert.strictEqual(note.freq[0].source, 'F0', 'the rows the user ranked first are kept');
+    send('dismiss'); await settle();
+  });
+
+  await test("a card's first reading group draws no divider above it", async () => {
+    const two = { ...WAGAHAI, entries: [
+      { reading: 'わがはい', dict: 'Jitendex', glosses: ['I; me'] },
+      { reading: 'わがともがら', dict: 'Jitendex', glosses: ['we'] }] };
+    await openOn({ ...two, groups: [two] });
+    const tops = await js("[...document.querySelectorAll('#popup .card .rgroup')]"
+                          + '.map((g) => getComputedStyle(g).borderTopStyle)');
+    assert.deepStrictEqual(tops, ['none', 'solid'], `divider styles: ${tops}`);
     send('dismiss'); await settle();
   });
 

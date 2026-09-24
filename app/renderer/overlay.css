@@ -213,7 +213,9 @@
     margin: 8px 0 1px; color: #d3b072; font-size: 13px;
     border-top: 1px solid rgba(255,255,255,0.07); padding-top: 6px;
   }
-  #popup .card > .rgroup:first-of-type { border-top: none; margin-top: 5px; }
+  /* The first group follows the card's header (or its deinflection route);
+     :first-of-type never matched, because every card opens with div.hd. */
+  #popup .card > :is(.hd, .route) + .rgroup { border-top: none; margin-top: 5px; }
 
   /* Proper names: a reference list, not a definition. One dim line at the
      foot, whatever the reader looked up. */
