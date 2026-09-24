@@ -83,7 +83,11 @@ IDENTITY="${SIGN_IDENTITY:-}"
 if [ -n "$IDENTITY" ] && security find-identity -v -p codesigning 2>/dev/null \
      | grep -qF "$IDENTITY"; then
   echo "==> Signing with \"$IDENTITY\""
-  codesign --force --deep --options runtime --sign "$IDENTITY" "$BUILT"
+  # The hardened runtime (needed for notarization) refuses V8 its JIT memory
+  # unless the signature grants it; without the entitlements the signed app
+  # would not start. Notarization also rejects a signature with no timestamp.
+  codesign --force --deep --options runtime --timestamp \
+    --entitlements "$TOOLS_DIR/entitlements.plist" --sign "$IDENTITY" "$BUILT"
 else
   # Ad-hoc: the identity is a bare cdhash, so it changes with every build and
   # macOS treats each release as a new app that has been granted nothing. Say

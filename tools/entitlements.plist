@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- For the Developer ID signature in tools/build-release.sh. V8 needs MAP_JIT
+     memory, which the hardened runtime refuses without this key: Electron's
+     own signer (@electron/osx-sign) grants it to the app and to its renderer,
+     GPU and plugin helpers, and codesign's deep pass gives them the same. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+</dict>
+</plist>
