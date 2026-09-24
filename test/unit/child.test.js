@@ -40,6 +40,7 @@ function stub(mode, o = {}) {
     args: () => [STUB, mode, o.arg].filter(x => x !== undefined),
     backoff: o.backoff || { initial: 20, max: 80, factor: 2 },
     watchdog: o.watchdog,
+    killGraceMs: 100,
     onLine: (obj) => lines.push(obj),
     onSpawnError: (e) => errors.push(e),
     log: () => {}, logError: () => {},
@@ -165,7 +166,7 @@ test('a child that ignores SIGTERM is escalated to SIGKILL', async () => {
   child.stop();
   assert.strictEqual(p.killed || p.exitCode !== null || p.signalCode !== null, true,
                      'SIGTERM was never even sent');
-  // The escalation timer is 1500ms in production; just prove the child dies.
+  // The escalation timer is KILL_GRACE_MS in production; just prove it fires.
   await until(() => p.exitCode !== null || p.signalCode !== null,
               'the stubborn child to actually die', 4000);
 });
