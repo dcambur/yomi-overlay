@@ -88,9 +88,7 @@ func recognize(
     }
     var lines: [RecognizedLine] =
         try raw
-        ?? visionLines(
-            subject, unrotate: vertical && reflow == nil,
-            wantChars: geometry != nil || reflow != nil)
+        ?? visionLines(subject, wantChars: geometry != nil || reflow != nil)
 
     // Mixed-content completeness: a committed-horizontal page can still
     // CONTAIN vertical text (manga dialogue, kakuyomu ad banners), which

@@ -16,31 +16,6 @@ func dumpImage(_ image: CGImage, to path: String) {
     CGImageDestinationFinalize(dest)
 }
 
-/// Rotate 90° counter-clockwise, so tategaki becomes ordinary horizontal text.
-///
-/// CCW specifically: a column reads top-to-bottom and columns run right-to-left,
-/// so rotating CCW puts the first character of the rightmost column at the top
-/// LEFT. Vision then returns lines in true reading order — the rightmost column
-/// first — and characters within each line already left-to-right. Rotating the
-/// other way would reverse both.
-func rotated90CCW(_ image: CGImage) -> CGImage? {
-    let w = image.width
-    let h = image.height
-    guard let space = image.colorSpace,
-        let ctx = CGContext(
-            data: nil, width: h, height: w,
-            bitsPerComponent: image.bitsPerComponent,
-            bytesPerRow: 0, space: space,
-            bitmapInfo: image.bitmapInfo.rawValue)
-    else { return nil }
-    // CGContext is bottom-left; rotating by +90° and shifting puts the source
-    // rect back inside the (h x w) canvas.
-    ctx.translateBy(x: CGFloat(h), y: 0)
-    ctx.rotate(by: .pi / 2)
-    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-    return ctx.makeImage()
-}
-
 /// Ink mask of an image, downsampled by `step`, as a [width][height] grid.
 func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
     guard let data = image.dataProvider?.data as Data? else { return nil }
