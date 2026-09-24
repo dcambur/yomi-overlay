@@ -24,6 +24,9 @@ let lastCovers = '';
 // it, and a static page sends nothing but heartbeats, which carry no lines.
 let lastCapture = null;
 let lastCrashAt = 0;
+// The renderer died twice in quick succession and was left dead: the panel
+// stays hidden rather than being shown, empty, over the target every pass.
+let rendererGivenUp = false;
 
 // 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
 // payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
@@ -145,9 +148,16 @@ function createWindow() {
     win.setIgnoreMouseEvents(true, { forward: true });
   });
   win.webContents.on('render-process-gone', (_e, d) => {
+    // Whatever happens next, the dead page must not keep the mouse: if it
+    // died while the popup had it, the panel takes every click on the display.
+    interactive = false;
+    win.setIgnoreMouseEvents(true, { forward: true });
     // Twice inside ten seconds is not a hiccup, and a reload would replay
-    // the payload that may be killing it: leave it, and say so.
+    // the payload that may be killing it: give up, get off the screen, and
+    // say so.
     if (Date.now() - lastCrashAt < 10000) {
+      rendererGivenUp = true;
+      hideOverlay('the overlay page keeps crashing');
       console.error(`[renderer] gone again (${d.reason}); not reloading`);
       return;
     }
@@ -181,7 +191,7 @@ function sendTrigger() {
  * on the right display, and told where the target is.
  */
 function trackTarget(frame, covers) {
-  if (!win) return;
+  if (!win || rendererGivenUp) return;
   ensureCover(frame);
   if (!win.isVisible()) {
     win.showInactive();

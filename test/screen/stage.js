@@ -614,6 +614,14 @@ async function appScenario(A, B) {
     });
 
     await test('the overlay leaves when the target does', async () => {
+      // A popup open first, so its closing is something this test can see.
+      const layer = await cdp.eval(LAYER);
+      const line = layer.find((l) => l.text.includes('吾輩は猫である'));
+      check(line, 'the line with 猫 is not in the layer');
+      const cat = line.chars[line.text.indexOf('猫')];
+      await cdp.mouse('mouseMoved', 1, 1);
+      await cdp.mouse('mouseMoved', cat.cx, cat.cy, { modifiers: 8 });
+      await waitFor('the popup', async () => (await cdp.eval(POPUP)).shown);
       const gone = Date.now();
       A.win.hide();
       await waitFor('the popup to close', async () => !(await cdp.eval(POPUP)).shown);
@@ -621,6 +629,25 @@ async function appScenario(A, B) {
                     () => cdp.eval("document.visibilityState === 'hidden'"));
       note(`hidden ${Date.now() - gone}ms after the target was`);
       A.win.showInactive();
+    });
+
+    await test('a page that crashes twice in 10 s is given up, off the screen', async () => {
+      // The overlay panel of the app under test: the only display-sized window.
+      const panel = () => listAll().find((w) => w.bundle === ELECTRON_BUNDLE
+        && w.width === D.width && w.height === D.height);
+      await waitFor('the panel back on screen', () => (panel() || {}).onScreen);
+      cdp.crash();
+      cdp.close();
+      cdp = null;
+      await waitFor('the panel to leave the screen', () => {
+        const p = panel();
+        return p && !p.onScreen;
+      });
+      const log = fs.readFileSync(path.join(dir, 'yomi-overlay.log'), 'utf8');
+      check(/gone again .*not reloading/.test(log), 'the app did not say it gave up');
+      // Stays off: payloads keep arriving, and each used to re-show the panel.
+      await sleep(1500);
+      check(!panel().onScreen, 'the dead panel came back over the target');
     });
 
     await test('quitting takes both capture children with it', async () => {
@@ -643,7 +670,7 @@ async function appScenario(A, B) {
       check(launches === 1, `the launch line is in the log ${launches} times`);
     });
   } finally {
-    if (cdp) cdp.close();
+    if (cdp) cdp.close();   // null once the page has been given up on
     if (child && child.exitCode === null) child.kill('SIGKILL');
     anki.server.close();
     fs.rmSync(dir, { recursive: true, force: true });
