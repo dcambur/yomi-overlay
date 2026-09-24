@@ -35,7 +35,7 @@ cd yomi-overlay
 ./setup.sh
 ```
 
-setup.sh does everything: creates a stable self-signed "Yomi Overlay Dev" signing certificate, runs npm install, downloads the freely licensed dictionaries via tools/fetch-dicts.py, builds index.db (takes a few minutes), installs the optional manga-ocr sidecar venv (skippable, the app works without it), packages and installs /Applications/Yomi Overlay.app, and opens the two Privacy panes for you. It's idempotent, so it's safe to re-run after moving the project or upgrading Electron; it only redoes what's missing.
+setup.sh does everything: creates a stable self-signed "Yomi Overlay Dev" signing certificate, runs npm install, downloads the freely licensed dictionaries via tools/fetch-dicts.py, builds index.db (takes a few minutes), packages and installs /Applications/Yomi Overlay.app, and opens the two Privacy panes for you. It's idempotent, so it's safe to re-run after moving the project or upgrading Electron; it only redoes what's missing.
 
 Expect up to two password/confirmation dialogs the first time: one to trust the new certificate and one to let codesign use its key. That only happens once.
 
@@ -107,7 +107,7 @@ Start with [docs/README.md](docs/README.md), which indexes the rest. [docs/ARCHI
 
 Layout: ocr/Sources/ is the Swift capture and OCR helper. app/ is the Electron side, split into main/ (main process), renderer/ (the overlay window), preload/ (the IPC boundary), and shell/ (the loader). tools/ has the build scripts and test/ has the suites.
 
-Tests: `test/run.sh` runs everything, and nothing appears on your screen. The logic and page suites take a few seconds and need no permissions. The screen lane runs the real capture helper and the real app on an invisible display, so it needs Screen Recording and the overlay stopped. `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
+Tests: `test/run.sh` runs everything without opening a window on your screen (the one visible sign is the app's own menu-bar icon while the real app is under test, about ten seconds). The logic and page suites take a few seconds and need no permissions. The screen lane runs the real capture helper and the real app on an invisible display, so it needs Screen Recording and the overlay stopped. `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
 
 ## Known gaps
 

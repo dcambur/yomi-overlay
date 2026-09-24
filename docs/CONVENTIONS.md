@@ -178,7 +178,8 @@ where one developer's version is at least consistent with itself.
 Three tiers, by what they need. Reach for the cheapest one that can see your
 change.
 
-One command runs them, `test/run.sh`, and nothing it runs appears on screen
+One command runs them, `test/run.sh`, and nothing it runs opens a window on
+your screen (the real app under test shows its menu-bar icon for ~10 s)
 ([test/README.md](../test/README.md)).
 
 | Lane | Needs | Sees |

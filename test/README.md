@@ -1,6 +1,7 @@
 # Tests
 
-One command, and nothing appears on screen:
+One command, and no window opens on your screen — the one visible sign is the
+app's own 読 menu-bar icon, for the ~10 s the real app is under test:
 
 ```
 test/run.sh                  every lane (~35 s)

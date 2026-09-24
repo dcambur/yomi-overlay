@@ -32,8 +32,8 @@ app/
   shell/              the app bundle's ENTIRE contents — see section 6
   vendor/jp-verbs/    third-party deinflection tables
 tools/                build scripts, bundle inputs, the path resolvers
-data/  bin/           generated: index.db, dicts, venv, config / compiled helpers
-test/                 unit (unattended) · golden (unattended) · verify (hands-on)
+data/  bin/           generated: index.db, dicts, config / compiled helpers
+test/                 run.sh: logic · pages · screen (an invisible display) · golden
 ```
 
 | Piece | Role |

@@ -1,5 +1,6 @@
 #!/bin/bash
-# Every test, from one command. Nothing appears on screen.
+# Every test, from one command. No window opens on the user's screen; the one
+# visible sign is the app's menu-bar icon while the real app is under test.
 #
 #   test/run.sh                 every lane
 #   test/run.sh logic pages     just those lanes

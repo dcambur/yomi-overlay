@@ -3,7 +3,7 @@
 // This is the hot path behind every popup, and it is pure and already
 // importable, so it needs no harness — just node.
 //
-//   test/unit/run.sh node       (node:sqlite prints an experimental warning)
+//   test/run.sh logic           (node:sqlite prints an experimental warning)
 //
 // It used to run against whatever index.db this machine had, which meant it
 // tested nothing anywhere else and stopped testing anything here the moment
