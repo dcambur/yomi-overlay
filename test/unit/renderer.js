@@ -19,9 +19,9 @@
 // only if the layer was rebuilt. That is what makes "kept" and "patched"
 // distinguishable from "rebuilt" from the outside.
 //
-//   test/unit/run.sh          (or: electron test/unit/renderer.js)
+//   test/run.sh pages
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
@@ -309,15 +309,16 @@ async function run() {
   });
 
   const failed = results.filter(r => !r[0]);
+  console.log('== renderer ==');
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
   }
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
-  app.exit(failed.length ? 1 : 0);
+  return failed.length;
 }
 
-app.on('window-all-closed', () => {});
-app.whenReady().then(async () => {
+/** Run the suite in this (ready) Electron process; resolves to its failures. */
+module.exports = async () => {
   ipcMain.handle('lookup', () => lookupReply);
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
   ipcMain.on('tier2', (_e, r) => ipcSeen.tier2.push(r));
@@ -349,5 +350,7 @@ app.whenReady().then(async () => {
   });
   await win.loadFile(path.join(ROOT, 'app', 'renderer', 'index.html'));
   await settle(150);
-  await run();
-});
+  const failed = await run();
+  win.destroy();
+  return failed;
+};
