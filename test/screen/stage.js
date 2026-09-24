@@ -652,17 +652,34 @@ async function appScenario(A, B) {
 
 // --- run -----------------------------------------------------------------------
 
+/**
+ * A bin/yomi never run before recognises nothing until Vision has compiled its
+ * model for the new binary: 29-64 s, once (measured 2026-09-24), where a read
+ * is otherwise 1-3 s. test/run.sh asks for this when the helper is newer than
+ * its last warm-up, so that minute is spent once, announced, and not on a test.
+ */
+async function warmUp(A) {
+  console.log('warming up a freshly built bin/yomi — Vision compiles its model '
+              + 'once per binary (measured 29-64 s)');
+  const t = Date.now();
+  const { payload, err } = await capture(['--window', String(A.id)], 120000);
+  if (!payload) throw new Error(`the helper never answered: ${err.trim().slice(-200)}`);
+  console.log(`warm after ${((Date.now() - t) / 1000).toFixed(0)}s`);
+}
+
 app.whenReady().then(async () => {
-  const t0 = Date.now();
-  setTimeout(() => {
-    console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
-    app.exit(1);                    // process 'exit' kills every child
-  }, SUITE_LIMIT_MS);
+  let t0 = Date.now();
   try {
     D = await openDisplay();
     console.log(`display ${D.id} at ${D.x},${D.y} ${D.width}x${D.height}, invisible`);
     const A = await stageWindow(path.join(__dirname, 'horizontal.html'),
                                 { x: 120, y: 90, width: 1000, height: 700 });
+    if (process.env.YOMI_WARM) await warmUp(A);
+    t0 = Date.now();
+    setTimeout(() => {
+      console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
+      app.exit(1);                  // process 'exit' kills every child
+    }, SUITE_LIMIT_MS);
     const B = await stageWindow('data:text/html;charset=utf-8,' + encodeURIComponent(
       '<body style="margin:0;background:#eee;font:26px Hiragino Kaku Gothic ProN">'
       + '<p style="margin:60px">囮のウィンドウです</p><p style="margin:60px">偽物の内容注意</p>'),
