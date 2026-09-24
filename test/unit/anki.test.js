@@ -17,8 +17,9 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');
 process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-anki-'));
 const {
-  createAnki, lapisFields, furiganaPlain, harmonicRank, searchValue, MODEL, NO_FREQUENCY,
+  createAnki, lapisFields, furiganaPlain, harmonicRank, searchValue, NO_FREQUENCY,
 } = require(path.join(ROOT, 'app', 'main', 'anki.js'));
+const { ankiDouble } = require('./fixtures/anki-double.js');
 
 // --- the note builder ---------------------------------------------------------
 
@@ -101,71 +102,6 @@ test('several accents are several brackets; a list name is escaped', () => {
 });
 
 // --- the client, against an AnkiConnect double ---------------------------------
-
-/** What plugin/__init__.py answers, for the actions the client uses. */
-function ankiDouble() {
-  const notes = new Map();   // id -> {deck, fields, tags, picture}
-  let nextId = 1000;
-  const log = [];
-  const one = (req) => {
-    log.push(req);
-    const p = req.params || {};
-    if (req.version !== 6) throw new Error('version 6 expected on every action');
-    switch (req.action) {
-      case 'version': return 6;
-      case 'modelNames': return ['Basic', MODEL];
-      case 'deckNames': return ['Default', 'Mining', 'Mining::Novels'];
-      case 'findNotes': {
-        const m = /^"deck:(.+?)" "note:Lapis" "expression:(.+)"$/.exec(p.query);
-        if (!m) throw new Error('query shape: ' + p.query);
-        const unescape = (s) => s.replace(/\\(.)/g, '$1');
-        const deck = unescape(m[1]), expr = unescape(m[2]);
-        return [...notes].filter(([, n]) => n.deck === deck && n.fields.Expression === expr)
-          .map(([id]) => id);
-      }
-      case 'addNote': {
-        const n = p.note;
-        if (n.modelName !== MODEL) throw new Error(`model was not found: ${n.modelName}`);
-        if (!['Default', 'Mining', 'Mining::Novels'].includes(n.deckName)) {
-          throw new Error(`deck was not found: ${n.deckName}`);
-        }
-        if (!n.fields.Expression) throw new Error('cannot create note because it is empty');
-        const dup = [...notes.values()].some((x) =>
-          x.deck === n.deckName && x.fields.Expression === n.fields.Expression);
-        if (dup && !n.options.allowDuplicate) {
-          throw new Error('cannot create note because it is a duplicate');
-        }
-        const picture = (n.picture || []).map((pic) => ({
-          filename: pic.filename, fields: pic.fields, bytes: fs.readFileSync(pic.path),
-        }));
-        const id = ++nextId;
-        notes.set(id, { deck: n.deckName, fields: n.fields, tags: n.tags, picture });
-        return id;
-      }
-      case 'deleteNotes':
-        for (const id of p.notes) notes.delete(id);
-        return null;
-      case 'multi':
-        return p.actions.map((a) => {
-          try { return { result: one(a), error: null }; }
-          catch (e) { return { result: null, error: e.message }; }
-        });
-      default: throw new Error('unsupported action');
-    }
-  };
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', (d) => { body += d; });
-    req.on('end', () => {
-      let out;
-      try { out = { result: one(JSON.parse(body)), error: null }; }
-      catch (e) { out = { result: null, error: e.message }; }
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(out));
-    });
-  });
-  return { server, notes, log };
-}
 
 const double = ankiDouble();
 let url;
