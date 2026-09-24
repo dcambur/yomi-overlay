@@ -89,6 +89,10 @@ test('pruning a dictionary equals never having built it', async (t) => {
     dictionaries.remove(DROP);
     const r = dictionaries.prune(label, (p) => steps.push(p.step));
     assert.ok(r.pruned, 'pruned rather than falling back');
+    // The prune writes the manifest itself, in the worker, and says what is in it.
+    const manifest = path.join(path.dirname(dictionaries.INDEX_PATH), 'dictionaries.json');
+    assert.deepStrictEqual(r.labels, JSON.parse(fs.readFileSync(manifest, 'utf8')));
+    assert.ok(!r.labels.includes(label), 'the pruned dictionary is still listed');
     assert.ok(steps.length >= 2, `reported progress (${steps.join(', ')})`);
   });
 

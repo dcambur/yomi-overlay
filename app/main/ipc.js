@@ -304,7 +304,7 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
         }
         return { ok: true, rebuilt: true };
       }
-      const labels = dictionaries.writeManifest();
+      const { labels } = result;       // the worker wrote the manifest
       lookupModule.close();
       cfg.refreshDictionaries();
       media.forget();
