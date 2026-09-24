@@ -6,7 +6,7 @@
 // global trigger silently never fires and the log stays clean.
 
 const { dialog, shell, systemPreferences } = require('electron');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const { OCR_BIN: YOMI_BIN } = require('../paths.js');
 
 let hasScreenRecording = true;
@@ -37,21 +37,27 @@ function reportSpawnFailure(what, err) {
   });
 }
 
-
+// Screen Recording is required for every capture. Without it nothing works and
 // the failure is invisible: SCShareableContent stalls, then errors to a log the
-// user never sees. Check once at startup and say so plainly.
+// user never sees. Check once at startup and say so plainly — asynchronously:
+// nothing at startup waits for the answer, and the synchronous check held the
+// main thread, before the overlay or the capture child existed, for 80-340 ms
+// (measured).
 function checkPermission() {
-  try {
-    const out = execFileSync(YOMI_BIN, ['--check-permission'], { timeout: 5000 });
-    hasScreenRecording = JSON.parse(out.toString()).screenRecording === true;
-  } catch (e) {
+  execFile(YOMI_BIN, ['--check-permission'], { timeout: 5000 }, (e, out) => {
     // A missing binary is a different problem with a different fix; blaming
     // Screen Recording for it sends the user to the wrong settings pane.
     if (e && e.code === 'ENOENT') { reportSpawnFailure('permission check', e); return; }
-    hasScreenRecording = false;
-  }
-  if (hasScreenRecording) return;
+    try {
+      hasScreenRecording = !e && JSON.parse(String(out)).screenRecording === true;
+    } catch {
+      hasScreenRecording = false;
+    }
+    if (!hasScreenRecording) askForScreenRecording();
+  });
+}
 
+function askForScreenRecording() {
   onChange();
   dialog.showMessageBox({
     type: 'warning',
