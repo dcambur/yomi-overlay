@@ -115,7 +115,11 @@ func sharedContent(matching sig: UInt64) async throws -> SCShareableContent {
 func refreshedContent(sig: UInt64? = nil) async throws -> SCShareableContent {
     let c = try await shareableContent()
     cachedContent = c
-    if let sig { cachedContentSig = sig } else { cachedContentSig = 0 }
+    // With no signature (the -3811 fallback) keep this pass's: the content is
+    // newer than it, and zeroing it made every pass in a Space that refuses
+    // the display filter pay two ~150 ms enumerations. A changed window set
+    // still changes the signature.
+    if let sig { cachedContentSig = sig }
     cachedContentAt = Date()
     return c
 }

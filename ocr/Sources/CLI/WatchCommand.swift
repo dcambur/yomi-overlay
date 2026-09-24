@@ -19,6 +19,11 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
         let step = min(0.15, left)
         try? await Task.sleep(nanoseconds: UInt64(step * 1_000_000_000))
         left -= step
+        // A crop asked for now is of the frame the current payload was read
+        // from; served only at the top of the next pass, it waited behind the
+        // interval and a capture (against Anki's 3 s budget), and could be cut
+        // from a newer page than the word's rect.
+        cropChannel.drain()
         if let id, !stillVisible(id) {
             emitIdle(json: json)
             return
