@@ -51,10 +51,10 @@ Screen Recording is required for all capture. Without it nothing works, and the 
 
 ## Dictionaries
 
-tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. Commercial monolingual and pitch-accent dictionaries are neither fetched nor redistributed. If you own one, drop its Yomitan .zip into data/dicts/ and rebuild:
+tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. Commercial monolingual and pitch-accent dictionaries are neither fetched nor redistributed. If you own one, import it in Settings → Dictionaries, or drop its Yomitan .zip into data/dicts/ and rebuild:
 
 ```bash
-python3 tools/build-index.py
+tools/build-index.sh
 ```
 
 The indexer classifies any zip by the banks it contains, so a dictionary you add gets picked up without editing the script.

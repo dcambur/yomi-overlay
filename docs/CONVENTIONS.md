@@ -217,7 +217,7 @@ One command runs them, `test/run.sh`, and nothing it runs appears on screen
 - Rebuild the app bundle (`tools/build-app.sh`) only when `bootstrap.js`,
   `extend.plist`, the icon, or the Electron version changes. Nothing else may
   live in `app/shell/`: electron-packager copies that directory wholesale.
-- Re-run `tools/build-index.py` after adding dictionaries to `data/dicts/`.
+- Re-run `tools/build-index.sh` after adding dictionaries to `data/dicts/`.
 - Before claiming a geometry fix works, run `test/run.sh screen`. It needs
   the overlay **stopped**.
 

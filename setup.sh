@@ -98,11 +98,14 @@ else
 fi
 
 # --- 4. Lookup index ----------------------------------------------------------
+# The app's own builder, as Settings runs it. This used to be the retired
+# build-index.py, so a fresh checkout started on its flattened schema: no
+# images, unknown dictionaries rendered badly, and every removal a rebuild.
 if [ -f "$DATA_DIR/index.db" ] && [ -f "$DATA_DIR/dictionaries.json" ]; then
-  step "index.db present — skipping build (re-run tools/build-index.py after adding dictionaries)"
+  step "index.db present — skipping build (re-run tools/build-index.sh after adding dictionaries)"
 else
   step "Building the lookup index (takes a few minutes)"
-  python3 "$TOOLS_DIR/build-index.py"
+  "$TOOLS_DIR/build-index.sh"
 fi
 
 # --- 5. Package, sign, install ------------------------------------------------
