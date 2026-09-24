@@ -42,6 +42,7 @@ window.overlay.onCapture(payload => {
     return;
   }
   turnCandidate = null;
+  pendingPayload = null;    // superseded: applying it later would revert this
   applyPayload(payload);
 });
 
@@ -80,7 +81,6 @@ let ankiSeq = 0;            // discards Anki replies for a popup since replaced
 // mark goes back to saying the word is in the deck. A deleted note takes its
 // review history with it, which one stray click must not be able to do.
 const ANKI_CONFIRM_MS = 3000;
-let ankiConfirmTimer = null;
 
 /**
  * Apply a payload: place the layer, then let it decide what to do with the
@@ -91,8 +91,12 @@ function applyPayload(payload) {
   pageVertical = !!payload.vertical;
   const outcome = glyphLayer.apply(payload);
   if (outcome === 'rebuilt') {
-    // Indices just changed; a stale key would block the next lookup.
+    // Indices just changed; a stale key would block the next lookup, a reply
+    // in flight would land on spans that are gone, and an open popup's
+    // indices now point into the new page.
     lastKey = '';
+    lookupSeq++;
+    if (popupView.visible()) dismiss();
     hud.show(`${glyphLayer.lineCount} lines · ${glyphLayer.glyphCount} glyphs — ` +
              `<b>${MODIFIER_LABEL[trigger.modifier] || 'Shift'}</b> + point`);
   }
@@ -161,7 +165,7 @@ function dismiss() {
   turnCandidate = null;
   lastHit = null;
   ankiSeq++;
-  if (ankiConfirmTimer) { clearTimeout(ankiConfirmTimer); ankiConfirmTimer = null; }
+  lookupSeq++;              // a reply still in flight must not reopen it
   setInteractive(false);
   if (pendingPayload) {           // page changed while the popup was open
     const p = pendingPayload;
@@ -193,7 +197,11 @@ document.addEventListener('mousemove', (e) => {
     // Grab the mouse only while over the popup, so scrolling it works and
     // everything else still falls through to the target.
     setInteractive(inside);
-    if (inside) return;
+    if (inside) {
+      // A dwell armed on the last sample outside would replace this popup.
+      if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+      return;
+    }
   }
 
   if (!modifierHeld(e)) {
@@ -246,6 +254,10 @@ async function doLookup(px, py) {
   // there (the capture never saw the covering window), but the text is not on
   // screen and the pixels under the cursor belong to somebody else.
   if (placement.isCovered(placement.toFrame(px, py))) return;
+  // The native monitor reports every click and modifier press, the popup's
+  // own included, and elementsFromPoint sees the glyph spans under it: a click
+  // on the card mark would otherwise look up the page behind the popup.
+  if (popupView.visible() && distanceOutside(popupView.bounds(), px, py) === 0) return;
   // A payload parked while the popup was pinned means the layer is KNOWN
   // stale — hit-testing it looks up whatever glyph used to sit under the
   // cursor (measured: zoom in Kindle while a popup was open, then a lookup
@@ -390,7 +402,6 @@ document.getElementById('popup').addEventListener('click', (e) => {
   if (!b) return;
   e.stopPropagation();
   const gi = Number(b.dataset.gi);
-  if (ankiConfirmTimer) { clearTimeout(ankiConfirmTimer); ankiConfirmTimer = null; }
   switch (b.dataset.state) {
     case 'absent':
     case 'error':
@@ -398,8 +409,9 @@ document.getElementById('popup').addEventListener('click', (e) => {
       break;
     case 'present':
       popupView.setAnkiState(gi, 'confirm');
-      ankiConfirmTimer = setTimeout(() => {
-        ankiConfirmTimer = null;
+      // Its own timer: one shared by every card was cancelled by a click on
+      // another card, which left this one armed for a single stray click.
+      setTimeout(() => {
         // The mark must still be the one on screen: a lookup made in the
         // meantime replaced the popup, and setAnkiState finds marks by card
         // index — the old note id would land on the new word's card.

@@ -32,7 +32,9 @@ const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 let win;
 let lookupReply = null;          // what ipcMain.handle('lookup') returns
-const ipcSeen = { interactive: [], tier2: [], ankiFind: [], ankiAdd: [], ankiRemove: [] };
+let lookupDelay = 0;             // how long main takes to answer it
+const ipcSeen = { interactive: [], tier2: [], ankiFind: [], ankiAdd: [], ankiRemove: [],
+                  lookups: 0 };
 // What main/anki.js answers: nothing in the deck yet, then note 42 once added.
 let ankiIds = [];
 
@@ -239,6 +241,108 @@ async function run() {
     send('covers', []); await settle();
   });
 
+  // --- what may and may not start a lookup ------------------------------------
+
+  /** Page B's first glyph at (100,100), and a popup open on it. */
+  async function openOn(reply) {
+    send('capture', B); await settle();
+    const c = B.lines[0].chars[0];
+    const [sx, sy] = await js('[window.screenX, window.screenY]');
+    send('offset', { fx: sx + 100 - c.x, fy: sy + 100 - c.y }); await settle();
+    lookupReply = reply;
+    send('trigger', { type: 'click', x: 100 + c.w / 2, y: 100 + c.h / 2 });
+    await settle(120);
+    assert.strictEqual(await popupShown(), true, 'no popup');
+  }
+  const X = { surface: 'x', matchLength: 1, groups: [], entries: [] };
+  const mouse = (x, y) => js(
+    `document.dispatchEvent(new MouseEvent('mousemove', { clientX: ${x}, clientY: ${y} }))`);
+  /** Centre of a glyph span the popup is drawn over. */
+  const glyphUnderPopup = () => js(`(() => {
+    const p = document.getElementById('popup').getBoundingClientRect();
+    for (const g of document.querySelectorAll('.g')) {
+      const r = g.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x > p.left && x < p.right && y > p.top && y < p.bottom) return [x, y];
+    }
+    return null;
+  })()`);
+
+  await test('a click on the popup does not look up the glyph beneath it', async () => {
+    await openOn(X);
+    const at = await glyphUnderPopup();
+    assert.ok(at, 'no glyph under the popup to be fooled by');
+    const before = ipcSeen.lookups;
+    // The native monitor reports every click, the popup's own included.
+    send('trigger', { type: 'click', x: at[0], y: at[1] });
+    await settle(120);
+    assert.strictEqual(ipcSeen.lookups, before,
+                       'the click looked up the page under the popup');
+    send('dismiss'); await settle();
+  });
+
+  await test('a reply that lands after the layer was rebuilt is dropped', async () => {
+    send('capture', A); await settle();
+    lookupDelay = 150;
+    await openOn(X).catch(() => {});        // the reply is still in flight
+    send('capture', A); await settle(250);  // page turn while it is
+    lookupDelay = 0;
+    assert.strictEqual(await popupShown(), false, 'a stale reply opened a popup');
+    assert.strictEqual(await hitCount(), 0, 'a stale reply highlighted the new page');
+  });
+
+  await test('a reply that lands after a dismiss does not reopen the popup', async () => {
+    send('capture', A); await settle();
+    const before = ipcSeen.lookups;
+    lookupDelay = 150;
+    await openOn(X).catch(() => {});
+    assert.strictEqual(ipcSeen.lookups, before + 1, 'no lookup in flight to test with');
+    send('dismiss'); await settle(250);
+    lookupDelay = 0;
+    assert.strictEqual(await popupShown(), false, 'the dismissed popup came back');
+  });
+
+  await test('in hover mode, a dwell armed on the way into the popup is dropped', async () => {
+    send('trigger-config', { mode: 'hover', modifier: 'shift', hoverDelayMs: 60 });
+    await settle();
+    await openOn(X);
+    // The glyph after the word: close enough to the popup not to dismiss it,
+    // and a different word, so a dwell on it would look up again.
+    const [gx, gy] = await js(`(() => {
+      const r = document.querySelector('.g[data-li="0"][data-ci="1"]').getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+    const p = await js(`(() => {
+      const r = document.getElementById('popup').getBoundingClientRect();
+      return [r.left + 5, r.top + 5]; })()`);
+    const before = ipcSeen.lookups;
+    await mouse(gx, gy);            // one sample on a glyph...
+    await mouse(p[0], p[1]);        // ...then the cursor is on the popup
+    await settle(150);
+    assert.strictEqual(ipcSeen.lookups, before, 'the dwell replaced the popup being read');
+    send('trigger-config', { mode: 'hold', modifier: 'shift', hoverDelayMs: 250 });
+    send('dismiss'); await settle();
+  });
+
+  await test('a payload parked during a lookup is not applied over a newer one', async () => {
+    await openOn(X);                         // pinned: payloads now park
+    lookupDelay = 150;
+    lookupReply = null;                      // this lookup finds nothing
+    const c = B.lines[0].chars[1];
+    const [sx, sy] = await js('[window.screenX, window.screenY]');
+    const b0 = B.lines[0].chars[0];
+    const ox = sx + 100 - b0.x, oy = sy + 100 - b0.y;
+    send('trigger', { type: 'click',
+                      x: ox - sx + c.x + c.w / 2, y: oy - sy + c.y + c.h / 2 });
+    await settle(40);
+    send('capture', moved(B)); await settle(250);   // parked; the reply unpins
+    lookupDelay = 0;
+    send('capture', A); await settle();             // newer, applied directly
+    send('trigger', { type: 'click', x: 5, y: 5 }); await settle(120);
+    assert.strictEqual(await glyphCount(), A.lines.reduce((n, l) => n + l.chars.length, 0),
+                       'the layer went back to the parked, older payload');
+    send('dismiss'); await settle();
+  });
+
   // --- Anki ------------------------------------------------------------------
   // page-b, horizontal: 吾輩は猫である。… — the popup answers for 吾輩 at the
   // start of line 0, placed so the first glyph lands at (100,100).
@@ -308,6 +412,29 @@ async function run() {
     send('dismiss'); await settle();
   });
 
+  await test('arming one card and clicking another leaves neither armed for good', async () => {
+    const two = { surface: '吾輩', matchLength: 2, entries: [], freq: [], pitch: [],
+                  groups: [{ ...WAGAHAI, surface: '吾輩', matchLength: 2 },
+                           { ...WAGAHAI, surface: '吾', matchLength: 1, entries: [
+                             { reading: 'われ', dict: 'Jitendex', glosses: ['I'] }] }] };
+    ankiIds = [42, 43];
+    await openOn(two);
+    await settle(120);
+    const state = (i) => js(`document.querySelectorAll('#popup .anki')[${i}].dataset.state`);
+    assert.strictEqual(await state(0), 'present');
+    // The 3 s confirm window, shortened in this page only.
+    await js(`(() => { const st = window.setTimeout;
+      window.setTimeout = (f, ms, ...a) => st(f, Math.min(ms, 60), ...a); })()`);
+    await js("document.querySelectorAll('#popup .anki')[0].click()");
+    await js("document.querySelectorAll('#popup .anki')[1].click()");
+    await settle(200);
+    assert.strictEqual(await state(0), 'present',
+                       'the first card stayed armed: one stray click deletes it');
+    assert.strictEqual(ipcSeen.ankiRemove.filter((id) => id === 42).length, 1,
+                       'only the earlier two-click removal reached main');
+    send('dismiss'); await settle();
+  });
+
   const failed = results.filter(r => !r[0]);
   console.log('== renderer ==');
   for (const [ok, name, err] of results) {
@@ -319,7 +446,12 @@ async function run() {
 
 /** Run the suite in this (ready) Electron process; resolves to its failures. */
 module.exports = async () => {
-  ipcMain.handle('lookup', () => lookupReply);
+  ipcMain.handle('lookup', async () => {
+    ipcSeen.lookups++;
+    const reply = lookupReply;
+    if (lookupDelay) await new Promise((r) => setTimeout(r, lookupDelay));
+    return reply;
+  });
   ipcMain.on('set-interactive', (_e, v) => ipcSeen.interactive.push(v));
   ipcMain.on('tier2', (_e, r) => ipcSeen.tier2.push(r));
   ipcMain.handle('anki:find', (_e, words) => {
