@@ -150,8 +150,9 @@ enum LiveText {
         typealias ProgressBlk = @convention(block) (Double) -> Void
         typealias CompleteBlk = @convention(block) (AnyObject?, AnyObject?) -> Void
         typealias ProcFn =
-            @convention(c)
-        (AnyObject, Selector, AnyObject, @escaping ProgressBlk, @escaping CompleteBlk) -> Void
+            @convention(c) (
+                AnyObject, Selector, AnyObject, @escaping ProgressBlk, @escaping CompleteBlk
+            ) -> Void
 
         // Resume-once guard shared by the completion and the watchdog.
         let lock = NSLock()
