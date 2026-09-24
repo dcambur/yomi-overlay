@@ -74,7 +74,7 @@ if lane logic; then
   t=$(date +%s)
   # An explicit file list: `node --test <dir>` would also run pages.js and the
   # screen suite, which need Electron.
-  node --test "$HERE"/unit/*.test.js || rc=1
+  node --test --test-timeout=30000 "$HERE"/unit/*.test.js || rc=1
   elapsed "$t"
 fi
 

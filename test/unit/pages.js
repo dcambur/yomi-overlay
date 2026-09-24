@@ -14,7 +14,14 @@ const { app } = require('electron');
 app.setActivationPolicy('accessory');
 app.on('window-all-closed', () => {});
 
+// Both suites take under 10 s; one that hangs fails the lane here, loudly.
+const LIMIT_MS = 60000;
+
 app.whenReady().then(async () => {
+  setTimeout(() => {
+    console.log(`FAIL  the page suites ran past ${LIMIT_MS / 1000}s — stopped`);
+    app.exit(1);
+  }, LIMIT_MS);
   // Side by side, in a window each: their IPC channels do not overlap, and
   // each asserts only on what reached its own handlers. Most of either suite
   // is fixed settle time, so together they take as long as the slower one.

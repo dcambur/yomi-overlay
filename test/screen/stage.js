@@ -41,16 +41,31 @@ app.setActivationPolicy('accessory');
 app.on('window-all-closed', () => {});
 
 // --- harness ----------------------------------------------------------------
+//
+// Every wait is bounded, so a run is either quick or a loud failure: a test
+// that hangs is stopped at TEST_LIMIT_MS, and the whole suite at
+// SUITE_LIMIT_MS. A full run takes ~25 s.
+const TEST_LIMIT_MS = 20000;
+const SUITE_LIMIT_MS = 60000;
 
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const check = (cond, why) => { if (!cond) throw new Error(why); };
 const note = (s) => console.log('        ' + s);
 
+/** `promise`, or a rejection naming `what` once `ms` have passed. */
+function bounded(promise, ms, what) {
+  let timer;
+  const late = new Promise((_r, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} took more than ${ms / 1000}s`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
 async function test(name, fn) {
   const t0 = Date.now();
   let why = null;
-  try { await fn(); } catch (e) { why = e.message; }
+  try { await bounded(fn(), TEST_LIMIT_MS, 'the test'); } catch (e) { why = e.message; }
   const ms = Date.now() - t0;
   results.push({ ok: !why, name, ms });
   console.log(`${why ? 'FAIL' : 'ok  '}  ${name} (${(ms / 1000).toFixed(1)}s)`
@@ -93,8 +108,13 @@ function lines(stream, onLine) {
   });
 }
 
-/** One capture: the first payload `yomi --json` prints, or null. */
-function capture(args, timeout = 30000) {
+/**
+ * One capture: the first payload `yomi --json` prints, or null. 1-3 s as a
+ * rule; the first read after `ocr/build.sh` can take ~30 s while Vision
+ * compiles its model for the new binary (measured), which fails here — loudly,
+ * and once.
+ */
+function capture(args, timeout = 15000) {
   return new Promise((resolve) => {
     const child = track(spawn(OCR_BIN, ['--json', ...args]));
     let payload = null;
@@ -440,7 +460,8 @@ async function devtools(profile) {
     return list.find((t) => t.type === 'page' && t.url.endsWith('/renderer/index.html'));
   });
   const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+  await bounded(new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }),
+                3000, 'opening DevTools');
   let seq = 0;
   const pending = new Map();
   ws.onmessage = (e) => {
@@ -450,11 +471,11 @@ async function devtools(profile) {
     pending.delete(m.id);
     if (m.error) p.reject(new Error(m.error.message)); else p.resolve(m.result);
   };
-  const call = (method, params = {}) => new Promise((resolve, reject) => {
+  const call = (method, params = {}) => bounded(new Promise((resolve, reject) => {
     seq++;
     pending.set(seq, { resolve, reject });
     ws.send(JSON.stringify({ id: seq, method, params }));
-  });
+  }), 5000, `DevTools ${method}`);
   return {
     eval: async (expression) => {
       const r = await call('Runtime.evaluate',
@@ -605,6 +626,10 @@ async function appScenario(A, B) {
 
 app.whenReady().then(async () => {
   const t0 = Date.now();
+  setTimeout(() => {
+    console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
+    app.exit(1);                    // process 'exit' kills every child
+  }, SUITE_LIMIT_MS);
   try {
     D = await openDisplay();
     console.log(`display ${D.id} at ${D.x},${D.y} ${D.width}x${D.height}, invisible`);
