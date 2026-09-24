@@ -4,7 +4,7 @@ One command, and no window opens on your screen — the one visible sign is the
 app's own 読 menu-bar icon, for the ~10 s the real app is under test:
 
 ```
-test/run.sh                  every lane (~35 s)
+test/run.sh                  every lane (243 tests, ~40 s)
 test/run.sh logic pages      just those
 test/run.sh golden record|check NAME
 VERBOSE=1 test/run.sh ...    with the pages' and the app's own output
@@ -13,7 +13,7 @@ VERBOSE=1 test/run.sh ...    with the pages' and the app's own output
 | Lane | Needs | Sees | Time |
 |---|---|---|---|
 | `logic` | node | lookup, deinflection, the index builder, dictionary install/import/removal, config, Anki, child supervision | ~2 s |
-| `pages` | Electron | the overlay page (glyph layer, rebuild gate, popup, card mark) and the settings page, real preload and CSP | ~4 s |
+| `pages` | Electron | the overlay page (glyph layer, rebuild gate, popup, card mark) and the settings page, real preload and CSP | ~10 s |
 | `screen` | Electron, swiftc, Screen Recording for the terminal, the overlay **not** running | the real window server, capture helper and app: selection, covers, idle, glyph placement, scrolling, fullscreen, tategaki, the picker, and the app end to end | ~25 s |
 | `golden` | a built `bin/yomi` | every byte `yomi --image` emits, against a recorded baseline | ~2 min |
 
@@ -75,10 +75,12 @@ where text really is, the window server for which window is the target:
   user directory (`YOMI_USER_DIR`), a dictionary the suite builds, and a local
   AnkiConnect. It checks the glyph layer against the DOM, then drives the
   overlay page through the DevTools protocol: Shift over 猫 opens its entry, and
-  the card mark adds a Lapis note with the sentence and a picture. It also
-  checks that the overlay hides when the target does, and that quitting takes
-  both capture children with it. The pointer events are delivered to the page
-  itself; your cursor never moves.
+  the card mark adds a Lapis note with the sentence and a picture. It crashes
+  the overlay page and checks that the layer comes back, crashes it again and
+  checks the panel is given up and leaves the screen, checks that the overlay
+  hides with the target, that quitting takes both capture children with it,
+  and that the app logged each line once, into its own directory. The pointer
+  events are delivered to the page itself; your cursor never moves.
 
 `screen/horizontal.html` and `screen/vertical.html` are local, public-domain
 (Aozora Bunko) pages, so the lane needs no network.
@@ -90,9 +92,11 @@ Caveats, measured:
 - **The display is 1x.** macOS lists a 1440×900 2x mode for a virtual display
   but will not switch to it, so the Retina path is not what this lane
   exercises.
-- **The first run after `ocr/build.sh` can be slow.** Vision compiles its model
-  for the Neural Engine per binary the first time it reads a new shape of
-  input: 29 s once, then ~1 s.
+- **The first run after `ocr/build.sh` is slower, once.** A helper never run
+  before spends its first read compiling Vision's model (29–64 s measured);
+  the lane warms it up front, says so, and stamps `bin/test/.yomi-warm`.
+- **Every wait is bounded**: DevTools 3–5 s, a test 20 s, the suite 60 s. A
+  run is quick or it fails loudly.
 
 Helpers (`virtual-display`, the picker rig) are compiled on demand into
 `bin/test/`, which is gitignored like the rest of `bin/`.
