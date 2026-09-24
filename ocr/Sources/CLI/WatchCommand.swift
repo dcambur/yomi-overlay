@@ -85,7 +85,7 @@ func runWatchLoop(_ opts: Options) async throws {
     /// it is over — once — and restart the 1st/10th/20th throttle below. Every
     /// way out of a good pass calls this: it used to sit on the text-mode path
     /// only, so in JSON watch mode the count never reset, and after one
-    /// transient failure no later one was logged at all (FOUND-BUGS 1).
+    /// transient failure no later one was logged at all.
     func recovered() {
         guard failures > 0 else { return }
         FileHandle.standardError.write(

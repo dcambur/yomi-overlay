@@ -2,30 +2,9 @@
 
 Things noticed in passing that are **behaviour changes**, so they must not ride
 along in a structural commit (REFACTOR-INTEGRATION.md: move code, or change
-code, never both). Each needs its own commit, and the last two want a
-measurement before anyone touches them.
-
----
-
-## 1. `"capture recovered after N failure(s)"` is unreachable in watch mode
-
-[ocr/Sources/Entry.swift:446](../ocr/Sources/Entry.swift#L446)
-
-The recovery notice sits *after* the `if opts.json { … continue }` block, so
-the JSON watch path — which is the only path the overlay ever uses — reaches
-`continue` first and never prints it. `failures` is therefore also never reset
-to 0 in watch mode, so the "log the 1st failure, then every 10th" throttle
-drifts: after a transient failure, the next one logs as `2x` rather than `1x`.
-
-Cost of the bug: when diagnosing a capture problem you cannot tell "failed once
-and recovered" from "still failing", because only the failures are ever
-visible. Measured 2026-08-13 while diagnosing exactly that: a single `-3811` at
-09:24:01 was indistinguishable in the log from an ongoing outage, and the
-question had to be answered with `--list-all` instead.
-
-Fix: move the recovery check above the JSON branch, or emit it from both. Cheap
-and low-risk, but it changes stderr, so the golden-master baseline must be
-re-recorded in the same commit.
+code, never both). Each needs its own commit, and a measurement before anyone
+touches it. A fixed entry is deleted, and its number is not reused: 1 and 4
+were fixed on 2026-09-24 (the commits say how).
 
 ---
 
@@ -50,7 +29,15 @@ SCStreamErrorDomain Code=-3801 "The user declined TCCs for application, window, 
 first attempt against a never-before-seen child binary is refused.
 
 This is invisible in practice because the restart-with-backoff absorbs it, and
-that is arguably the right outcome. What is wrong is the documentation: someone
+that is arguably the right outcome.
+
+**And its first read is slow.** Measured 2026-09-24: a freshly built binary's
+first recognition took 64 s (29 s on another build), the second 1.5 s — the
+process sits in Apple's ANE compiler, compiling Vision's text model for the new
+binary, once. So after `ocr/build.sh` the overlay shows nothing for up to a
+minute. The screen test lane warms a new helper once for the same reason
+(test/run.sh). Whether a release update pays it on a user's first launch is
+not measured. What is wrong is the documentation: someone
 debugging a fresh `-3801` will read setup.sh and conclude the grant was lost.
 
 Fix: correct the claim in setup.sh. **Not** worth adding a retry for — the
@@ -86,18 +73,3 @@ continuation the timeout resumes first, leaking the SCK call the way
 the capture path, so it needs the golden baseline and a stalled-SCK repro.
 
 ---
-
-## 4. Renderer state is not re-sent after a load, and a renderer crash is not noticed
-
-[app/main/overlay-window.js](../app/main/overlay-window.js)
-
-`offset` and `covers` are sent only when they change and `capture` only for
-changed payloads; `did-finish-load` re-sends the trigger and view config and
-nothing else. A payload that lands before the renderer's listeners exist
-leaves the layer with no origin until the target next moves, and there is no
-`render-process-gone` handler, so after a renderer crash main keeps sending
-into the void for the rest of the session. Found by reading (2026-09-19);
-neither has been observed in a log. Fix: reset `lastOffset`/`lastCovers` on
-`did-finish-load` and reload on `render-process-gone` — cheap, but it changes
-what the renderer receives at startup, so it wants a `[win]` log from a slow
-cold start first.
