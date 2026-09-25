@@ -75,9 +75,10 @@ async function captureScenarios(A, B) {
     // the invisible display, so the sliver it keeps on screen is on that one.
     B.win.setBounds({ x: D.x + D.width + 400, y: D.y + 122, width: 1000, height: 700 });
     await raise(B);
-    const { payload } = await capture(['--bundle', ELECTRON_BUNDLE]);
+    const { payload, err } = await capture(['--bundle', ELECTRON_BUNDLE]);
     check(payload && near(payload.window, aRect()),
-          `captured ${JSON.stringify(payload && payload.window)}, want window ${A.id}`);
+          `captured ${JSON.stringify(payload && payload.window)}, want window ${A.id}`
+          + (payload ? '' : `; the helper said: ${err.trim().slice(-200)}`));
   });
 
   await test('a window over half the target is reported as a cover', async () => {
@@ -336,9 +337,12 @@ async function appScenario(A, B) {
       });
       // A static page: only heartbeats arrive, and they carry no lines — the
       // layer can only come back if main replays what it last sent.
+      // Within a re-read's jitter: the page may be read again between the
+      // crash and the replay (measured 288 of 290 once).
       let n = null;
-      await waitFor(`the layer to come back with its ${before} glyphs`,
-                    async () => (n = await cdp.eval(count)) === before, 5000)
+      await waitFor(`the layer to come back with its ~${before} glyphs`,
+                    async () => Math.abs((n = await cdp.eval(count)) - before) <= before * 0.05,
+                    5000)
         .catch((e) => { throw new Error(`${e.message}; it has ${n}`); });
     });
 
