@@ -19,6 +19,9 @@ const OURS = 'com.github.Electron';
 const SAMPLE_MS = 500;
 
 const FRONT = ['-c', 'lsappinfo info -only bundleid "$(lsappinfo front)"'];
+// The guard running now, so a test can say it is about to take focus.
+let current = null;
+
 const run = (bin, args) => new Promise((resolve) =>
   execFile(bin, args, { timeout: 3000 }, (e, out) => resolve(e ? null : String(out))));
 
@@ -33,9 +36,11 @@ function guardUserScreen(stage) {
   const overlap = (w, b) =>
     span(w.x, w.width, b.x, b.width) * span(w.y, w.height, b.y, b.height);
   const onTheirs = (w) => theirDisplays().some((b) => overlap(w, b) > 16);
-  const seen = { ours: [], focus: [], left: [] };
+  const seen = { ours: [], focus: [], left: [], declared: [] };
   let before = null;
   let busy = false;
+  let expecting = null;          // what a test said it is taking focus for
+  let userFront = null;          // the user's frontmost app, last seen
   async function sample() {
     if (busy) return;
     busy = true;
@@ -47,7 +52,12 @@ function guardUserScreen(stage) {
       for (const w of shown.filter((x) => x.bundle === OURS)) {
         seen.ours.push(`${w.id} "${w.title}" at ${w.x},${w.y} ${w.width}x${w.height}`);
       }
-      if (front && front.includes(OURS)) seen.focus.push(new Date().toISOString());
+      if (front && front.includes(OURS)) {
+        if (expecting) expecting.samples++;
+        else seen.focus.push(new Date().toISOString());
+      } else if (front) {
+        userFront = (front.match(/"([^"]+)"/) || [])[1] || userFront;
+      }
       const theirs = new Map(shown.filter((w) => w.bundle !== OURS).map((w) => [w.id, w.app]));
       if (before && before.size && ![...before.keys()].some((id) => theirs.has(id))) {
         const apps = [...new Set(before.values())].join(', ');
@@ -58,18 +68,43 @@ function guardUserScreen(stage) {
   }
   const timer = setInterval(sample, SAMPLE_MS);
   sample();
+  current = {
+    /** A test that must take focus says so, for how long, and gives it back. */
+    async takingFocus(why, fn) {
+      expecting = { why, samples: 0, t0: Date.now() };
+      try { return await fn(); } finally {
+        await sample();
+        const e = expecting;
+        expecting = null;
+        const back = await run('/bin/sh', FRONT);
+        if (back && back.includes(OURS) && userFront) {
+          const activate = `tell application id "${userFront}" to activate`;
+          await run('/usr/bin/osascript', ['-e', activate]);
+        }
+        seen.declared.push(`${e.why}: ${((Date.now() - e.t0) / 1000).toFixed(1)} s`
+                           + (userFront ? `, then given back to ${userFront}` : ''));
+      }
+    },
+  };
   return {
     /** What was seen: `ours` and `focus` fail a lane; `left` is for a note. */
     stop() {
       clearInterval(timer);
+      current = null;
       // Back by the last sample: an app switch or a redraw, more likely than a
       // Space that stayed switched.
       const now = before || new Map();
       const left = seen.left.map((l) => `${l.at}: ${l.apps} left the screen`
         + (l.ids.some((id) => now.has(id)) ? ', and came back' : ''));
-      return { ours: [...new Set(seen.ours)], focus: seen.focus, left };
+      return { ours: [...new Set(seen.ours)], focus: seen.focus, left,
+               declared: seen.declared };
     },
   };
 }
 
-module.exports = { guardUserScreen };
+/** Run `fn`, which must take focus (a real fullscreen does), and give it back. */
+function takingFocus(why, fn) {
+  return current ? current.takingFocus(why, fn) : fn();
+}
+
+module.exports = { guardUserScreen, takingFocus };

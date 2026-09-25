@@ -35,6 +35,7 @@ function runLane(body) {
       console.log(`${bad.length ? 'FAIL' : 'ok  '}  nothing reached your screen`
                   + (bad.length ? `\n        ${bad.join('\n        ')}` : ''));
       for (const l of g.left) note(`${l} — a Space switch, if it was not you`);
+      for (const d of g.declared) note(`took focus, as it said it would — ${d}`);
     }
     const failed = results.filter((r) => !r.ok).length;
     console.log(`\n${results.length - failed}/${results.length} passed in `

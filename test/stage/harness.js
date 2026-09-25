@@ -24,7 +24,11 @@ function bounded(promise, ms, what) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
+// YOMI_ONLY=text runs only the tests whose names contain it, and says so.
+const ONLY = process.env.YOMI_ONLY || null;
+
 async function test(name, fn, limitMs = TEST_LIMIT_MS) {
+  if (ONLY && !name.includes(ONLY)) { console.log(`skip  ${name} (YOMI_ONLY)`); return; }
   const t0 = Date.now();
   let why = null;
   try { await bounded(fn(), limitMs, 'the test'); } catch (e) { why = e.message; }
