@@ -82,6 +82,19 @@ test('a JSON object split across chunks is parsed once, intact', () => {
   assert.deepStrictEqual(got, [{ a: 1, b: 2 }, { a: 3, b: 4 }]);
 });
 
+test('a character split across chunks arrives intact', () => {
+  // 引 is three bytes in UTF-8. Cut the line at every byte, so both cuts
+  // through the character are among them.
+  const line = Buffer.from(JSON.stringify({ text: '引く' }) + '\n');
+  for (let at = 1; at < line.length; at++) {
+    const got = [];
+    const feed = lineSplitter(o => got.push(o));
+    feed(line.subarray(0, at));
+    feed(line.subarray(at));
+    assert.deepStrictEqual(got, [{ text: '引く' }], `cut at byte ${at}`);
+  }
+});
+
 test('blank and unparseable lines are skipped, not fatal', () => {
   const got = [];
   const feed = lineSplitter(o => got.push(o));
