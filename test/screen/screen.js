@@ -32,7 +32,7 @@ const { ankiDouble } = require(path.join(FIXTURES, 'anki-double.js'));
 
 const HELPERS = path.join(BIN_DIR, 'test');
 const STAGE = path.join(ROOT, 'test', 'stage');
-const { sleep, check, note, test, waitFor, track, lines } =
+const { sleep, check, note, test, waitFor, track, killTree, lines } =
   require(path.join(STAGE, 'harness.js'));
 const { capture, watch, listAll } = require(path.join(STAGE, 'yomi.js'));
 const { stageWindow, raise, contentOrigin, serverRect, near } =
@@ -249,9 +249,12 @@ async function appScenario(A, B) {
     const launched = Date.now();
     // Its own profile: its own single-instance lock and DevTools port file,
     // so the suite runs beside an installed Yomi Overlay without touching it.
+    // Detached: its own process group, so a hard stop takes its children too.
     child = track(spawn(process.execPath,
                         [APP_DIR, `--user-data-dir=${profile}`, '--remote-debugging-port=0'],
-                        { env, stdio: process.env.VERBOSE ? 'inherit' : 'ignore' }));
+                        { env, stdio: process.env.VERBOSE ? 'inherit' : 'ignore',
+                          detached: true }));
+    child.detached = true;
     cdp = await devtools(profile);
 
     await test('the app builds a glyph layer over the target', async () => {
@@ -391,7 +394,7 @@ async function appScenario(A, B) {
     });
   } finally {
     if (cdp) cdp.close();   // null once the page has been given up on
-    if (child && child.exitCode === null) child.kill('SIGKILL');
+    if (child && child.exitCode === null) killTree(child);
     anki.server.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }

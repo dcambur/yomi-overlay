@@ -63,7 +63,17 @@ function track(child) {
   child.on('exit', () => children.delete(child));
   return child;
 }
-process.on('exit', () => { for (const c of children) c.kill('SIGKILL'); });
+
+/**
+ * Kill `child` and everything it started. The app under test is spawned
+ * detached — its own process group — for this: SIGKILLed alone, its capture
+ * children lived on, and the event monitor, which writes only on a click or
+ * Shift, until the user's next one (five were found after a day of runs).
+ */
+function killTree(child) {
+  try { process.kill(child.detached ? -child.pid : child.pid, 'SIGKILL'); } catch { /* gone */ }
+}
+process.on('exit', () => { for (const c of children) killTree(c); });
 
 /** Call `onLine` with each line a child prints. */
 function lines(stream, onLine) {
@@ -83,5 +93,5 @@ function lines(stream, onLine) {
 
 module.exports = {
   TEST_LIMIT_MS, SUITE_LIMIT_MS, results, sleep, check, note, bounded, test, waitFor,
-  track, lines,
+  track, killTree, lines,
 };

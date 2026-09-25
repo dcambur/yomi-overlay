@@ -6,7 +6,7 @@ const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { bounded, waitFor, track } = require('./harness.js');
+const { bounded, waitFor, track, killTree } = require('./harness.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const mk = require(path.join(ROOT, 'test', 'fixtures', 'make-dictionary.js'));
@@ -112,7 +112,9 @@ async function launchApp(o = {}) {
   // So a lane can collect garbage before it weighs what the main process holds.
   if (o.shim) argv.push('--js-flags=--expose-gc');
   const stdio = ['ignore', 'pipe', 'pipe', o.shim ? 'pipe' : 'ignore'];
-  const child = track(spawn(process.execPath, argv, { env, stdio }));
+  // Its own process group, so a hard stop takes its children with it (killTree).
+  const child = track(spawn(process.execPath, argv, { env, stdio, detached: true }));
+  child.detached = true;
   for (const s of [child.stdout, child.stderr]) {
     s.setEncoding('utf8');
     s.on('data', (d) => {
@@ -160,7 +162,7 @@ async function launchApp(o = {}) {
       if (child.exitCode !== null || child.signalCode) return;
       const exited = new Promise((r) => child.once('exit', r));
       child.kill('SIGTERM');
-      await bounded(exited, 5000, 'the app to quit').catch(() => child.kill('SIGKILL'));
+      await bounded(exited, 5000, 'the app to quit').catch(() => killTree(child));
     },
   };
 }
