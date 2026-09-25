@@ -22,8 +22,8 @@ yomi (Swift CLI)                Yomi Overlay (Electron)
 
 - macOS 13 or later in principle, since it needs ScreenCaptureKit and Live Text. In practice it's only been tested on macOS 26.5 on Apple Silicon.
 - Xcode command line tools, for swiftc: `xcode-select --install`
-- Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node 22 (it uses node:sqlite).
-- Python 3.8+, stdlib only. Used to fetch dictionaries and build the index.
+- Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node (24.18, which has node:sqlite).
+- Python 3.8+, stdlib only. Used to fetch dictionaries; the index is built by the app's own builder.
 - Disk space: the index is about 370 MB and the dictionary zips another 260 MB.
 - Two macOS permissions: Screen Recording (required) and Accessibility (for the trigger).
 
@@ -107,7 +107,7 @@ Start with [docs/README.md](docs/README.md), which indexes the rest. [docs/ARCHI
 
 Layout: ocr/Sources/ is the Swift capture and OCR helper. app/ is the Electron side, split into main/ (main process), renderer/ (the overlay window), preload/ (the IPC boundary), and shell/ (the loader). tools/ has the build scripts and test/ has the suites.
 
-Tests: `test/run.sh` runs everything without opening a window on your screen (the one visible sign is the app's own menu-bar icon while the real app is under test, about ten seconds). The logic and page suites take a few seconds and need no permissions. The screen lane runs the real capture helper and the real app on an invisible display, so it needs Screen Recording and the overlay stopped. `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
+Tests: `test/run.sh` runs the everyday lanes without opening a window on your screen (the one visible sign is the app's own menu-bar icon while the real app is under test, about ten seconds), and `test/run.sh all` adds a first-run lane, a long-idleness lane with the app's clock moved, and a Spaces lane. The logic and page suites take a few seconds and need no permissions. The others run the real capture helper and the real app on an invisible display, so they need Screen Recording and the overlay stopped; a guard fails a lane whose windows reach your displays or take focus unannounced. `YOMI_BOOK=book.epub test/run.sh book` reads a real novel page by page through the real overlay, and `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
 
 ## Known gaps
 

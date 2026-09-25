@@ -51,7 +51,7 @@ function createCropChannel({ ocrChild }) {
     const waiter = cropWaiters.get(c.id);
     if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); return; }
     // Nobody is waiting: the asker timed out, and the watch process — which
-    // answers once per pass, and not at all while the target is idle — wrote
+    // answers between passes, and not at all while the target is idle — wrote
     // the file anyway. Nothing else knows the path.
     if (c.ok && c.path) fs.unlink(c.path, () => {});
   }

@@ -2,7 +2,8 @@
 # Every test, from one command. No window opens on the user's screen; the one
 # visible sign is the app's menu-bar icon while the real app is under test.
 #
-#   test/run.sh                 every lane
+#   test/run.sh                 the everyday lanes: logic pages screen
+#   test/run.sh all             every lane that needs nothing unshippable
 #   test/run.sh logic pages     just those lanes
 #   test/run.sh golden record|check NAME
 #   VERBOSE=1 test/run.sh ...   with the pages' and the app's own output
@@ -18,8 +19,19 @@
 #                                covers, idle, glyph placement, tategaki,
 #                                fullscreen, the picker, and the app end to end
 #                                (test/screen/screen.js)
+#   firstrun  the stage          a fresh copy: no config, dictionary, grant or
+#                                helper; setup.sh twice (test/firstrun/)
+#   idle    the stage            the app's clock moved: watchdog, backstop, a
+#                                night asleep, a revived page; a soak (test/idle/)
+#   spaces  the stage            Space switches on the invisible display only
+#                                (test/spaces/)
+#   book    a book (YOMI_BOOK)   a real EPUB page by page, every lookup through
+#                                the real overlay page; headless (test/book/)
 #   golden  a built bin/yomi     byte-exact regression net over yomi --image;
 #                                not part of `all` — it compares two builds
+#
+# "The stage" is what screen needs: Electron, swiftc, Screen Recording, and
+# the overlay stopped. test/README.md says what each lane asserts.
 #
 # A lane that cannot run on this machine says why and fails: "all green" must
 # never mean "the interesting part did not run".
@@ -35,7 +47,10 @@ if [ "${1:-}" = golden ]; then
   exec "$HERE/golden.sh" "$@"
 fi
 
+# The everyday lanes by default; `all` adds the slower ones that still need
+# nothing that cannot ship. book and golden are asked for by name.
 LANES="${*:-logic pages screen}"
+[ "$LANES" = all ] && LANES="logic pages screen firstrun idle spaces"
 rc=0
 
 # Everything a run writes to a temp dir goes under one, removed however the

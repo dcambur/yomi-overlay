@@ -126,8 +126,11 @@ it is worth keeping.
 ### Python (build scripts)
 - Stdlib only, 4-space indent, module docstring explaining the data shape it
   consumes.
-- Dictionary parsing is per-format and explicit. When adding a dictionary,
-  add its shape to `flatten_glossary` — don't loosen the generic walker.
+- The index keeps each glossary as its dictionary wrote it (ARCHITECTURE §8),
+  so a new dictionary's shape is taught to the popup — `structured.js` for
+  structured content, `plainLines` in `popup.js` for prose — not to a builder.
+  `tools/build-index.py` and its `flatten_glossary` are the retired builder,
+  kept only so a test can make the legacy schema.
 
 ## Enforcement
 
@@ -175,11 +178,12 @@ where one developer's version is at least consistent with itself.
 
 ## Testing
 
-Three tiers, by what they need. Reach for the cheapest one that can see your
+Lanes, by what they need. Reach for the cheapest one that can see your
 change.
 
-One command runs them, `test/run.sh`, and nothing it runs opens a window on
-your screen (the real app under test shows its menu-bar icon for ~10 s)
+One command runs them, `test/run.sh` (the everyday three) or `test/run.sh all`,
+and nothing it runs opens a window on your screen or takes focus unannounced
+(the real app under the screen lane shows its menu-bar icon for ~10 s)
 ([test/README.md](../test/README.md)).
 
 | Lane | Needs | Sees |
@@ -187,6 +191,10 @@ your screen (the real app under test shows its menu-bar icon for ~10 s)
 | `logic` | node (`python3` for one) | lookup, the index builder, dictionary install/import/removal, config, Anki, child supervision |
 | `pages` | Electron | the overlay page (the glyph layer) and the settings page |
 | `screen` | Screen Recording, the overlay stopped | real capture geometry and window selection, and the real app end to end, on an invisible display |
+| `firstrun` | as `screen` | a fresh copy of the checkout: no config, dictionary, grant or helper; setup.sh twice |
+| `idle` | as `screen` | long idleness with the app's clock moved; a soak |
+| `spaces` | as `screen` | Space switches, only on the invisible display |
+| `book` | a book, the user's dictionaries | a real EPUB page by page through the real overlay |
 | `golden` | a built `bin/yomi` | every byte the OCR helper emits |
 
 - **A test may not depend on a file we cannot ship.** The dictionary suites

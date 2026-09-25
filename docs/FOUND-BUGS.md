@@ -51,3 +51,33 @@ Uncertain: whether the trigger is the cdhash, the path change
 (`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
 same step. To separate them, restore a previously-run binary at the *new* path
 and relaunch: if it captures first try, the cdhash is the trigger.
+
+---
+
+## 5. A window whose top rows are clear is read as drawn lower than it is
+
+Found reviewing 70e189d (measure where the window was drawn). `contentRect`
+takes the first opaque row and column of a capture for where ScreenCaptureKit
+drew the window, and subtracts it from every glyph. A window whose own leading
+rows are alpha 0 has its first opaque row where its *content* starts.
+
+Measured 2026-09-25 on the invisible display: an Electron window at (300,150),
+`transparent: true`, `backgroundColor: '#00000000'`, its text in a white block
+60 px down. The capture's opaque rows began at 60; the payload's frame was
+1000x620 for a 1000x700 window, and 吾 came back at y=48 where the page has it
+at y=110 — every glyph 62 px high. (`transparent: true` alone is not enough:
+Electron still paints the window white, and nothing shifts.)
+
+Not fixed, on purpose. The obvious correction — take an edge only where the
+window's offset on the display says it could have been drawn — was written and
+measured against, and does not hold: in two captures of this setup SCK drew one
+window at the image origin and another at its own offset (y=149 for 150). A
+window drawn at its offset *and* starting with a clear band puts its first
+opaque row at offset + band, which that rule gets wrong by the offset. The
+readers this app targets (Kindle, browsers, PDF viewers, games) draw opaque
+title bars or content at the top, so none has hit it.
+
+To take it further: find a real target with clear leading rows, `--dump` its
+captures a few times, and see where SCK draws it. The bottom edge against the
+window's own height (known and correct for a window that is not fullscreen) is
+the measurement a fix would most likely rest on.

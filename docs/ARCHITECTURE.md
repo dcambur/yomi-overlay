@@ -33,7 +33,7 @@ app/
   vendor/jp-verbs/    third-party deinflection tables
 tools/                build scripts, bundle inputs, the path resolvers
 data/  bin/           generated: index.db, dicts, config / compiled helpers
-test/                 run.sh: logic · pages · screen (an invisible display) · golden
+test/                 run.sh: logic · pages · screen · firstrun · idle · spaces · book · golden
 ```
 
 | Piece | Role |
