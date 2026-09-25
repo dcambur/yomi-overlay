@@ -12,8 +12,10 @@
 #      bundle at all. Ordinary changes need an app restart, nothing more.
 #
 # TCC attributes both Screen Recording and Accessibility to the *responsible
-# app* (Yomi Overlay), not to the yomi child it spawns — so rebuilding
-# yomi costs nothing either.
+# app* (Yomi Overlay), not to the yomi child it spawns — so a rebuilt yomi
+# keeps both grants. It is not free, though: its first capture is refused
+# once, and its first read takes up to a minute while Vision compiles its
+# model (docs/FOUND-BUGS.md 2). The app's restart and its menu cover both.
 #
 # Expect up to two password/confirmation dialogs on the first run (trusting the
 # new certificate, letting codesign use its key). That is the once.
@@ -30,9 +32,11 @@ BUNDLE_ID="local.yomioverlay"
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 # --- 1. Stable signing identity ---------------------------------------------
+NEW_IDENTITY=0
 if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
   step "Signing identity \"$IDENTITY\" already exists — keeping it"
 else
+  NEW_IDENTITY=1
   step "Creating signing identity \"$IDENTITY\" (this is what makes permissions survive rebuilds)"
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
@@ -122,10 +126,17 @@ esac
 # --- 6. Clear stale permission grants ----------------------------------------
 # If a previous ad-hoc build was ever granted anything, the grant is keyed to
 # the dead identity and shows as a lying checkbox. Clear both so the lists
-# start honest. Harmless when there is nothing to clear.
-step "Resetting stale permission entries for $BUNDLE_ID"
-tccutil reset ScreenCapture  "$BUNDLE_ID" 2>/dev/null || true
-tccutil reset Accessibility  "$BUNDLE_ID" 2>/dev/null || true
+# start honest — but only when this run made the identity. A grant given
+# since belongs to the identity that is still here, and every re-run used to
+# clear it (test/firstrun: the second run reset both), which is exactly the
+# re-grant this script exists to spare.
+if [ "$NEW_IDENTITY" = 1 ]; then
+  step "Resetting stale permission entries for $BUNDLE_ID"
+  tccutil reset ScreenCapture  "$BUNDLE_ID" 2>/dev/null || true
+  tccutil reset Accessibility  "$BUNDLE_ID" 2>/dev/null || true
+else
+  step "Keeping the permission grants: the signing identity has not changed"
+fi
 
 # --- 7. Permissions -----------------------------------------------------------
 step "Grant the two permissions (the only manual step, and the last time)"

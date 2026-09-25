@@ -40,9 +40,12 @@ minute. The screen test lane warms a new helper once for the same reason
 not measured. What is wrong is the documentation: someone
 debugging a fresh `-3801` will read setup.sh and conclude the grant was lost.
 
-Fix: correct the claim in setup.sh. **Not** worth adding a retry for — the
-existing supervision already handles it, and per CONVENTIONS.md, deleting a
-mechanism beats adding a correction to one.
+setup.sh's claim is corrected (2026-09-25), and the menu-bar item says
+"Starting capture… the first read after an update takes a minute" once ten
+seconds pass without one. **Not** worth adding a retry for — the existing
+supervision already handles the refusal, and per CONVENTIONS.md, deleting a
+mechanism beats adding a correction to one. What stays open is the
+uncertainty below.
 
 Uncertain: whether the trigger is the cdhash, the path change
 (`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
