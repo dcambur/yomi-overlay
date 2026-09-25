@@ -27,7 +27,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');
 const { APP_DIR, BIN_DIR, OCR_BIN } = require(path.join(ROOT, 'app', 'paths.js'));
 const { build } = require(path.join(ROOT, 'app', 'main', 'index-builder.js'));
-const FIXTURES = path.join(ROOT, 'test', 'unit', 'fixtures');
+const FIXTURES = path.join(ROOT, 'test', 'fixtures');
 const mk = require(path.join(FIXTURES, 'make-dictionary.js'));
 const { ankiDouble } = require(path.join(FIXTURES, 'anki-double.js'));
 

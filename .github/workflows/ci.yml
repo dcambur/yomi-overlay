@@ -43,7 +43,7 @@ jobs:
         # from data/ — gitignored, and mostly commercial — so all the
         # interesting ones were left out here and quietly skipped when anyone
         # else ran them. They now generate the archives they need
-        # (test/unit/fixtures/), so the runner checks what a laptop checks.
+        # (test/fixtures/), so the runner checks what a laptop checks.
         # The pages lane needs Electron and a window server: the macOS job.
         run: test/run.sh logic
 

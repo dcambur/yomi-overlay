@@ -27,7 +27,7 @@ const { lineSplitter } = require(
 const { SupervisedChild } = require(
   path.resolve(__dirname, '..', '..', 'app', 'main', 'supervised-child.js'));
 
-const STUB = path.join(__dirname, 'fixtures', 'stub-child.js');
+const STUB = path.join(__dirname, '..', 'fixtures', 'stub-child.js');
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 /** A child wired to the stub, with test-scale timings. */

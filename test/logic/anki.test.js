@@ -21,7 +21,7 @@ const {
   createAnki, lapisFields, furiganaPlain, harmonicRank, searchValue, MODEL, NO_FREQUENCY,
   LAPIS_FIELDS, LAPIS_SOURCE,
 } = require(path.join(ROOT, 'app', 'main', 'anki.js'));
-const { ankiDouble } = require('./fixtures/anki-double.js');
+const { ankiDouble } = require('../fixtures/anki-double.js');
 
 // --- the note builder ---------------------------------------------------------
 

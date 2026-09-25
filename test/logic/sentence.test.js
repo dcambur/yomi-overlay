@@ -12,7 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const load = (n) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8'));
+const FIX = path.join(__dirname, '..', 'fixtures');
+const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 const win = {};
 const src = fs.readFileSync(path.join(ROOT, 'app', 'renderer', 'sentence.js'), 'utf8');

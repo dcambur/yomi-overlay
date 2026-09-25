@@ -29,8 +29,8 @@ const ROOT = path.resolve(__dirname, '../..');
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-home-'));
 process.env.YOMI_USER_DIR = HOME;
 
-const mk = require('./fixtures/make-dictionary.js');
-const legacy = require('./fixtures/legacy-index.js');
+const mk = require('../fixtures/make-dictionary.js');
+const legacy = require('../fixtures/legacy-index.js');
 const SAMPLE = 'sample.zip';
 const LABEL = 'Sample';
 

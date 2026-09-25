@@ -260,7 +260,7 @@ rendering and language detection. An **unrecognised tag is not dropped**: it
 becomes a neutral inline or block element and its children still render.
 
 The old flattener is the regression test. Whatever text it displayed, the
-renderer must still display; `test/unit/structured.test.js` asserts that over a
+renderer must still display; `test/logic/structured.test.js` asserts that over a
 fixed slice of 3,000 keys — 7,918 senses across eight dictionaries, none lost.
 It is a subsequence check rather than a substring one, because the new rendering
 carries *more*: the old builder dropped the bracketed headword 三省堂 prints
@@ -411,7 +411,7 @@ glossaries nothing points at any more, against ~80,000 ms to rebuild.
 That is why every table carries a `dict` column and why `idx_terms_gloss`
 exists — without it the orphan sweep is 4,192 ms rather than 1,665 ms. An index
 built before those columns existed cannot be pruned, says so, and is rebuilt
-instead. `test/unit/prune.test.js` asserts the equivalence that justifies all of
+instead. `test/logic/prune.test.js` asserts the equivalence that justifies all of
 it: an index with a dictionary pruned out holds exactly what an index built
 without that dictionary holds, table by table.
 

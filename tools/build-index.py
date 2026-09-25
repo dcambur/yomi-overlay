@@ -3,7 +3,7 @@
 
 Retired: the app builds its index with app/main/index-builder.js (run it with
 tools/build-index.sh). This flattening builder stays because lookup.js must
-keep reading the indexes it wrote, and test/unit/fixtures/legacy-index.js
+keep reading the indexes it wrote, and test/fixtures/legacy-index.js
 makes one with it.
 
 Yomitan term banks are arrays of:

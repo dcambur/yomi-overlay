@@ -27,7 +27,7 @@ const fs = require('fs');
 const assert = require('assert');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const FIX = path.join(__dirname, 'fixtures');
+const FIX = path.join(__dirname, '..', 'fixtures');
 const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 let win;

@@ -192,7 +192,7 @@ your screen (the real app under test shows its menu-bar icon for ~10 s)
 - **A test may not depend on a file we cannot ship.** The dictionary suites
   used to read `data/dicts/`, which is gitignored and mostly commercial: on a
   runner and in anyone else's clone they skipped, so CI ran two of them and
-  green meant nothing. Generate the input instead — `test/unit/fixtures/`
+  green meant nothing. Generate the input instead — `test/fixtures/`
   writes the Yomitan archives, and that is also the only way to test a bad
   CRC, an unknown bank, or two dictionaries claiming one title. The same rule
   is why `golden` and `screen` are lanes that fail when they cannot run

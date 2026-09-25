@@ -206,7 +206,7 @@ that was moved or locked; the defaults are the add-on's.
 
 ## Tests
 
-- `test/unit/anki.test.js` — the note builder against known words
+- `test/logic/anki.test.js` — the note builder against known words
   (信じ切る → `信[しん]じ 切[き]る`, 十中八九 → `十中八九[じっちゅうはっく]`, a
   kana word → empty), the search escaping, the harmonic rank, and the client
   against a local HTTP double that answers like AnkiConnect (add → find →
@@ -214,15 +214,15 @@ that was moved or locked; the defaults are the add-on's.
   on every refusal; the install — exactly `modelNames` then `createModel`
   with the 22 fields and the `Mining` template, nothing fetched when Lapis is
   there, a file whose digest differs refused before Anki is touched.
-- `test/unit/sentence.test.js` — sentences sliced from the real `page-a`
+- `test/logic/sentence.test.js` — sentences sliced from the real `page-a`
   and `page-b` payloads: crosses a wrapped line, stops at the paragraph gap,
   never leaves a column.
-- `test/unit/renderer.js` — the mark is drawn only when Anki is enabled, and
+- `test/pages/renderer.js` — the mark is drawn only when Anki is enabled, and
   a click sends main a note whose Sentence bolds the matched glyphs; `no
   Lapis` is shown before a click and opens Settings, `Anki closed` asks again,
   an add refused for its deck turns to `no deck`, and the strike is read from
   the computed `::after`, not the class.
-- `test/unit/settings.js` — the tab renders decks from the bridge and saves
+- `test/pages/settings.js` — the tab renders decks from the bridge and saves
   a deck choice without a button; the install row appears only with `No
   Lapis`, shows its bar while installing, says why it failed, and main can
   ask for the tab.

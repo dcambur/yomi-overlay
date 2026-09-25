@@ -17,7 +17,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
+const mk = require('../fixtures/make-dictionary.js');
 
 process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-prune-'));
 const dictionaries = require(path.join(ROOT, 'app/main/dictionaries.js'));

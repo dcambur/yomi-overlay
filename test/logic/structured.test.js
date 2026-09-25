@@ -25,8 +25,8 @@ const zlib = require('zlib');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
-const legacy = require('./fixtures/legacy-index.js');
+const mk = require('../fixtures/make-dictionary.js');
+const legacy = require('../fixtures/legacy-index.js');
 
 // One dictionary per glossary shape the old flattener knows.
 const ENTRIES = 25;

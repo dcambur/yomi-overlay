@@ -20,7 +20,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-kinds-'));
 process.env.YOMI_USER_DIR = HOME;
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
+const mk = require('../fixtures/make-dictionary.js');
 const { build, classify } = require(path.join(ROOT, 'app/main/index-builder.js'));
 const lookup = require(path.join(ROOT, 'app/main/lookup.js'));
 const cfg = require(path.join(ROOT, 'app/main/config.js'));

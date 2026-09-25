@@ -20,10 +20,10 @@ VERBOSE=1 test/run.sh ...    with the pages' and the app's own output
 A lane that cannot run on this machine says why and fails. "All green" never
 means "the interesting part was skipped".
 
-## `logic` — `unit/*.test.js`
+## `logic` — `logic/*.test.js`
 
 Plain `node:test`, on fixtures the suites generate themselves. **No dictionary
-is read.** `unit/fixtures/` writes the Yomitan archives each suite wants, so the
+is read.** `fixtures/` writes the Yomitan archives each suite wants, so the
 suites run in a fresh clone and on a runner. They used to read `data/dicts/`,
 which is gitignored and largely commercial: everywhere but one laptop they
 skipped, and "all green" meant "all absent". Add a case by generating the
@@ -35,7 +35,7 @@ keep reading indexes built by `tools/build-index.py`, so that test builds one by
 calling the old builder's own loaders. It needs `python3`, and says so when it
 skips.
 
-## `pages` — `unit/pages.js`
+## `pages` — `pages/pages.js`
 
 `renderer.js` and `settings.js`, side by side in **one** Electron process that
 is an accessory app: no Dock tile, no menu bar, never frontmost, and hidden

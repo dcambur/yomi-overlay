@@ -12,7 +12,7 @@
 #   logic   node                 node:test suites — lookup, the index builder,
 #                                dictionaries, config, Anki, child supervision
 #   pages   Electron             the overlay page and the settings page, in one
-#                                hidden accessory Electron (test/unit/pages.js)
+#                                hidden accessory Electron (test/pages/pages.js)
 #   screen  Electron, swiftc,    the real window server, capture helper and
 #           Screen Recording     app, on an invisible display: selection,
 #                                covers, idle, glyph placement, tategaki,
@@ -75,7 +75,7 @@ if lane logic; then
   t=$(date +%s)
   # An explicit file list: `node --test <dir>` would also run pages.js and the
   # screen suite, which need Electron.
-  node --test --test-timeout=30000 "$HERE"/unit/*.test.js || rc=1
+  node --test --test-timeout=30000 "$HERE"/logic/*.test.js || rc=1
   elapsed "$t"
 fi
 
@@ -83,7 +83,7 @@ if lane pages; then
   echo "== pages =="
   t=$(date +%s)
   if [ -x "$ELECTRON" ]; then
-    electron "$HERE/unit/pages.js" || rc=1
+    electron "$HERE/pages/pages.js" || rc=1
   else
     cannot "electron is not installed — run setup.sh (or npm install in app/)"
   fi

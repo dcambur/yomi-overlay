@@ -13,7 +13,7 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
+const mk = require('../fixtures/make-dictionary.js');
 const SAMPLE = 'sample.zip';
 // Somewhere to build fixtures that is not the dictionaries folder under test.
 const SRC = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-src-'));

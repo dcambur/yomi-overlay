@@ -15,7 +15,7 @@ const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-media-'));
 process.env.YOMI_USER_DIR = HOME;
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
+const mk = require('../fixtures/make-dictionary.js');
 const media = require(path.join(ROOT, 'app/main/media.js'));
 
 const DICTS = path.join(HOME, 'dicts');
@@ -106,7 +106,7 @@ test('a malformed request is refused', () => {
 test('the open archives stay bounded', async () => {
   // Serving images is a handle held open per dictionary. Unbounded, a scroll
   // through a large set ends where the descriptor leak this replaced ended.
-  const count = require('./fixtures/open-files.js').openFiles;
+  const count = require('../fixtures/open-files.js').openFiles;
   media.forget();
   const before = count();
   for (let i = 0; i < 30; i++) {

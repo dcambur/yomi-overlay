@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const TOOLS = path.resolve(__dirname, '../../../tools');
+const TOOLS = path.resolve(__dirname, '../../tools');
 
 /** Is there a python3 to run the old builder with? */
 function available() {

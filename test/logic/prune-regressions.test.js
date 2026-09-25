@@ -13,7 +13,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = path.resolve(__dirname, '../..');
-const mk = require('./fixtures/make-dictionary.js');
+const mk = require('../fixtures/make-dictionary.js');
 const DICTS = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-src-'));
 mk.termDictionary(path.join(DICTS, 'terms.zip'), { title: 'Terms', entries: 12 });
 mk.kanjiDictionary(path.join(DICTS, 'kanji.zip'), { title: 'Kanji' });

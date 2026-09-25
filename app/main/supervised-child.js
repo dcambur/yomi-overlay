@@ -6,7 +6,7 @@
 // still running. Both helpers need all of that; they differ only in the backoff
 // and whether they get a watchdog.
 //
-// test/unit/child.test.js encodes the behaviour.
+// test/logic/child.test.js encodes the behaviour.
 
 const { spawn } = require('child_process');
 const { lineSplitter } = require('./ndjson.js');
