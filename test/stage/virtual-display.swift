@@ -1,4 +1,4 @@
-// An invisible display for the screen suite (test/screen/stage.js).
+// An invisible display for the screen suite (test/screen/screen.js).
 //
 // To the window server it is a real display: windows on it are composited,
 // ScreenCaptureKit captures them, CGWindowList lists them on screen, and a

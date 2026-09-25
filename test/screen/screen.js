@@ -18,7 +18,7 @@
 //   test/run.sh screen      needs Screen Recording for the terminal, and the
 //                           overlay not running (two capture sessions stall)
 
-const { app, BrowserWindow, screen } = require('electron');
+const { app } = require('electron');
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -32,261 +32,25 @@ const mk = require(path.join(FIXTURES, 'make-dictionary.js'));
 const { ankiDouble } = require(path.join(FIXTURES, 'anki-double.js'));
 
 const HELPERS = path.join(BIN_DIR, 'test');
+const STAGE = path.join(ROOT, 'test', 'stage');
+const { SUITE_LIMIT_MS, results, sleep, check, note, test, waitFor, track, lines } =
+  require(path.join(STAGE, 'harness.js'));
+const { capture, watch, listAll } = require(path.join(STAGE, 'yomi.js'));
+const { openDisplay, stageWindow, raise, contentOrigin, serverRect, near } =
+  require(path.join(STAGE, 'display.js'));
+const { EXTRACT, EXTRACT_CHARS, alignment, assertAligned } =
+  require(path.join(STAGE, 'truth.js'));
+const { devtools, LAYER, POPUP } = require(path.join(STAGE, 'app.js'));
+
 // Longer than the 31 bytes kCGWindowOwnerName keeps (ListCommand.swift).
 const RIG_NAME = 'RigWithANameTheWindowServerTruncates.exe';
 // What every Electron window reports — the stage's and the app under test's.
 const ELECTRON_BUNDLE = 'com.github.Electron';
 
-app.setActivationPolicy('accessory');
-app.on('window-all-closed', () => {});
-
-// --- harness ----------------------------------------------------------------
-//
-// Every wait is bounded, so a run is either quick or a loud failure: a test
-// that hangs is stopped at TEST_LIMIT_MS, and the whole suite at
-// SUITE_LIMIT_MS. A full run takes ~25 s.
-const TEST_LIMIT_MS = 20000;
-const SUITE_LIMIT_MS = 60000;
-
-const results = [];
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const check = (cond, why) => { if (!cond) throw new Error(why); };
-const note = (s) => console.log('        ' + s);
-
-/** `promise`, or a rejection naming `what` once `ms` have passed. */
-function bounded(promise, ms, what) {
-  let timer;
-  const late = new Promise((_r, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} took more than ${ms / 1000}s`)), ms);
-  });
-  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
-}
-
-async function test(name, fn) {
-  const t0 = Date.now();
-  let why = null;
-  try { await bounded(fn(), TEST_LIMIT_MS, 'the test'); } catch (e) { why = e.message; }
-  const ms = Date.now() - t0;
-  results.push({ ok: !why, name, ms });
-  console.log(`${why ? 'FAIL' : 'ok  '}  ${name} (${(ms / 1000).toFixed(1)}s)`
-              + (why ? `\n        ${why}` : ''));
-}
-
-/** Poll until `probe` answers something truthy, and return it. */
-async function waitFor(what, probe, timeout = 10000) {
-  const end = Date.now() + timeout;
-  for (;;) {
-    const v = await probe();
-    if (v) return v;
-    if (Date.now() > end) throw new Error(`timed out after ${timeout}ms waiting for ${what}`);
-    await sleep(50);
-  }
-}
-
-// Everything spawned dies with the suite, however it ends.
-const children = new Set();
-function track(child) {
-  children.add(child);
-  child.on('exit', () => children.delete(child));
-  return child;
-}
-process.on('exit', () => { for (const c of children) c.kill('SIGKILL'); });
-
-/** Call `onLine` with each line a child prints. */
-function lines(stream, onLine) {
-  let buf = '';
-  stream.setEncoding('utf8');
-  stream.on('data', (d) => {
-    buf += d;
-    let i = buf.indexOf('\n');
-    while (i >= 0) {
-      const l = buf.slice(0, i).replace(/\r$/, '');
-      buf = buf.slice(i + 1);
-      if (l.trim()) onLine(l);
-      i = buf.indexOf('\n');
-    }
-  });
-}
-
-/**
- * One capture: the first payload `yomi --json` prints, or null. 1-3 s as a
- * rule; the first read after `ocr/build.sh` can take ~30 s while Vision
- * compiles its model for the new binary (measured), which fails here — loudly,
- * and once.
- */
-function capture(args, timeout = 15000) {
-  return new Promise((resolve) => {
-    const child = track(spawn(OCR_BIN, ['--json', ...args]));
-    let payload = null;
-    let err = '';
-    lines(child.stdout, (l) => { payload = payload || JSON.parse(l); });
-    child.stderr.on('data', (d) => { err += d; });
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeout);
-    child.on('close', () => { clearTimeout(timer); resolve({ payload, err }); });
-  });
-}
-
-/** A long-running watch session, as the app runs it. */
-function watch(args) {
-  const child = track(spawn(OCR_BIN, ['--json', '--watch', '--interval', '0.3', ...args]));
-  const seen = [];
-  lines(child.stdout, (l) => seen.push({ at: Date.now(), m: JSON.parse(l) }));
-  child.stderr.resume();
-  return {
-    /** The first message at or after `since` that `pred` accepts. */
-    next: (what, pred, since = 0, timeout = 10000) =>
-      waitFor(what, () => seen.find((s) => s.at >= since && pred(s.m)), timeout),
-    stop: () => child.kill(),
-  };
-}
-
-const listAll = () => JSON.parse(execFileSync(OCR_BIN, ['--list-all'], { encoding: 'utf8' }));
-
-// --- the invisible display and the windows on it ----------------------------
-
 let D = null;
 
-async function openDisplay() {
-  const child = track(spawn(path.join(HELPERS, 'virtual-display'), [],
-                            { stdio: ['pipe', 'pipe', 'inherit'] }));
-  const line = await new Promise((resolve, reject) => {
-    lines(child.stdout, resolve);
-    child.on('exit', (code) => reject(new Error(`virtual-display exited (${code})`)));
-  });
-  const d = JSON.parse(line);
-  // Electron hears about a new display from its own notification, a beat later.
-  await waitFor('Electron to see the display',
-                () => screen.getAllDisplays().some((s) => s.id === d.id));
-  return { ...d, close: () => child.stdin.end() };
-}
-
-/** A window on the invisible display; `r` is relative to that display. */
-async function stageWindow(page, r, opts = {}) {
-  const win = new BrowserWindow({
-    x: D.x + r.x, y: D.y + r.y, width: r.width, height: r.height,
-    show: false, frame: false, resizable: false, ...opts,
-  });
-  await (page.startsWith('data:') ? win.loadURL(page) : win.loadFile(page));
-  win.showInactive();
-  const id = Number(win.getMediaSourceId().split(':')[1]);
-  await waitFor(`window ${id} to be composited`,
-                () => listAll().some((w) => w.id === id && w.onScreen));
-  return { win, id };
-}
-
-/**
- * Bring `w` in front of the other stage windows. Not moveTop(): measured, it
- * does not reorder an accessory app's windows at all, where showInactive()
- * does — within 300ms, and there is no z-order to poll without a helper of
- * its own (--list-all is not in z-order).
- */
-async function raise(w) {
-  w.win.showInactive();
-  await sleep(300);
-}
-
-const contentOrigin = (w) =>
-  w.win.webContents.executeJavaScript('({ sx: screenX, sy: screenY })');
-
-/** Where the window server has the window now. */
-const serverRect = (w) => listAll().find((x) => x.id === w.id);
-
-const near = (a, b, tol = 2) =>
-  Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol;
-
-// --- ground truth ------------------------------------------------------------
-
-// Single-line, directly texted, fully visible Japanese elements. Measured as
-// TEXT, not element boxes: a padded block's rect can sit far from its glyphs.
-const EXTRACT = `(() => {
-  const re = /[\\u3040-\\u30ff\\u4e00-\\u9fff]{3,}/;
-  const out = [];
-  for (const el of document.querySelectorAll('body *')) {
-    const t = Array.from(el.childNodes).filter(n => n.nodeType === 3)
-      .map(n => n.textContent).join('').replace(/\\s+/g, '');
-    if (!re.test(t)) continue;
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const r = range.getBoundingClientRect();
-    const fs = parseFloat(getComputedStyle(el).fontSize) || 0;
-    if (r.width < 20 || r.height < 10 || fs < 11) continue;
-    if (r.top < 0 || r.left < 0 || r.bottom > innerHeight || r.right > innerWidth) continue;
-    if (r.height > fs * 1.9) continue;            // wrapped: no single anchor
-    out.push({ text: t.slice(0, 24), x: Math.round(r.x), y: Math.round(r.y),
-               h: Math.round(r.height) });
-  }
-  return out;
-})()`;
-
-// Every Japanese character's own rect: in vertical text a paragraph is one
-// tall column, so only per-character truth locates anything.
-const EXTRACT_CHARS = `(() => {
-  const out = [];
-  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let n;
-  while ((n = walk.nextNode()) && out.length < 400) {
-    const t = n.textContent;
-    for (let i = 0; i < t.length; i++) {
-      if (!/[\\u3040-\\u30ff\\u4e00-\\u9fff]/.test(t[i])) continue;
-      const r = document.createRange();
-      r.setStart(n, i); r.setEnd(n, i + 1);
-      const b = r.getBoundingClientRect();
-      if (b.width < 4 || b.height < 4) continue;
-      out.push({ c: t[i], x: Math.round(b.x), y: Math.round(b.y),
-                 w: Math.round(b.width), h: Math.round(b.height) });
-    }
-  }
-  return out;
-})()`;
-
-const squash = (s) => s.replace(/\s+/g, '');
-
-/**
- * How well recognised glyphs sit on the page's real text. `read` is lines of
- * glyph boxes relative to `at`; `probes` are DOM rects relative to `org`.
- * Asserted against the CLOSEST occurrence of each probe's text, so a
- * systematic shift still fails while a repeated nav label cannot fake one.
- */
-function alignment(read, at, probes, org) {
-  const needle = (p) => squash(p.text).slice(0, 6);
-  // A probe whose text recurs cannot be pinned to one position.
-  const unique = probes.filter((p) =>
-    probes.filter((q) => squash(q.text).includes(needle(p))).length === 1);
-  let matched = 0, aligned = 0, gross = 0, worst = '';
-  for (const p of unique) {
-    if (squash(p.text).length < 3) continue;
-    let hit = null, best = Infinity;
-    for (const ln of read) {
-      // Indexed over the glyphs themselves: a line's text can carry spaces
-      // (Vision puts them between the items of a nav bar) that no glyph has.
-      const glyphs = ln.chars.filter((g) => g.c.trim());
-      const i = glyphs.map((g) => g.c).join('').indexOf(needle(p));
-      if (i < 0) continue;
-      const c = glyphs[i];
-      const d = Math.abs(at.x + c.x - (org.sx + p.x)) + Math.abs(at.y + c.y - (org.sy + p.y));
-      if (d < best) { best = d; hit = c; }
-    }
-    if (!hit) continue;
-    matched++;
-    const dx = Math.round(at.x + hit.x - (org.sx + p.x));
-    const dy = Math.round(at.y + hit.y - (org.sy + p.y));
-    // The DOM rect's top is the line box; the glyph sits inside its leading.
-    if (Math.abs(dx) <= 12 && Math.abs(dy) <= Math.max(10, p.h * 0.45)) aligned++;
-    else if (Math.abs(dx) > 30 || Math.abs(dy) > 30) {
-      gross++;
-      worst = `'${p.text}' off by (${dx},${dy})`;
-    }
-  }
-  return { probes: unique.length, matched, aligned, gross, worst };
-}
-
-function assertAligned(a, label) {
-  note(`${label}: ${a.aligned}/${a.matched} probes on their glyphs, ${a.gross} gross`
-       + (a.worst ? ` — worst ${a.worst}` : ''));
-  check(a.matched >= 8, `only ${a.matched} of ${a.probes} probes were recognised at all`);
-  check(a.aligned / a.matched >= 0.7, `${a.aligned}/${a.matched} aligned, need 70%`);
-  check(a.gross === 0, `${a.gross} glyphs more than 30px off (${a.worst})`);
-}
+app.setActivationPolicy('accessory');
+app.on('window-all-closed', () => {});
 
 // --- capture: selection, visibility and geometry ------------------------------
 
@@ -389,7 +153,7 @@ async function captureScenarios(A, B) {
 }
 
 async function verticalScenario() {
-  const V = await stageWindow(path.join(__dirname, 'vertical.html'),
+  const V = await stageWindow(path.join(STAGE, 'vertical.html'),
                               { x: 260, y: 110, width: 900, height: 680 });
   try {
     await test('tategaki is read in columns and lands on its glyphs', async () => {
@@ -450,72 +214,6 @@ async function pickerScenario() {
 const WORDS = [['猫', 'ねこ'], ['名前', 'なまえ'], ['吾輩', 'わがはい'], ['見当', 'けんとう'],
                ['記憶', 'きおく'], ['人間', 'にんげん'], ['書生', 'しょせい']];
 
-/** Chrome DevTools Protocol on the app's overlay page. */
-async function devtools(profile) {
-  const portFile = path.join(profile, 'DevToolsActivePort');
-  const port = await waitFor('the app to open DevTools', () =>
-    fs.existsSync(portFile) && fs.readFileSync(portFile, 'utf8').split('\n')[0]);
-  const target = await waitFor('the overlay page', async () => {
-    const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-    return list.find((t) => t.type === 'page' && t.url.endsWith('/renderer/index.html'));
-  });
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await bounded(new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }),
-                3000, 'opening DevTools');
-  let seq = 0;
-  const pending = new Map();
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
-    const p = pending.get(m.id);
-    if (!p) return;
-    pending.delete(m.id);
-    if (m.error) p.reject(new Error(m.error.message)); else p.resolve(m.result);
-  };
-  const call = (method, params = {}) => bounded(new Promise((resolve, reject) => {
-    seq++;
-    pending.set(seq, { resolve, reject });
-    ws.send(JSON.stringify({ id: seq, method, params }));
-  }), 5000, `DevTools ${method}`);
-  return {
-    eval: async (expression) => {
-      const r = await call('Runtime.evaluate',
-                           { expression, returnByValue: true, awaitPromise: true });
-      if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
-      return r.result.value;
-    },
-    /** A pointer event delivered to the page itself: the real cursor stays put. */
-    mouse: (type, x, y, extra = {}) =>
-      call('Input.dispatchMouseEvent', { type, x, y, ...extra }),
-    /** Kill the page's renderer process. The socket goes with it. */
-    crash: () => { call('Page.crash').catch(() => {}); },
-    close: () => ws.close(),
-  };
-}
-
-// The glyph layer as lines of screen-space boxes, the shape alignment() reads.
-const LAYER = `(() => {
-  const byLine = {};
-  for (const s of document.querySelectorAll('.g')) {
-    const r = s.getBoundingClientRect();
-    (byLine[s.dataset.li] = byLine[s.dataset.li] || []).push({ ci: +s.dataset.ci,
-      c: s.textContent, x: r.left + screenX, y: r.top + screenY, w: r.width, h: r.height,
-      cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
-  }
-  return Object.values(byLine).map((cs) => {
-    cs.sort((a, b) => a.ci - b.ci);
-    return { text: cs.map((c) => c.c).join(''), chars: cs };
-  });
-})()`;
-
-const POPUP = `(() => {
-  const p = document.getElementById('popup');
-  const b = p.querySelector('button.anki');
-  const r = b && b.getBoundingClientRect();
-  return { shown: getComputedStyle(p).display !== 'none', text: p.textContent,
-           hits: document.querySelectorAll('.g.hit').length,
-           mark: b && { state: b.dataset.state,
-                        x: r.left + r.width / 2, y: r.top + r.height / 2 } };
-})()`;
 
 async function appScenario(A, B) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-e2e-'));
@@ -699,7 +397,7 @@ app.whenReady().then(async () => {
   try {
     D = await openDisplay();
     console.log(`display ${D.id} at ${D.x},${D.y} ${D.width}x${D.height}, invisible`);
-    const A = await stageWindow(path.join(__dirname, 'horizontal.html'),
+    const A = await stageWindow(path.join(STAGE, 'horizontal.html'),
                                 { x: 120, y: 90, width: 1000, height: 700 });
     if (process.env.YOMI_WARM) await warmUp(A);
     t0 = Date.now();

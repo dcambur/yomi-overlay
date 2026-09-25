@@ -17,7 +17,7 @@
 #           Screen Recording     app, on an invisible display: selection,
 #                                covers, idle, glyph placement, tategaki,
 #                                fullscreen, the picker, and the app end to end
-#                                (test/screen/stage.js)
+#                                (test/screen/screen.js)
 #   golden  a built bin/yomi     byte-exact regression net over yomi --image;
 #                                not part of `all` — it compares two builds
 #
@@ -105,16 +105,16 @@ if lane screen; then
   elif pgrep -f '/yomi --json --watch' > /dev/null; then
     cannot "the overlay is running — quit it first: a second capture session
     stalls behind its watch loop (CONVENTIONS.md, gotchas)"
-  elif helper virtual-display "$HERE/screen/VirtualDisplay.h" \
-         "$HERE/screen/virtual-display.swift" \
+  elif helper virtual-display "$HERE/stage/VirtualDisplay.h" \
+         "$HERE/stage/virtual-display.swift" \
        && helper RigWithANameTheWindowServerTruncates.exe "$HERE/screen/picker-rig.swift"; then
     # A helper never run before spends its first read compiling Vision's model
     # (29-64 s); the suite pays that once, up front, and says so.
     warm="$HELPERS/.yomi-warm"
     if [ "$OCR_BIN" -nt "$warm" ] || [ ! -f "$warm" ]; then
-      YOMI_WARM=1 electron "$HERE/screen/stage.js" && touch "$warm" || rc=1
+      YOMI_WARM=1 electron "$HERE/screen/screen.js" && touch "$warm" || rc=1
     else
-      electron "$HERE/screen/stage.js" || rc=1
+      electron "$HERE/screen/screen.js" || rc=1
     fi
   else
     cannot "a test helper did not compile"
