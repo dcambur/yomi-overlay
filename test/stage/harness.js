@@ -1,6 +1,8 @@
 // The bounded test runner every Electron-driven lane shares: a named test, a
 // poll with a deadline, and children that die with the suite.
 
+const { execFileSync } = require('child_process');
+
 // --- harness ----------------------------------------------------------------
 //
 // Every wait is bounded, so a run is either quick or a loud failure: a test
@@ -65,13 +67,25 @@ function track(child) {
 }
 
 /**
- * Kill `child` and everything it started. The app under test is spawned
- * detached — its own process group — for this: SIGKILLed alone, its capture
- * children lived on, and the event monitor, which writes only on a click or
- * Shift, until the user's next one (five were found after a day of runs).
+ * Kill `child` and everything it started, deepest first. SIGKILLed alone, the
+ * app under test left its capture children alive, and the event monitor —
+ * which writes only on a click or Shift — until the user's next one (five
+ * were found after a day of runs). Walked with pgrep rather than a process
+ * group: spawning the app detached (setsid) would start it in a session of
+ * its own, a change to how it runs that killing its tree does not need.
  */
 function killTree(child) {
-  try { process.kill(child.detached ? -child.pid : child.pid, 'SIGKILL'); } catch { /* gone */ }
+  const tree = (pid) => {
+    let kids = [];
+    try {
+      kids = execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+        .split('\n').filter(Boolean).map(Number);
+    } catch { /* none */ }
+    return [...kids.flatMap(tree), pid];
+  };
+  for (const pid of tree(child.pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+  }
 }
 process.on('exit', () => { for (const c of children) killTree(c); });
 

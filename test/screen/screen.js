@@ -249,12 +249,9 @@ async function appScenario(A, B) {
     const launched = Date.now();
     // Its own profile: its own single-instance lock and DevTools port file,
     // so the suite runs beside an installed Yomi Overlay without touching it.
-    // Detached: its own process group, so a hard stop takes its children too.
     child = track(spawn(process.execPath,
                         [APP_DIR, `--user-data-dir=${profile}`, '--remote-debugging-port=0'],
-                        { env, stdio: process.env.VERBOSE ? 'inherit' : 'ignore',
-                          detached: true }));
-    child.detached = true;
+                        { env, stdio: process.env.VERBOSE ? 'inherit' : 'ignore' }));
     cdp = await devtools(profile);
 
     await test('the app builds a glyph layer over the target', async () => {

@@ -36,7 +36,7 @@ function guardUserScreen(stage) {
   const overlap = (w, b) =>
     span(w.x, w.width, b.x, b.width) * span(w.y, w.height, b.y, b.height);
   const onTheirs = (w) => theirDisplays().some((b) => overlap(w, b) > 16);
-  const seen = { ours: [], focus: [], left: [], declared: [] };
+  const seen = { ours: [], focus: [], left: [], declared: [], locked: null };
   let before = null;
   let busy = false;
   let expecting = null;          // what a test said it is taking focus for
@@ -48,7 +48,9 @@ function guardUserScreen(stage) {
       const list = await run(OCR_BIN, ['--list-all']);
       const front = await run('/bin/sh', FRONT);
       if (!list) return;
-      const shown = JSON.parse(list).filter((w) => w.onScreen && onTheirs(w));
+      const all = JSON.parse(list);
+      if (!seen.locked && isLocked(all)) seen.locked = new Date().toISOString();
+      const shown = all.filter((w) => w.onScreen && onTheirs(w));
       for (const w of shown.filter((x) => x.bundle === OURS)) {
         seen.ours.push(`${w.id} "${w.title}" at ${w.x},${w.y} ${w.width}x${w.height}`);
       }
@@ -104,14 +106,24 @@ function guardUserScreen(stage) {
       const left = seen.left.map((l) => `${l.at}: ${l.apps} left the screen`
         + (l.ids.some((id) => now.has(id)) ? ', and came back' : ''));
       return { ours: [...new Set(seen.ours)], focus: seen.focus, left,
-               declared: seen.declared };
+               declared: seen.declared, locked: seen.locked };
     },
   };
 }
+
+/**
+ * Whether the screen is locked: the login window is drawn over the displays.
+ * Measured: locked, it lists on-screen windows the size of every display;
+ * unlocked, its windows are all off screen. Under it nothing composites as a
+ * lane expects — a fullscreen never settles, a hidden panel stays "visible" —
+ * and every failure after that point is the lock's, not the app's.
+ */
+const isLocked = (windows) => windows.some((w) => w.bundle === 'com.apple.loginwindow'
+  && w.onScreen && w.width >= 1000 && w.height >= 600);
 
 /** Run `fn`, which must take focus (a real fullscreen does), and give it back. */
 function takingFocus(why, fn) {
   return current ? current.takingFocus(why, fn) : fn();
 }
 
-module.exports = { guardUserScreen, takingFocus };
+module.exports = { guardUserScreen, takingFocus, isLocked };

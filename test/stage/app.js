@@ -112,9 +112,7 @@ async function launchApp(o = {}) {
   // So a lane can collect garbage before it weighs what the main process holds.
   if (o.shim) argv.push('--js-flags=--expose-gc');
   const stdio = ['ignore', 'pipe', 'pipe', o.shim ? 'pipe' : 'ignore'];
-  // Its own process group, so a hard stop takes its children with it (killTree).
-  const child = track(spawn(process.execPath, argv, { env, stdio, detached: true }));
-  child.detached = true;
+  const child = track(spawn(process.execPath, argv, { env, stdio }));
   for (const s of [child.stdout, child.stderr]) {
     s.setEncoding('utf8');
     s.on('data', (d) => {
