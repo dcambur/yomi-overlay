@@ -73,8 +73,8 @@ electron() {
 }
 
 for l in $LANES; do
-  case "$l" in logic|pages|screen|firstrun) ;; *)
-    echo "usage: test/run.sh [logic] [pages] [screen] [firstrun] | golden record|check NAME" >&2
+  case "$l" in logic|pages|screen|firstrun|idle) ;; *)
+    echo "usage: test/run.sh [logic] [pages] [screen] [firstrun] [idle] | golden record|check NAME" >&2
     exit 2 ;;
   esac
 done
@@ -148,6 +148,7 @@ stage_lane() {
 
 if lane screen; then stage_lane screen "$HERE/screen/screen.js"; fi
 if lane firstrun; then stage_lane firstrun "$HERE/firstrun/firstrun.js"; fi
+if lane idle; then stage_lane idle "$HERE/idle/idle.js"; fi
 
 [ $rc -eq 0 ] && echo "all lanes passed"
 exit $rc

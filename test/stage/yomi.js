@@ -25,13 +25,17 @@ function capture(args, timeout = 15000) {
   });
 }
 
-/** A long-running watch session, as the app runs it. */
-function watch(args) {
-  const child = track(spawn(OCR_BIN, ['--json', '--watch', '--interval', '0.3', ...args]));
+/** A long-running watch session, as the app runs it; `interval` in seconds. */
+function watch(args, interval = 0.3) {
+  const child = track(spawn(OCR_BIN, ['--json', '--watch', '--interval', String(interval),
+                                      ...args]));
   const seen = [];
   lines(child.stdout, (l) => seen.push({ at: Date.now(), m: JSON.parse(l) }));
   child.stderr.resume();
   return {
+    pid: child.pid,
+    /** How many messages so far `pred` accepts. */
+    count: (pred) => seen.filter((s) => pred(s.m)).length,
     /** The first message at or after `since` that `pred` accepts. */
     next: (what, pred, since = 0, timeout = 10000) =>
       waitFor(what, () => seen.find((s) => s.at >= since && pred(s.m)), timeout),

@@ -2,13 +2,19 @@
 // own, reached through the DevTools protocol, and — started through
 // in-app.js — through its main process too.
 
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { bounded, waitFor, track } = require('./harness.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
+const mk = require(path.join(ROOT, 'test', 'fixtures', 'make-dictionary.js'));
+const { build } = require(path.join(ROOT, 'app', 'main', 'index-builder.js'));
+
+// On the stage page (horizontal.html), and in the dictionary a lane gives the app.
+const STAGE_WORDS = [['猫', 'ねこ'], ['名前', 'なまえ'], ['吾輩', 'わがはい'], ['見当', 'けんとう'],
+                     ['記憶', 'きおく'], ['人間', 'にんげん'], ['書生', 'しょせい']];
 
 /** Chrome DevTools Protocol on one of the app's pages: the overlay by default. */
 async function devtools(profile, page = '/renderer/index.html') {
@@ -157,4 +163,49 @@ async function launchApp(o = {}) {
   };
 }
 
-module.exports = { devtools, launchApp, LAYER, POPUP };
+/**
+ * The app over `target`, a window on the stage, with a dictionary of the stage
+ * page's words: what a lane that is not about the first run starts from.
+ */
+function appOnStage(target, o = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-app-'));
+  fs.mkdirSync(path.join(dir, 'dicts'));
+  mk.termDictionary(path.join(dir, 'dicts', 'stage.zip'),
+                    { title: 'Stage', shape: 'jmdict', words: STAGE_WORDS });
+  build(path.join(dir, 'dicts'), path.join(dir, 'index.db'));
+  const config = { target: { bundle: 'com.github.Electron', app: null, windowId: target.id,
+                             label: 'stage' }, interval: 0.3, ...(o.config || {}) };
+  return launchApp({ ...o, dir, config });
+}
+
+/** The pid of the app's capture child, the watch loop; null if there is none. */
+function watchPid(app) {
+  try {
+    const args = ['-P', String(app.child.pid), '-f', 'yomi --json --watch'];
+    const out = execFileSync('pgrep', args, { encoding: 'utf8' });
+    return Number(out.split('\n')[0]) || null;
+  } catch { return null; }
+}
+
+/**
+ * Shift over `word` on the overlay page, as a reader would, and the popup it
+ * opens; `cdp` is the overlay page. Moves off first, so the popup is new.
+ */
+async function lookUp(cdp, word) {
+  const layer = await cdp.eval(LAYER);
+  const line = layer.find((l) => l.text.includes(word));
+  if (!line) throw new Error(`${word} is not in the glyph layer`);
+  const c = line.chars[line.text.indexOf(word)];
+  await cdp.mouse('mouseMoved', 1, 1);
+  await cdp.mouse('mouseMoved', c.cx, c.cy, { modifiers: 8 });
+  return waitFor(`the popup for ${word}`, async () => {
+    const v = await cdp.eval(POPUP);
+    return v.shown && v;
+  });
+}
+
+const glyphCount = (cdp) => cdp.eval("document.querySelectorAll('.g').length");
+
+module.exports = {
+  devtools, launchApp, appOnStage, watchPid, lookUp, glyphCount, LAYER, POPUP, STAGE_WORDS,
+};

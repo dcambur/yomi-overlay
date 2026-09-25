@@ -7,6 +7,7 @@
 // may be switching Spaces themselves while a lane runs, so that is reported,
 // not failed.
 
+const { screen } = require('electron');
 const { execFile } = require('child_process');
 const path = require('path');
 
@@ -23,8 +24,15 @@ const run = (bin, args) => new Promise((resolve) =>
 
 /** Watch until stop(); `stage` is the invisible display, which is ours. */
 function guardUserScreen(stage) {
-  const onStage = (w) => w.x >= stage.x && w.y >= stage.y &&
-    w.x < stage.x + stage.width && w.y < stage.y + stage.height;
+  // Theirs: every display but the stage. A window is on one if it covers more
+  // than a sliver of it — the app's panel reports 1439,900 1442x900 over a
+  // stage at 1440,900, a point's contact with the user's display.
+  const theirDisplays = () => screen.getAllDisplays().filter((d) => d.id !== stage.id)
+    .map((d) => d.bounds);
+  const span = (a, al, b, bl) => Math.max(0, Math.min(a + al, b + bl) - Math.max(a, b));
+  const overlap = (w, b) =>
+    span(w.x, w.width, b.x, b.width) * span(w.y, w.height, b.y, b.height);
+  const onTheirs = (w) => theirDisplays().some((b) => overlap(w, b) > 16);
   const seen = { ours: [], focus: [], left: [] };
   let before = null;
   let busy = false;
@@ -35,7 +43,7 @@ function guardUserScreen(stage) {
       const list = await run(OCR_BIN, ['--list-all']);
       const front = await run('/bin/sh', FRONT);
       if (!list) return;
-      const shown = JSON.parse(list).filter((w) => w.onScreen && !onStage(w));
+      const shown = JSON.parse(list).filter((w) => w.onScreen && onTheirs(w));
       for (const w of shown.filter((x) => x.bundle === OURS)) {
         seen.ours.push(`${w.id} "${w.title}" at ${w.x},${w.y} ${w.width}x${w.height}`);
       }

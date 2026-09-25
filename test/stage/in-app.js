@@ -22,6 +22,7 @@
 
 const Module = require('module');
 const net = require('net');
+const { performance } = require('perf_hooks');
 const path = require('path');
 const electron = require('electron');
 
@@ -88,6 +89,9 @@ if (process.env.YOMI_TEST_CLOCK === '1') {
   global.clearTimeout = cancel;
   global.clearInterval = cancel;
   Date.now = () => vnow() + wall;
+  // Monotonic time moves with the timers, and not with the wall clock.
+  const perf = performance.now.bind(performance);
+  performance.now = () => perf() + skew;
 }
 
 // --- what the user would see -------------------------------------------------------

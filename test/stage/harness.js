@@ -24,10 +24,10 @@ function bounded(promise, ms, what) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
-async function test(name, fn) {
+async function test(name, fn, limitMs = TEST_LIMIT_MS) {
   const t0 = Date.now();
   let why = null;
-  try { await bounded(fn(), TEST_LIMIT_MS, 'the test'); } catch (e) { why = e.message; }
+  try { await bounded(fn(), limitMs, 'the test'); } catch (e) { why = e.message; }
   const ms = Date.now() - t0;
   results.push({ ok: !why, name, ms });
   console.log(`${why ? 'FAIL' : 'ok  '}  ${name} (${(ms / 1000).toFixed(1)}s)`
