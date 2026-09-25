@@ -174,13 +174,16 @@ is what it does when the helper says so, and that is what the fake says:
 - without Screen Recording: one dialog, a menu item that opens the pane, and
   capture retried with backoff (3 starts in ~5 s)
 - without Accessibility: the menu says Shift needs the mouse to move
-- no helper built: one dialog naming the path and `ocr/build.sh`
+- no helper built: one dialog naming the path and `ocr/build.sh`, and the
+  menu says capture could not start (not that it is slow)
+- capture that keeps stopping keeps saying so between its restarts
 - a first capture refused, as a rebuilt helper's is: recovers in ~3 s
 - a slow first read: after 10 s the menu says the first read after an update
   takes a minute, then what it reads
-- `setup.sh` twice in a sandbox, with `security`, `tccutil`, `open`,
-  `codesign` and `build-app.sh` recording instead of acting: the second run
-  keeps the grants the first had you give
+- `setup.sh` in a sandbox, with `security`, `tccutil`, `open`, `codesign`
+  and `build-app.sh` recording instead of acting: a second run keeps the
+  grants the first had you give, and a first run that fails still has its
+  re-run clear the grants of the ad-hoc build it replaces
 
 ## `idle` — `idle/idle.js`
 
@@ -195,8 +198,8 @@ every long timer is in the main process.
 - an hour with the target away, in 100 s steps with the child's idle markers
   between them, keeps the same child; the overlay is back in ~1.2 s
 - a night asleep does not restart a healthy child
-- a page given up after two crashes says so in the menu, and Restart capture
-  brings it back
+- a page given up after two crashes says so in the menu — through the
+  capture child's own restarts — and Restart capture brings it back
 - a soak (`YOMI_IDLE_SOAK_S`, default 30) at the 0.1 s interval floor, passes
   counted off the helper's own heartbeats: the helper's and the app's memory
   are judged by their slope after the first read settles (a first read's
