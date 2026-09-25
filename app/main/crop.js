@@ -18,7 +18,8 @@ function createCropChannel({ ocrChild }) {
   /**
    * A crop of the last frame, written to `file`. Resolves true when it is
    * there, false when the watch process is not running, could not be asked,
-   * or did not answer within `waitMs` — never rejects.
+   * or did not answer within `waitMs` — never rejects, and after false no
+   * file is left: the caller takes false for "no picture" and never looks.
    *
    * `rect` is frame-relative, the space the payload's char boxes use. The
    * path goes on the command line the crop reader splits on spaces, so a path
@@ -29,7 +30,14 @@ function createCropChannel({ ocrChild }) {
       if (!ocrChild.running || /\s/.test(file)) { resolve(false); return; }
       const id = ++cropSeq;
       const r = [rect.x, rect.y, rect.w, rect.h].map((v) => Math.round(v)).join(' ');
-      const timer = setTimeout(() => { cropWaiters.delete(id); resolve(false); }, waitMs);
+      // A reply can be lost with the PNG already written: a stopped child's
+      // output is not delivered (supervised-child.js), so whatever it wrote
+      // is deleted here too, as a late reply's is below.
+      const timer = setTimeout(() => {
+        cropWaiters.delete(id);
+        fs.unlink(file, () => {});
+        resolve(false);
+      }, waitMs);
       cropWaiters.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
       if (!ocrChild.write(`crop ${id} ${r} ${file}\n`)) {
         clearTimeout(timer);

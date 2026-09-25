@@ -48,6 +48,20 @@ test('a crop that arrives after its caller gave up is deleted', async () => {
   assert.ok(!fs.existsSync(file), 'a PNG nobody will read was left behind');
 });
 
+test('a crop written but never answered is deleted when its caller gives up', async () => {
+  // The watch process wrote the PNG and its {crop} line, and was stopped — a
+  // retarget, Restart capture, quit — before main read the line: a stopped
+  // child's output is not delivered (supervised-child.js), so no reply comes.
+  const ch = channel();
+  const file = tmp('orphan.png');
+  const gaveUp = ch.requestCrop({ x: 1, y: 2, w: 3, h: 4 }, file, 30);
+  fs.writeFileSync(file, 'PNG');
+  assert.strictEqual(await gaveUp, false);
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+  for (let i = 0; i < 50 && fs.existsSync(file); i++) await tick();
+  assert.ok(!fs.existsSync(file), 'a PNG nobody will read was left behind');
+});
+
 test('nothing is asked for a path the command line would split', async () => {
   const ch = channel();
   const asked = await ch.requestCrop({ x: 0, y: 0, w: 1, h: 1 }, '/tmp/a b.png', 50);
