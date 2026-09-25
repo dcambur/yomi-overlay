@@ -18,7 +18,6 @@
 //   test/run.sh screen      needs Screen Recording for the terminal, and the
 //                           overlay not running (two capture sessions stall)
 
-const { app } = require('electron');
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -33,14 +32,16 @@ const { ankiDouble } = require(path.join(FIXTURES, 'anki-double.js'));
 
 const HELPERS = path.join(BIN_DIR, 'test');
 const STAGE = path.join(ROOT, 'test', 'stage');
-const { SUITE_LIMIT_MS, results, sleep, check, note, test, waitFor, track, lines } =
+const { sleep, check, note, test, waitFor, track, lines } =
   require(path.join(STAGE, 'harness.js'));
 const { capture, watch, listAll } = require(path.join(STAGE, 'yomi.js'));
-const { openDisplay, stageWindow, raise, contentOrigin, serverRect, near } =
+const { stageWindow, raise, contentOrigin, serverRect, near } =
   require(path.join(STAGE, 'display.js'));
 const { EXTRACT, EXTRACT_CHARS, alignment, assertAligned } =
   require(path.join(STAGE, 'truth.js'));
 const { devtools, LAYER, POPUP } = require(path.join(STAGE, 'app.js'));
+const { runLane } = require(path.join(STAGE, 'lane.js'));
+const { takingFocus } = require(path.join(STAGE, 'user-screen.js'));
 
 // Longer than the 31 bytes kCGWindowOwnerName keeps (ListCommand.swift).
 const RIG_NAME = 'RigWithANameTheWindowServerTruncates.exe';
@@ -53,8 +54,6 @@ const HIDE_CEILING_MS = 4000;
 
 let D = null;
 
-app.setActivationPolicy('accessory');
-app.on('window-all-closed', () => {});
 
 // --- capture: selection, visibility and geometry ------------------------------
 
@@ -132,30 +131,33 @@ async function captureScenarios(A, B) {
     await A.win.webContents.executeJavaScript('window.scrollTo(0, 0)');
   });
 
-  await test('a fullscreen target is captured with its true frame', async () => {
-    const entered = new Promise((r) => A.win.once('enter-full-screen', r));
-    A.win.setFullScreen(true);
-    await entered;
-    // The Space slides in; capture mid-slide reads a transient x.
-    await waitFor('the fullscreen Space to settle', () => {
-      const s = serverRect(A);
-      return s && s.x === D.x && s.width === D.width;
-    });
-    const { payload } = await capture(['--window', String(A.id)]);
-    check(payload, 'nothing captured');
-    check(near(payload.frame, D) && payload.frame.width === D.width,
+  // macOS makes the app whose window goes fullscreen the active one: this takes
+  // focus for its length, says so, and gives it back.
+  await test('a fullscreen target is captured with its true frame', () =>
+    takingFocus('a window entering fullscreen', async () => {
+      const entered = new Promise((r) => A.win.once('enter-full-screen', r));
+      A.win.setFullScreen(true);
+      await entered;
+      // The Space slides in; capture mid-slide reads a transient x.
+      await waitFor('the fullscreen Space to settle', () => {
+        const s = serverRect(A);
+        return s && s.x === D.x && s.width === D.width;
+      });
+      const { payload } = await capture(['--window', String(A.id)]);
+      check(payload, 'nothing captured');
+      check(near(payload.frame, D) && payload.frame.width === D.width,
           `frame ${JSON.stringify(payload.frame)}, display at ${D.x},${D.y}`);
-    const probes = await A.win.webContents.executeJavaScript(EXTRACT);
-    assertAligned(alignment(payload.lines, payload.frame, probes, await contentOrigin(A)),
-                  'fullscreen');
-    const left = new Promise((r) => A.win.once('leave-full-screen', r));
-    A.win.setFullScreen(false);
-    await left;
-    await waitFor('the window to be back', () => {
-      const s = serverRect(A);
-      return s && s.width < D.width;
-    });
-  });
+      const probes = await A.win.webContents.executeJavaScript(EXTRACT);
+      assertAligned(alignment(payload.lines, payload.frame, probes, await contentOrigin(A)),
+                    'fullscreen');
+      const left = new Promise((r) => A.win.once('leave-full-screen', r));
+      A.win.setFullScreen(false);
+      await left;
+      await waitFor('the window to be back', () => {
+        const s = serverRect(A);
+        return s && s.width < D.width;
+      });
+    }));
 }
 
 async function verticalScenario() {
@@ -408,34 +410,21 @@ async function warmUp(A) {
   console.log(`warm after ${((Date.now() - t) / 1000).toFixed(0)}s`);
 }
 
-app.whenReady().then(async () => {
-  let t0 = Date.now();
-  try {
-    D = await openDisplay();
-    console.log(`display ${D.id} at ${D.x},${D.y} ${D.width}x${D.height}, invisible`);
+runLane(async (_D, A) => {
+  const B = await stageWindow('data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<body style="margin:0;background:#eee;font:26px Hiragino Kaku Gothic ProN">'
+    + '<p style="margin:60px">囮のウィンドウです</p><p style="margin:60px">偽物の内容注意</p>'),
+                              { x: 180, y: 140, width: 1000, height: 700 });
+  await captureScenarios(A, B);
+  await verticalScenario();
+  await pickerScenario();
+  await appScenario(A, B);
+}, {
+  async prelude(display) {
+    D = display;
     const A = await stageWindow(path.join(STAGE, 'horizontal.html'),
                                 { x: 120, y: 90, width: 1000, height: 700 });
     if (process.env.YOMI_WARM) await warmUp(A);
-    t0 = Date.now();
-    setTimeout(() => {
-      console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
-      app.exit(1);                  // process 'exit' kills every child
-    }, SUITE_LIMIT_MS);
-    const B = await stageWindow('data:text/html;charset=utf-8,' + encodeURIComponent(
-      '<body style="margin:0;background:#eee;font:26px Hiragino Kaku Gothic ProN">'
-      + '<p style="margin:60px">囮のウィンドウです</p><p style="margin:60px">偽物の内容注意</p>'),
-                                { x: 180, y: 140, width: 1000, height: 700 });
-    await captureScenarios(A, B);
-    await verticalScenario();
-    await pickerScenario();
-    await appScenario(A, B);
-  } catch (e) {
-    results.push({ ok: false, name: 'setup', ms: 0 });
-    console.log(`FAIL  setup\n        ${e.stack || e.message}`);
-  }
-  const failed = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} passed in `
-              + `${((Date.now() - t0) / 1000).toFixed(1)}s`);
-  if (D) D.close();
-  app.exit(failed ? 1 : 0);
+    return A;
+  },
 });

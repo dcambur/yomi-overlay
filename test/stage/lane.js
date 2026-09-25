@@ -9,20 +9,27 @@ const { guardUserScreen } = require('./user-screen.js');
 app.setActivationPolicy('accessory');
 app.on('window-all-closed', () => {});
 
-/** Run `body(D)` on the invisible display; exit 0 only if every test passed. */
-function runLane(body) {
+/**
+ * Run `body(D, ctx)` on the invisible display; exit 0 only if every test
+ * passed. `prelude(D)`, if given, runs before the suite's time limit starts —
+ * a warm-up whose length is known and announced — and what it returns is
+ * `ctx`.
+ */
+function runLane(body, { prelude } = {}) {
   app.whenReady().then(async () => {
-    const t0 = Date.now();
-    setTimeout(() => {
-      console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
-      app.exit(1);                  // process 'exit' kills every child
-    }, SUITE_LIMIT_MS);
+    let t0 = Date.now();
     let D = null, guard = null;
     try {
       D = await openDisplay();
       console.log(`display ${D.id} at ${D.x},${D.y} ${D.width}x${D.height}, invisible`);
       guard = guardUserScreen(D);
-      await body(D);
+      const ctx = prelude ? await prelude(D) : null;
+      t0 = Date.now();
+      setTimeout(() => {
+        console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
+        app.exit(1);                  // process 'exit' kills every child
+      }, SUITE_LIMIT_MS);
+      await body(D, ctx);
     } catch (e) {
       results.push({ ok: false, name: 'setup', ms: 0 });
       console.log(`FAIL  setup\n        ${e.stack || e.message}`);
