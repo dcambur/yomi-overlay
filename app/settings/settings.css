@@ -118,10 +118,12 @@ footer .grow { flex: 1 1 auto; }
 .panel { display: none; }
 .panel.on { display: block; }
 
-/* A row that does not apply to the current choice. A class rather than
+/* Whatever does not apply to the current choice. A class rather than
    element.style.display, so the page keeps no inline styles at runtime
-   either. */
-.hidden { display: none; }
+   either. Important, because it must beat the display the element's own rule
+   gives it: `.row` comes later at the same weight and drew #row-mod anyway,
+   and `#anki-install-row .prog` outranks a bare class wherever it sits. */
+.hidden { display: none !important; }
 
 /* --- explanatory text ------------------------------------------------------ */
 
@@ -296,12 +298,6 @@ footer .grow { flex: 1 1 auto; }
 }
 
 /* --- anki ------------------------------------------------------------------ */
-
-/* The install row and its bar are hidden by the id, not by .hidden alone:
-   `#anki-install-row .prog` outranks a bare class, and would show the bar
-   whether or not anything is installing. */
-#anki-install-row.hidden,
-#anki-install-row .prog.hidden { display: none; }
 
 /* The status row: dot, then the state in a word or two, then what to do. */
 .row .state {

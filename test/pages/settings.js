@@ -162,9 +162,22 @@ async function run() {
              + " m.value = 'hover'; m.onchange(); })()");
     await settle();
     assert.strictEqual(saved.trigger, 1, 'the main process was told, once');
-    // And the row that no longer applies is hidden rather than left dangling.
-    assert.ok(await js(
-      "document.getElementById('row-mod').classList.contains('hidden')"));
+  });
+
+  await test('each trigger mode shows its own row and hides the other', async () => {
+    // By the computed style, not the class: a row can carry .hidden and still
+    // be drawn, if a later rule of the same weight sets its display.
+    const display = (id) => js(`getComputedStyle(document.getElementById('${id}')).display`);
+    const rows = { hold: ['row-mod', 'row-delay'], hover: ['row-delay', 'row-mod'] };
+    for (const mode of ['hold', 'hover']) {
+      await js("(() => { const m = document.getElementById('mode');"
+               + ` m.value = '${mode}'; m.onchange(); })()`);
+      await settle();
+      const [shown, gone] = rows[mode];
+      assert.strictEqual(await display(gone), 'none', `${gone} is drawn in ${mode} mode`);
+      assert.notStrictEqual(await display(shown), 'none',
+                            `${shown} is not drawn in ${mode} mode`);
+    }
   });
 
   await test('images can be turned off, and it applies at once', async () => {
