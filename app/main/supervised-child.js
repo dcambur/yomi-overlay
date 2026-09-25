@@ -9,7 +9,14 @@
 // test/logic/child.test.js encodes the behaviour.
 
 const { spawn } = require('child_process');
+const { performance } = require('perf_hooks');
 const { lineSplitter } = require('./ndjson.js');
+
+// Silence is measured on the monotonic clock. On the wall clock a night
+// asleep counted as a night of silence, and the watchdog's first check after
+// waking restarted a healthy child — whenever that check came before the
+// child's first word (test/idle: an 8 h jump, then the check).
+const now = () => performance.now();
 
 // A child that has not exited this long after SIGTERM is wedged, not busy.
 const KILL_GRACE_MS = 1500;
@@ -67,7 +74,7 @@ class SupervisedChild {
     const args = this.buildArgs();
     const proc = spawn(this.bin, args);
     this.proc = proc;
-    this.lastOutput = Date.now();
+    this.lastOutput = now();
     this.watchdogFired = false;
 
     // A ChildProcess with no 'error' listener rethrows, which would take the
@@ -85,7 +92,7 @@ class SupervisedChild {
       if (proc.deliberate) return;
       // Any stdout at all is proof of life, whatever it says — that is what
       // the watchdog is asking about.
-      this.lastOutput = Date.now();
+      this.lastOutput = now();
       this.watchdogFired = false;
       split(chunk);
     });
@@ -183,7 +190,7 @@ class SupervisedChild {
     const { silenceMs, checkMs } = this.watchdogCfg;
     this.watchdogTimer = setInterval(() => {
       if (!this.proc || this.restartTimer) return;
-      if (Date.now() - this.lastOutput < silenceMs) return;
+      if (now() - this.lastOutput < silenceMs) return;
       // Fires once per silence streak; any stdout resets the flag.
       if (!this.watchdogFired) {
         this.logError(`[${this.name}] no output for ${silenceMs}ms — restarting`);
