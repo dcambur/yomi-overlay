@@ -172,10 +172,12 @@ async function appCases(D, A) {
       await waitFor('the menu-bar item', async () => (await menu(app)).length);
       // Ten seconds of a first read with nothing to show, without waiting them.
       await app.eval('clock.advance(10500);');
-      const slow = await menu(app);
+      // The timers that came due fire a moment after the clock moved.
+      const slow = await waitFor('the menu to say the first read is slow', async () => {
+        const m = await menu(app);
+        return m.some((l) => /starting/i.test(l) && /minute/i.test(l)) && m;
+      }, 2000);
       note(`after 10 s: ${slow[0]}`);
-      check(slow.some((l) => /starting/i.test(l) && /minute/i.test(l)),
-            `nothing says the first read is slow: ${slow.join(' | ')}`);
       const reading = await waitFor('the menu to say it is reading', async () => {
         const m = await menu(app);
         return m.some((l) => /^Reading stage/.test(l)) && m;

@@ -75,9 +75,14 @@ function onOcrLine(payload) {
   // over something that is not the target. Waiting it out is what left the
   // glyph layer and an open popup sitting on the app you switched to.
   // Still proof the watch loop is alive, which is what the watchdog needs.
-  if (payload.idle) { overlayWindow.hide('target has no visible window'); return; }
+  if (payload.idle) {
+    tray.setCapture('away');
+    overlayWindow.hide('target has no visible window');
+    return;
+  }
   if (!payload.frame) return;
   ocrChild.resetBackoff();   // a good payload means the process is healthy
+  tray.setCapture('reading');
 
   overlayWindow.trackTarget(payload.frame, payload.covers);
 
@@ -118,6 +123,8 @@ const ocrChild = new SupervisedChild({
   // second filter here, per chunk, dropped all but the first for good. A
   // target on another Space is an idle marker now, not a failure.
   onStderr: (text) => logLines('[ocr]', text),
+  onStart: () => tray.setCapture('starting'),
+  onExit: () => tray.setCapture('exited'),
   onSpawnError: (err) => reportSpawnFailure('ocr', err),
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
@@ -185,10 +192,13 @@ app.whenReady().then(() => {
   }
   tray.build({
     onSettings: openSettings,
-    onRestartCapture: () => ocrChild.restart(),
+    onRestartCapture: () => {
+      overlayWindow.revive();
+      ocrChild.restart();
+    },
   });
   permissions.checkAll(() => tray.refresh());
-  overlayWindow.create();
+  overlayWindow.create({ onGiveUp: () => tray.setCapture('stopped') });
   ocrChild.start();
   eventsChild.start();
 

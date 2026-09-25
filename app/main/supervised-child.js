@@ -34,6 +34,9 @@ class SupervisedChild {
    * @param {string} [o.exitHint]  appended to the exit diagnostic
    * @param {(obj:any) => void} [o.onLine]
    * @param {(text:string) => void} [o.onStderr]
+   * @param {() => void} [o.onStart]  each spawn, first and every restart
+   * @param {(code:number|null, signal:string|null) => void} [o.onExit]  an
+   *                                 exit nobody asked for
    * @param {(err:Error) => void} [o.onSpawnError]
    * @param {(msg:string) => void} [o.log]
    * @param {(msg:string) => void} [o.logError]
@@ -52,6 +55,8 @@ class SupervisedChild {
     this.onLine = o.onLine || (() => {});
     this.onStderr = o.onStderr || (() => {});
     this.onSpawnError = o.onSpawnError || (() => {});
+    this.onStart = o.onStart || (() => {});
+    this.onExit = o.onExit || (() => {});
     this.log = o.log || (() => {});
     this.logError = o.logError || this.log;
 
@@ -108,6 +113,7 @@ class SupervisedChild {
       // on top of the live one.
       if (proc.deliberate || this.proc !== proc) return;
       this.proc = null;
+      this.onExit(code, signal);
       this.logError(`[${this.name}] exited (code=${code} signal=${signal}); ` +
                     `restarting in ${this.backoff}ms` +
                     (this.exitHint ? ` — ${this.exitHint}` : ''));
@@ -121,6 +127,7 @@ class SupervisedChild {
     });
 
     this._armWatchdog();
+    this.onStart();
     return proc;
   }
 

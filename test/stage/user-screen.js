@@ -73,14 +73,21 @@ function guardUserScreen(stage) {
     async takingFocus(why, fn) {
       expecting = { why, samples: 0, t0: Date.now() };
       try { return await fn(); } finally {
-        await sample();
-        const e = expecting;
-        expecting = null;
         const back = await run('/bin/sh', FRONT);
         if (back && back.includes(OURS) && userFront) {
           const activate = `tell application id "${userFront}" to activate`;
           await run('/usr/bin/osascript', ['-e', activate]);
         }
+        // Declared until focus is really back: activation lands a moment after
+        // it is asked for, and a sample in between is not a second theft.
+        const until = Date.now() + 2000;
+        for (;;) {
+          const f = await run('/bin/sh', FRONT);
+          if (!f || !f.includes(OURS) || Date.now() > until) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        const e = expecting;
+        expecting = null;
         seen.declared.push(`${e.why}: ${((Date.now() - e.t0) / 1000).toFixed(1)} s`
                            + (userFront ? `, then given back to ${userFront}` : ''));
       }

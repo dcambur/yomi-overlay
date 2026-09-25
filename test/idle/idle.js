@@ -103,6 +103,34 @@ runLane(async (D) => {
       check(p.text.includes('ねこ'), `popup: ${p.text.slice(0, 80)}`);
     });
 
+    await test('a page given up after two crashes is back on Restart capture', async () => {
+      const menu = () => app.eval('return rec.menu.map((i) => i.label);');
+      const reconnect = () => waitFor('the reloaded page', async () => {
+        try { const c = await app.page(); await c.eval('1'); return c; } catch { return null; }
+      }, 8000);
+      cdp.crash(); cdp.close();
+      await sleep(300);
+      cdp = await reconnect();
+      await waitFor('the layer back', () => glyphCount(cdp), 5000);
+      cdp.crash(); cdp.close();          // again, inside 10 s: given up
+      cdp = null;
+      const stopped = await waitFor('the menu to say the overlay stopped', async () => {
+        const m = await menu();
+        return m.find((l) => /overlay stopped/.test(l));
+      }, 5000);
+      note(`menu: ${stopped}`);
+      await app.eval("menuClick('Restart capture');");
+      cdp = await reconnect();
+      await waitFor('the layer after Restart capture', () => glyphCount(cdp), 10000);
+      const p = await lookUp(cdp, '猫');
+      check(p.text.includes('ねこ'), `popup: ${p.text.slice(0, 80)}`);
+      const now = await waitFor('the menu to say it is reading', async () => {
+        const m = await menu();
+        return m.find((l) => /^Reading stage/.test(l));
+      }, 5000);
+      note(`menu: ${now}`);
+    });
+
     await test('waking from a night asleep leaves a healthy capture child be', async () => {
       const pid = watchPid(app);
       // Asleep, the wall clock ran and the timers stood still; awake, the
@@ -138,7 +166,10 @@ runLane(async (D) => {
         await sleep(1000);
       }
       const passes = samples[samples.length - 1].n - samples[0].n;
-      const perPass = slope(samples.map((x) => x.n), samples.map((x) => x.kb));
+      // The second half: the first read's buffers are still being let go in
+      // the first (measured 137 MB → 38 MB).
+      const late = samples.slice(samples.length >> 1);
+      const perPass = slope(late.map((x) => x.n), late.map((x) => x.kb));
       note(`${passes} passes in ${SOAK_S} s; yomi ${samples[0].kb} → `
            + `${samples[samples.length - 1].kb} KB, ${(perPass * 1024).toFixed(1)} B a pass`
            + ` — ${((perPass * 144000) / 1024).toFixed(1)} MB a day at 0.6 s`);
@@ -155,21 +186,25 @@ runLane(async (D) => {
       await waitFor("the soak app's layer", () => glyphCount(c), 20000);
       c.close();
       await sleep(5000);
+      // What the main process still holds once garbage is collected: its RSS
+      // saws with V8's collections (measured +6 MB in one 30 s run, -46 MB in
+      // another), which hides a slope rather than showing one.
+      const held = () => soak.eval('global.gc(); return process.memoryUsage().heapUsed;');
       const samples = [];
       const log0 = soak.log().length;
       const t0 = Date.now();
       const until = t0 + SOAK_S * 1000;
       while (Date.now() < until) {
-        samples.push({ s: (Date.now() - t0) / 1000, kb: rssKB(soak.child.pid) });
+        samples.push({ s: (Date.now() - t0) / 1000, kb: (await held()) / 1024 });
         await sleep(1000);
       }
       const logPerHour = ((soak.log().length - log0) / SOAK_S) * 3600;
       const perHour = slope(samples.map((x) => x.s), samples.map((x) => x.kb)) * 3600;
       const mb = (kb) => (kb / 1024).toFixed(1);
       const kb = (b) => (b / 1024).toFixed(1);
-      note(`main ${samples[0].kb} → ${samples[samples.length - 1].kb} KB, `
+      note(`main heap ${mb(samples[0].kb)} → ${mb(samples[samples.length - 1].kb)} MB, `
            + `${mb(perHour)} MB an hour at 0.1 s; log ${kb(logPerHour)} KB an hour`);
-      check(perHour < 20 * 1024, `the main process grows ${mb(perHour)} MB an hour`);
+      check(perHour < 5 * 1024, `the main process holds ${mb(perHour)} MB more an hour`);
       check(logPerHour < 1024 * 1024, `the log grows ${kb(logPerHour)} KB an hour`);
     } finally { await soak.quit(); }
   }, SOAK_S * 1000 + 40000);

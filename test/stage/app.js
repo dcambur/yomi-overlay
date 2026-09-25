@@ -109,6 +109,8 @@ async function launchApp(o = {}) {
   const entry = o.shim ? path.join(__dirname, 'in-app.js') : path.join(root, 'app');
   const out = [];
   const argv = [entry, `--user-data-dir=${profile}`, '--remote-debugging-port=0'];
+  // So a lane can collect garbage before it weighs what the main process holds.
+  if (o.shim) argv.push('--js-flags=--expose-gc');
   const stdio = ['ignore', 'pipe', 'pipe', o.shim ? 'pipe' : 'ignore'];
   const child = track(spawn(process.execPath, argv, { env, stdio }));
   for (const s of [child.stdout, child.stderr]) {
@@ -189,18 +191,26 @@ function watchPid(app) {
 
 /**
  * Shift over `word` on the overlay page, as a reader would, and the popup it
- * opens; `cdp` is the overlay page. Moves off first, so the popup is new.
+ * opens; `cdp` is the overlay page. Pressed again each second, as a reader
+ * would: a layer rebuilt while the lookup was in flight drops its answer on
+ * purpose, and right after a (re)start the helper re-reads the page a few
+ * times (engine and orientation probes, votes).
  */
 async function lookUp(cdp, word) {
-  const layer = await cdp.eval(LAYER);
-  const line = layer.find((l) => l.text.includes(word));
-  if (!line) throw new Error(`${word} is not in the glyph layer`);
-  const c = line.chars[line.text.indexOf(word)];
-  await cdp.mouse('mouseMoved', 1, 1);
-  await cdp.mouse('mouseMoved', c.cx, c.cy, { modifiers: 8 });
   return waitFor(`the popup for ${word}`, async () => {
-    const v = await cdp.eval(POPUP);
-    return v.shown && v;
+    const layer = await cdp.eval(LAYER);
+    const line = layer.find((l) => l.text.includes(word));
+    if (!line) return false;
+    const c = line.chars[line.text.indexOf(word)];
+    await cdp.mouse('mouseMoved', 1, 1);
+    await cdp.mouse('mouseMoved', c.cx, c.cy, { modifiers: 8 });
+    const end = Date.now() + 1000;
+    while (Date.now() < end) {
+      const v = await cdp.eval(POPUP);
+      if (v.shown) return v;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
   });
 }
 

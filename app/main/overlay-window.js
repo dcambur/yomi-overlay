@@ -27,6 +27,7 @@ let lastCrashAt = 0;
 // The renderer died twice in quick succession and was left dead: the panel
 // stays hidden rather than being shown, empty, over the target every pass.
 let rendererGivenUp = false;
+let onGiveUp = () => {};
 
 // 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
 // payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
@@ -87,7 +88,9 @@ function ensureCover(frame) {
   return db;
 }
 
-function createWindow() {
+/** The panel; `o.onGiveUp` hears when its page is given up on (it crashed twice). */
+function createWindow(o = {}) {
+  onGiveUp = o.onGiveUp || onGiveUp;
   win = new BrowserWindow({
     ...screen.getPrimaryDisplay().bounds,
     transparent: true,
@@ -159,6 +162,7 @@ function createWindow() {
       rendererGivenUp = true;
       hideOverlay('the overlay page keeps crashing');
       console.error(`[renderer] gone again (${d.reason}); not reloading`);
+      onGiveUp();
       return;
     }
     lastCrashAt = Date.now();
@@ -233,8 +237,22 @@ function setInteractive(want) {
   else win.setIgnoreMouseEvents(true, { forward: true });
 }
 
+/**
+ * A page given up on, loaded again: what the user asks for with "Restart
+ * capture" or a new target. Given up, it used to stay dead until the app was
+ * quit — a retarget and a restart left the panel hidden for good.
+ */
+function revive() {
+  if (!rendererGivenUp || !win || win.isDestroyed()) return;
+  rendererGivenUp = false;
+  lastCrashAt = 0;
+  console.log('[renderer] reloading the page it gave up on');
+  win.webContents.reload();
+}
+
 /** Retarget: the glyph layer describes a window we no longer track. */
 function reset() {
+  revive();
   if (win && !win.isDestroyed()) {
     if (win.isVisible()) win.hide();
     win.webContents.send('reset');
@@ -260,6 +278,7 @@ module.exports = {
   trackTarget,
   setInteractive,
   reset,
+  revive,
   sendCapture,
   send: (channel, ...a) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...a);
