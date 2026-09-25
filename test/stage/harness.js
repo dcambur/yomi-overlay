@@ -5,9 +5,10 @@
 //
 // Every wait is bounded, so a run is either quick or a loud failure: a test
 // that hangs is stopped at TEST_LIMIT_MS, and the whole suite at
-// SUITE_LIMIT_MS. A full run takes ~25 s.
+// SUITE_LIMIT_MS. The screen lane takes ~25 s on an idle machine and ~70 s at
+// load 8 (measured), where a 60 s limit failed three passing tests.
 const TEST_LIMIT_MS = 20000;
-const SUITE_LIMIT_MS = 60000;
+const SUITE_LIMIT_MS = 150000;
 
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -33,13 +34,20 @@ async function test(name, fn) {
               + (why ? `\n        ${why}` : ''));
 }
 
-/** Poll until `probe` answers something truthy, and return it. */
+/**
+ * Poll until `probe` answers something truthy, and return it. A timeout says
+ * what the probe last answered: "waited for the layer" and "the layer came
+ * back with 288 of 290 glyphs" are different bugs.
+ */
 async function waitFor(what, probe, timeout = 10000) {
   const end = Date.now() + timeout;
   for (;;) {
     const v = await probe();
     if (v) return v;
-    if (Date.now() > end) throw new Error(`timed out after ${timeout}ms waiting for ${what}`);
+    if (Date.now() > end) {
+      const saw = JSON.stringify(v === undefined ? null : v).slice(0, 120);
+      throw new Error(`timed out after ${timeout}ms waiting for ${what} (last: ${saw})`);
+    }
     await sleep(50);
   }
 }

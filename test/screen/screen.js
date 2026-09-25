@@ -46,6 +46,10 @@ const { devtools, LAYER, POPUP } = require(path.join(STAGE, 'app.js'));
 const RIG_NAME = 'RigWithANameTheWindowServerTruncates.exe';
 // What every Electron window reports — the stage's and the app under test's.
 const ELECTRON_BUNDLE = 'com.github.Electron';
+// How long "at once" may take (ARCHITECTURE §3). The idle marker came 68-224 ms
+// after the target was covered, and 2.3 s with the machine at load 8; the app's
+// backstop hides at 8 s. Under this, the overlay left on the marker.
+const HIDE_CEILING_MS = 4000;
 
 let D = null;
 
@@ -102,6 +106,8 @@ async function captureScenarios(A, B) {
       const buried = Date.now();
       const idle = await w.next('the idle marker', (m) => m.idle, buried);
       note(`idle ${idle.at - buried}ms after the target was covered (measured 150ms, §3)`);
+      check(idle.at - buried < HIDE_CEILING_MS,
+            `the idle marker took ${idle.at - buried}ms; the check between passes takes 150`);
       B.win.setBounds({ x: D.x + D.width + 400, y: D.y + 122, width: 1000, height: 700 });
       await w.next('capture to resume', (m) => m.frame, Date.now());
     } finally { w.stop(); }
@@ -220,7 +226,7 @@ async function appScenario(A, B) {
   const profile = path.join(dir, 'electron');
   const anki = ankiDouble();
   await new Promise((r) => anki.server.listen(0, '127.0.0.1', r));
-  let child = null, cdp = null;
+  let child = null, cdp = null, firstCrashAt = 0;
   try {
     fs.mkdirSync(path.join(dir, 'dicts'));
     mk.termDictionary(path.join(dir, 'dicts', 'stage.zip'),
@@ -291,26 +297,6 @@ async function appScenario(A, B) {
             'the picture is not a PNG');
     });
 
-    await test('a crashed overlay page comes back with its glyph layer', async () => {
-      const count = "document.querySelectorAll('.g').length";
-      const before = await cdp.eval(count);
-      cdp.crash();
-      cdp.close();
-      // The page is reloaded in a new renderer; the old target lingers a beat.
-      await sleep(500);
-      cdp = await waitFor('the reloaded page', async () => {
-        try {
-          const c = await devtools(profile);
-          await c.eval('1');
-          return c;
-        } catch { return null; }
-      });
-      // A static page: only heartbeats arrive, and they carry no lines — the
-      // layer can only come back if main replays what it last sent.
-      await waitFor('the layer to come back', async () =>
-        (await cdp.eval(count)) === before, 5000);
-    });
-
     await test('the overlay leaves when the target does', async () => {
       // A popup open first, so its closing is something this test can see.
       const layer = await cdp.eval(LAYER);
@@ -326,7 +312,32 @@ async function appScenario(A, B) {
       await waitFor('the panel to hide',
                     () => cdp.eval("document.visibilityState === 'hidden'"));
       note(`hidden ${Date.now() - gone}ms after the target was`);
+      check(Date.now() - gone < HIDE_CEILING_MS,
+            `hidden ${Date.now() - gone}ms after the target: the 8 s backstop, not the marker`);
       A.win.showInactive();
+    });
+
+    await test('a crashed overlay page comes back with its glyph layer', async () => {
+      const count = "document.querySelectorAll('.g').length";
+      const before = await cdp.eval(count);
+      firstCrashAt = Date.now();
+      cdp.crash();
+      cdp.close();
+      // The page is reloaded in a new renderer; the old target lingers a beat.
+      await sleep(500);
+      cdp = await waitFor('the reloaded page', async () => {
+        try {
+          const c = await devtools(profile);
+          await c.eval('1');
+          return c;
+        } catch { return null; }
+      });
+      // A static page: only heartbeats arrive, and they carry no lines — the
+      // layer can only come back if main replays what it last sent.
+      let n = null;
+      await waitFor(`the layer to come back with its ${before} glyphs`,
+                    async () => (n = await cdp.eval(count)) === before, 5000)
+        .catch((e) => { throw new Error(`${e.message}; it has ${n}`); });
     });
 
     await test('a page that crashes twice in 10 s is given up, off the screen', async () => {
@@ -334,6 +345,11 @@ async function appScenario(A, B) {
       const panel = () => listAll().find((w) => w.bundle === ELECTRON_BUNDLE
         && w.width === D.width && w.height === D.height);
       await waitFor('the panel back on screen', () => (panel() || {}).onScreen);
+      // Given up only on a second crash inside 10 s of the first
+      // (overlay-window.js). Past that this is a first crash again, and a
+      // failure here would blame the give-up for a slow recovery above.
+      const since = Date.now() - firstCrashAt;
+      check(since < 9000, `${since}ms since the first crash: too late to test a second`);
       cdp.crash();
       cdp.close();
       cdp = null;

@@ -37,6 +37,15 @@ fi
 
 LANES="${*:-logic pages screen}"
 rc=0
+
+# Everything a run writes to a temp dir goes under one, removed however the
+# run ends: suites left eight directories behind per logic run (215 had piled
+# up), and a screen suite stopped at its limit skips its own cleanup. Short, in
+# /tmp: Chromium puts the app's single-instance socket under TMPDIR, and a
+# socket path is capped at 104 bytes.
+SCRATCH="$(mktemp -d /tmp/yomi-test.XXXXXX)"
+trap 'rm -rf "$SCRATCH"' EXIT
+export TMPDIR="$SCRATCH/"
 lane() { case " $LANES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 cannot() { echo "  ✗ $1" >&2; rc=1; }
 elapsed() { echo "  ($(( $(date +%s) - $1 ))s)"; }
