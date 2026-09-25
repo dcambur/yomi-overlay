@@ -74,8 +74,10 @@ if lane logic; then
   echo "== logic =="
   t=$(date +%s)
   # An explicit file list: `node --test <dir>` would also run pages.js and the
-  # screen suite, which need Electron.
-  node --test --test-timeout=30000 "$HERE"/logic/*.test.js || rc=1
+  # screen suite, which need Electron. --test-timeout bounds each test, not a
+  # file: a suite that leaves a handle open ends with --test-force-exit rather
+  # than holding the lane open once its tests are done.
+  node --test --test-timeout=30000 --test-force-exit "$HERE"/logic/*.test.js || rc=1
   elapsed "$t"
 fi
 

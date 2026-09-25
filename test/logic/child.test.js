@@ -18,7 +18,7 @@
 // Runs on plain node with a stub child, so no binary, permission or window is
 // involved. Timings are milliseconds, not the production seconds.
 
-const { test } = require('node:test');
+const { test, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -29,6 +29,16 @@ const { SupervisedChild } = require(
 
 const STUB = path.join(__dirname, '..', 'fixtures', 'stub-child.js');
 const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Every stub a test starts, stopped after it whatever happened. A test stops
+// its own child only after its asserts pass, so one that failed used to leave
+// the stub alive on its stdin pipe — and with it the suite, for good
+// (measured: two failures, still running at 50 s, two stub processes left).
+const started = new Set();
+afterEach(() => {
+  for (const child of started) child.stop();
+  started.clear();
+});
 
 /** A child wired to the stub, with test-scale timings. */
 function stub(mode, o = {}) {
@@ -46,6 +56,7 @@ function stub(mode, o = {}) {
     log: () => {}, logError: () => {},
     ...o.overrides,
   });
+  started.add(child);
   return { child, lines, errors };
 }
 
