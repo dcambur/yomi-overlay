@@ -400,3 +400,12 @@ module.exports = async () => {
   win.destroy();
   return failed;
 };
+
+// Run through pages.js, the accessory app with a time limit. Run directly this
+// file only exports a function, and Electron waits for a window that never
+// comes: one run left a Dock tile up for 20 hours. By argv, not require.main,
+// which under Electron is its own loader (measured).
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  console.error('run the page suites with: test/run.sh pages');
+  process.exit(2);
+}

@@ -10,6 +10,13 @@
 //   test/run.sh pages          VERBOSE=1 for the pages' own console output
 
 const { app } = require('electron');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// renderer.js asks main's own note validator, and requiring app/main modules
+// sets up the log and the config: pointed here, not at the user's.
+process.env.YOMI_USER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-pages-'));
 
 app.setActivationPolicy('accessory');
 app.on('window-all-closed', () => {});
@@ -26,5 +33,6 @@ app.whenReady().then(async () => {
   // each asserts only on what reached its own handlers. Most of either suite
   // is fixed settle time, so together they take as long as the slower one.
   const failed = await Promise.all(['renderer', 'settings'].map((s) => require(`./${s}.js`)()));
+  fs.rmSync(process.env.YOMI_USER_DIR, { recursive: true, force: true });
   app.exit(failed.some(Boolean) ? 1 : 0);
 });

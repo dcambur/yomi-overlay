@@ -325,4 +325,4 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
   ipcMain.on('cfg:close', () => closeSettings());
 }
 
-module.exports = { register };
+module.exports = { register, validNote };

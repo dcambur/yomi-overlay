@@ -28,6 +28,9 @@ const assert = require('assert');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FIX = path.join(__dirname, '..', 'fixtures');
+// What main accepts, from main itself: a limit copied into this file could
+// not notice the two drifting apart, which is the bug 27c23ac fixed.
+const { validNote } = require(path.join(ROOT, 'app', 'main', 'ipc.js'));
 const load = (n) => JSON.parse(fs.readFileSync(path.join(FIX, n), 'utf8'));
 
 let win;
@@ -229,21 +232,6 @@ async function run() {
     send('dismiss'); await settle();
   });
 
-  await test('a lookup inside a covered region is refused', async () => {
-    send('capture', A); await settle();
-    send('offset', { fx: 0, fy: 0 }); await settle();
-    // Cover the whole frame, then trigger at a glyph.
-    send('covers', [{ x: 0, y: 0, w: 10000, h: 10000 }]);
-    await settle();
-    lookupReply = { surface: 'x', matchLength: 1, groups: [], entries: [] };
-    const c = A.lines[0].chars[0];
-    send('trigger', { type: 'click', x: c.x + c.w / 2, y: c.y + c.h / 2 });
-    await settle(120);
-    assert.strictEqual(await hitCount(), 0,
-                       'a glyph behind another window was still looked up');
-    send('covers', []); await settle();
-  });
-
   // --- what may and may not start a lookup ------------------------------------
 
   /** Page B's first glyph at (100,100), and a popup open on it — whatever an
@@ -273,6 +261,28 @@ async function run() {
     return null;
   })()`);
 
+  await test('a lookup inside a covered region is refused', async () => {
+    // Page B's first glyph at (100,100), inside the window: aimed at page A's
+    // own coordinates the point sat at x=1977, outside a 1440-wide window,
+    // where nothing is looked up with or without a cover.
+    send('dismiss');
+    send('capture', B); await settle();
+    const c = B.lines[0].chars[0];
+    const [sx, sy] = await js('[window.screenX, window.screenY]');
+    send('offset', { fx: sx + 100 - c.x, fy: sy + 100 - c.y }); await settle();
+    lookupReply = X;
+    const at = { type: 'click', x: 100 + c.w / 2, y: 100 + c.h / 2 };
+    send('covers', [{ x: 0, y: 0, w: 10000, h: 10000 }]); await settle();
+    const before = ipcSeen.lookups;
+    send('trigger', at); await settle(120);
+    assert.strictEqual(ipcSeen.lookups, before, 'a glyph behind another window was looked up');
+    // The same point uncovered does look up, so the refusal above was the cover's.
+    send('covers', []); await settle();
+    send('trigger', at); await settle(120);
+    assert.strictEqual(ipcSeen.lookups, before + 1, 'the uncovered glyph was not looked up');
+    send('dismiss'); await settle();
+  });
+
   await test('a click on the popup does not look up the glyph beneath it', async () => {
     await openOn(X);
     const at = await glyphUnderPopup();
@@ -300,8 +310,10 @@ async function run() {
     // The popup answers for glyph indices of the layer it was opened on.
     await openOn(X);
     send('capture', A); await settle();       // turn-like: parked, pinned
-    // A trigger applies the parked page first; nothing is under (5,5).
-    send('trigger', { type: 'click', x: 5, y: 5 }); await settle(120);
+    // A trigger applies the parked page first. (-1,-1) is off the page, so
+    // nothing is under it whatever the display: (5,5) is a glyph of page A on
+    // a main display wider than 1440, where the window is placed off (0,0).
+    send('trigger', { type: 'click', x: -1, y: -1 }); await settle(120);
     assert.strictEqual(await popupShown(), false,
                        'the popup still answers for a page that is gone');
   });
@@ -352,7 +364,7 @@ async function run() {
     send('capture', moved(B)); await settle(250);   // parked; the reply unpins
     lookupDelay = 0;
     send('capture', A); await settle();             // newer, applied directly
-    send('trigger', { type: 'click', x: 5, y: 5 }); await settle(120);
+    send('trigger', { type: 'click', x: -1, y: -1 }); await settle(120);
     assert.strictEqual(await glyphCount(), A.lines.reduce((n, l) => n + l.chars.length, 0),
                        'the layer went back to the parked, older payload');
     send('dismiss'); await settle();
@@ -459,7 +471,7 @@ async function run() {
     await js("document.querySelector('#popup .anki').click()");
     await settle(120);
     const note = ipcSeen.ankiAdd[ipcSeen.ankiAdd.length - 1];
-    assert.strictEqual(note.freq.length, 8, `${note.freq.length} rows sent`);
+    assert.ok(validNote(note), `main refuses the note (${note.freq.length} frequency rows)`);
     assert.strictEqual(note.freq[0].source, 'F0', 'the rows the user ranked first are kept');
     send('dismiss'); await settle();
   });
@@ -550,6 +562,7 @@ module.exports = async () => {
   });
   ipcMain.handle('anki:add', (_e, note) => {
     ipcSeen.ankiAdd.push(note);
+    if (!validNote(note)) return { ok: false, error: 'main refused the note' };
     return ankiAddRefusal || { ok: true, noteId: 42 };
   });
   ipcMain.on('settings:open', (_e, tab) => ipcSeen.settingsOpen.push(tab));
@@ -577,3 +590,12 @@ module.exports = async () => {
   win.destroy();
   return failed;
 };
+
+// Run through pages.js, the accessory app with a time limit. Run directly this
+// file only exports a function, and Electron waits for a window that never
+// comes: one run left a Dock tile up for 20 hours. By argv, not require.main,
+// which under Electron is its own loader (measured).
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  console.error('run the page suites with: test/run.sh pages');
+  process.exit(2);
+}
