@@ -1,17 +1,23 @@
-// The real app under test, reached through the DevTools protocol.
+// The real app under test: started with a profile and user directory of its
+// own, reached through the DevTools protocol, and — started through
+// in-app.js — through its main process too.
 
+const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { bounded, waitFor } = require('./harness.js');
+const { bounded, waitFor, track } = require('./harness.js');
 
-/** Chrome DevTools Protocol on the app's overlay page. */
-async function devtools(profile) {
+const ROOT = path.resolve(__dirname, '..', '..');
+
+/** Chrome DevTools Protocol on one of the app's pages: the overlay by default. */
+async function devtools(profile, page = '/renderer/index.html') {
   const portFile = path.join(profile, 'DevToolsActivePort');
   const port = await waitFor('the app to open DevTools', () =>
     fs.existsSync(portFile) && fs.readFileSync(portFile, 'utf8').split('\n')[0]);
-  const target = await waitFor('the overlay page', async () => {
+  const target = await waitFor(`the page ${page}`, async () => {
     const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-    return list.find((t) => t.type === 'page' && t.url.endsWith('/renderer/index.html'));
+    return list.find((t) => t.type === 'page' && t.url.split('?')[0].endsWith(page));
   });
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await bounded(new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; }),
@@ -70,4 +76,85 @@ const POPUP = `(() => {
            mark: b && { state: b.dataset.state,
                         x: r.left + r.width / 2, y: r.top + r.height / 2 } };
 })()`;
-module.exports = { devtools, LAYER, POPUP };
+/**
+ * The app, launched. Its own Electron profile (so its own single-instance
+ * lock and DevTools port file) and its own YOMI_USER_DIR (config, index, log),
+ * so it runs beside an installed Yomi Overlay without touching it.
+ *
+ *   root     the checkout to run (a fresh clone, for the first-run lane)
+ *   dir      its user directory; a new temp one if omitted
+ *   config   written as config.json, if given — none is a first run
+ *   shim     start it through in-app.js, which records what it would show
+ *   stage    the invisible display, where the shim opens its windows
+ *   clock    the shim's movable clock (YOMI_TEST_CLOCK)
+ */
+async function launchApp(o = {}) {
+  const root = o.root || ROOT;
+  const dir = o.dir || fs.mkdtempSync(path.join(os.tmpdir(), 'yomi-app-'));
+  const profile = path.join(dir, 'electron');
+  if (o.config) fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(o.config));
+  const env = { ...process.env, YOMI_USER_DIR: dir, ...(o.env || {}) };
+  delete env.ELECTRON_RUN_AS_NODE;
+  if (o.shim) {
+    env.YOMI_TEST_APP = path.join(root, 'app');
+    if (o.stage) env.YOMI_TEST_STAGE = JSON.stringify(o.stage);
+    if (o.clock) env.YOMI_TEST_CLOCK = '1';
+  }
+  const entry = o.shim ? path.join(__dirname, 'in-app.js') : path.join(root, 'app');
+  const out = [];
+  const argv = [entry, `--user-data-dir=${profile}`, '--remote-debugging-port=0'];
+  const stdio = ['ignore', 'pipe', 'pipe', o.shim ? 'pipe' : 'ignore'];
+  const child = track(spawn(process.execPath, argv, { env, stdio }));
+  for (const s of [child.stdout, child.stderr]) {
+    s.setEncoding('utf8');
+    s.on('data', (d) => {
+      out.push(d);
+      if (process.env.VERBOSE) process.stdout.write(d.replace(/^/gm, '    [app] '));
+    });
+  }
+  const pending = new Map();
+  let seq = 0;
+  if (o.shim) {
+    let buf = '';
+    child.stdio[3].setEncoding('utf8');
+    child.stdio[3].on('data', (d) => {
+      buf += d;
+      for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+        const m = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        const p = pending.get(m.id);
+        if (!p) continue;
+        pending.delete(m.id);
+        if (m.ok) p.resolve(m.value); else p.reject(new Error(m.error));
+      }
+    });
+    child.stdio[3].on('error', () => {});
+  }
+  return {
+    child, dir, profile,
+    /** Everything the app printed so far. */
+    output: () => out.join(''),
+    /** The app's own log file, as the user would read it. */
+    log: () => {
+      try { return fs.readFileSync(path.join(dir, 'yomi-overlay.log'), 'utf8'); }
+      catch { return ''; }
+    },
+    /** Run `code` in the app's main process (shim only); resolves its value. */
+    eval: (code) => bounded(new Promise((resolve, reject) => {
+      const id = ++seq;
+      pending.set(id, { resolve, reject });
+      child.stdio[3].write(JSON.stringify({ id, code }) + '\n');
+    }), 5000, 'an eval in the app'),
+    /** DevTools on the overlay page, or on `page` (e.g. '/settings/settings.html'). */
+    page: (page) => devtools(profile, page),
+    /** Quit the way the user's SIGTERM would, and wait for it; SIGKILL at 5 s. */
+    async quit() {
+      if (child.exitCode !== null || child.signalCode) return;
+      const exited = new Promise((r) => child.once('exit', r));
+      child.kill('SIGTERM');
+      await bounded(exited, 5000, 'the app to quit').catch(() => child.kill('SIGKILL'));
+    },
+  };
+}
+
+module.exports = { devtools, launchApp, LAYER, POPUP };

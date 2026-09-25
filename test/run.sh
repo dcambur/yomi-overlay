@@ -73,8 +73,8 @@ electron() {
 }
 
 for l in $LANES; do
-  case "$l" in logic|pages|screen) ;; *)
-    echo "usage: test/run.sh [logic] [pages] [screen] | golden record|check NAME" >&2
+  case "$l" in logic|pages|screen|firstrun) ;; *)
+    echo "usage: test/run.sh [logic] [pages] [screen] [firstrun] | golden record|check NAME" >&2
     exit 2 ;;
   esac
 done
@@ -101,9 +101,11 @@ if lane pages; then
   elapsed "$t"
 fi
 
-if lane screen; then
-  echo "== screen =="
-  t=$(date +%s)
+# What every lane on the invisible display needs, checked once: it says why
+# and fails rather than skipping.
+stage_ready() {
+  if [ -n "${STAGE_OK:-}" ]; then return "$STAGE_OK"; fi
+  STAGE_OK=1
   if [ ! -x "$ELECTRON" ]; then
     cannot "electron is not installed — run setup.sh (or npm install in app/)"
   elif [ ! -x "$OCR_BIN" ]; then
@@ -116,22 +118,36 @@ if lane screen; then
   elif pgrep -f '/yomi --json --watch' > /dev/null; then
     cannot "the overlay is running — quit it first: a second capture session
     stalls behind its watch loop (CONVENTIONS.md, gotchas)"
-  elif helper virtual-display "$HERE/stage/VirtualDisplay.h" \
+  elif ! helper virtual-display "$HERE/stage/VirtualDisplay.h" \
          "$HERE/stage/virtual-display.swift" \
-       && helper RigWithANameTheWindowServerTruncates.exe "$HERE/screen/picker-rig.swift"; then
-    # A helper never run before spends its first read compiling Vision's model
-    # (29-64 s); the suite pays that once, up front, and says so.
-    warm="$HELPERS/.yomi-warm"
-    if [ "$OCR_BIN" -nt "$warm" ] || [ ! -f "$warm" ]; then
-      YOMI_WARM=1 electron "$HERE/screen/screen.js" && touch "$warm" || rc=1
-    else
-      electron "$HERE/screen/screen.js" || rc=1
-    fi
-  else
+       || ! helper RigWithANameTheWindowServerTruncates.exe "$HERE/screen/picker-rig.swift"; then
     cannot "a test helper did not compile"
+  else
+    STAGE_OK=0
+  fi
+  return "$STAGE_OK"
+}
+
+# A lane on the invisible display: `stage_lane NAME ENTRY`.
+stage_lane() {
+  echo "== $1 =="
+  local t
+  t=$(date +%s)
+  if stage_ready; then
+    # A helper never run before spends its first read compiling Vision's model
+    # (29-64 s); the screen lane pays that once, up front, and says so.
+    local warm="$HELPERS/.yomi-warm"
+    if [ "$1" = screen ] && { [ "$OCR_BIN" -nt "$warm" ] || [ ! -f "$warm" ]; }; then
+      YOMI_WARM=1 electron "$2" && touch "$warm" || rc=1
+    else
+      electron "$2" || rc=1
+    fi
   fi
   elapsed "$t"
-fi
+}
+
+if lane screen; then stage_lane screen "$HERE/screen/screen.js"; fi
+if lane firstrun; then stage_lane firstrun "$HERE/firstrun/firstrun.js"; fi
 
 [ $rc -eq 0 ] && echo "all lanes passed"
 exit $rc
