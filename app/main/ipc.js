@@ -38,7 +38,6 @@ function reject(channel, why) {
 }
 
 const isStr = (v, max) => typeof v === 'string' && v.length <= max;
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 /** The glyph array the renderer sends, or a plain string. */
 function validGlyphs(v) {
@@ -100,15 +99,11 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
       reject('cfg:save', 'not an object');
       return cfg.load();
     }
-    const before = cfg.trigger();
     // config.js clamps the values it knows; this only guarantees it is handed
-    // something object-shaped to merge.
+    // something object-shaped to merge. The window's footer sends only the
+    // target — the trigger has its own channel, below.
     cfg.save(next);
     tray.refresh();
-    overlayWindow.sendTrigger();
-    // The modifier is baked into the event monitor's arguments, so a change to
-    // it needs a fresh child; mode/delay are renderer-side and do not.
-    if (cfg.trigger().modifier !== before.modifier) eventsChild.restart();
     // Retarget: drop the stale glyph layer, then restart capture. The old
     // process must be gone before the new one starts, or both stream payloads
     // and fight over the overlay's bounds.
@@ -188,7 +183,9 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
     return anki.add(note);
   });
   ipcMain.handle('anki:remove', (_e, noteId) => {
-    if (!isNum(noteId)) return reject('anki:remove', 'not a note id');
+    if (!(Number.isSafeInteger(noteId) && noteId > 0)) {
+      return reject('anki:remove', 'not a note id');
+    }
     return anki.remove(noteId);
   });
   // Settings' "Install Lapis": the note type, fetched from its project at a
@@ -316,7 +313,7 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
         }
         return { ok: true, rebuilt: true };
       }
-      const labels = dictionaries.writeManifest();
+      const { labels } = result;       // the worker wrote the manifest
       lookupModule.close();
       cfg.refreshDictionaries();
       media.forget();
@@ -328,4 +325,4 @@ function register({ overlayWindow, ocrChild, eventsChild, tray, anki }) {
   ipcMain.on('cfg:close', () => closeSettings());
 }
 
-module.exports = { register, openSettings, isNum, isStr };
+module.exports = { register, validNote };

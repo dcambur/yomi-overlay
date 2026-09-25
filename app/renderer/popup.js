@@ -329,7 +329,9 @@
       expression: g.base || g.surface,
       reading: rd,
       pitch,
-      freq: (g.freq || []).map((f) => ({ source: f.source, value: f.value })),
+      // main takes 8 rows at most and refuses the whole note beyond that; they
+      // arrive in the order settings ranks the frequency lists, so keep the top.
+      freq: (g.freq || []).slice(0, 8).map((f) => ({ source: f.source, value: f.value })),
       mainDefinition: glossaryHtml(main),
       glossary: glossaryHtml(items),
       // How many glyphs of the hit line the word covers, for the <b>.

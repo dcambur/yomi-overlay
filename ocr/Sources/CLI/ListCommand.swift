@@ -1,4 +1,4 @@
-// The window-enumeration commands: --list-all, --list, --debug, --frame.
+// The window-enumeration commands: --list-all and --list.
 
 import AppKit
 import CoreGraphics
@@ -76,28 +76,6 @@ func runListAllCommand() -> Never {
     exit(0)
 }
 
-/// --debug: dump what ScreenCaptureKit can see, unfiltered.
-func runDebugCommand() async throws -> Never {
-    let all = try await SCShareableContent.excludingDesktopWindows(
-        false, onScreenWindowsOnly: true)
-    print("total shareable windows: \(all.windows.count)")
-    for w in all.windows {
-        let app = w.owningApplication
-        let bid = app?.bundleIdentifier ?? "<nil>"
-        guard
-            bid.lowercased().contains("amazon") || bid.lowercased().contains("kindle")
-                || (w.title ?? "").lowercased().contains("kindle") || w.frame.width > 400
-        else { continue }
-        print("  bundle=\(bid)")
-        print("    app=\(app?.applicationName ?? "?")  title=\(w.title ?? "<nil>")")
-        print(
-            "    frame=\(Int(w.frame.width))x\(Int(w.frame.height)) "
-                + "@\(Int(w.frame.origin.x)),\(Int(w.frame.origin.y)) "
-                + "onScreen=\(w.isOnScreen) layer=\(w.windowLayer) id=\(w.windowID)")
-    }
-    exit(0)
-}
-
 /// --list: the target's matching windows.
 func runListCommand(_ windows: [SCWindow]) -> Never {
     if windows.isEmpty {
@@ -109,30 +87,4 @@ func runListCommand(_ windows: [SCWindow]) -> Never {
         }
     }
     exit(windows.isEmpty ? 1 : 0)
-}
-
-/// --frame: stream the target window's bounds as NDJSON.
-func runFrameCommand(_ opts: Options) async throws -> Never {
-    // Emit the target window's bounds as NDJSON so the overlay can
-    // track it with one long-lived process instead of respawning.
-    repeat {
-        if let w = (try? await chooseWindow()) ?? nil {
-            let f = w.frame
-            let title = jsonEscape(w.title ?? "")
-            print(
-                """
-                {"x":\(Int(f.origin.x)),"y":\(Int(f.origin.y)),\
-                "width":\(Int(f.width)),"height":\(Int(f.height)),\
-                "id":\(w.windowID),"title":"\(title)"}
-                """)
-            fflush(stdout)
-        } else {
-            print("{\"error\":\"no-window\"}")
-            fflush(stdout)
-        }
-        if opts.watch {
-            try await Task.sleep(nanoseconds: UInt64(opts.interval * 1_000_000_000))
-        }
-    } while opts.watch
-    exit(0)
 }

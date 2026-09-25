@@ -16,31 +16,6 @@ func dumpImage(_ image: CGImage, to path: String) {
     CGImageDestinationFinalize(dest)
 }
 
-/// Rotate 90° counter-clockwise, so tategaki becomes ordinary horizontal text.
-///
-/// CCW specifically: a column reads top-to-bottom and columns run right-to-left,
-/// so rotating CCW puts the first character of the rightmost column at the top
-/// LEFT. Vision then returns lines in true reading order — the rightmost column
-/// first — and characters within each line already left-to-right. Rotating the
-/// other way would reverse both.
-func rotated90CCW(_ image: CGImage) -> CGImage? {
-    let w = image.width
-    let h = image.height
-    guard let space = image.colorSpace,
-        let ctx = CGContext(
-            data: nil, width: h, height: w,
-            bitsPerComponent: image.bitsPerComponent,
-            bytesPerRow: 0, space: space,
-            bitmapInfo: image.bitmapInfo.rawValue)
-    else { return nil }
-    // CGContext is bottom-left; rotating by +90° and shifting puts the source
-    // rect back inside the (h x w) canvas.
-    ctx.translateBy(x: CGFloat(h), y: 0)
-    ctx.rotate(by: .pi / 2)
-    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-    return ctx.makeImage()
-}
-
 /// Ink mask of an image, downsampled by `step`, as a [width][height] grid.
 func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
     guard let data = image.dataProvider?.data as Data? else { return nil }
@@ -51,41 +26,35 @@ func inkMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, ink: [Bool])? {
     let h = image.height / step
     guard w > 4, h > 4 else { return nil }
     var ink = [Bool](repeating: false, count: w * h)
-    for gy in 0..<h {
-        let row = (gy * step) * bpr
-        for gx in 0..<w {
-            let i = row + (gx * step) * bpp
-            guard i + 3 < data.count else { continue }
-            let b0 = data[i]
-            let b1 = data[i + 1]
-            let b2 = data[i + 2]
-            let b3 = data[i + 3]
-            // Transparent pixels are all-zero when premultiplied, which reads
-            // as pure black to a naive luminance test — and the area of the
-            // capture not covered by the window is entirely transparent, so
-            // without this the whole page is "ink" and every column merges.
-            if b0 == 0 && b1 == 0 && b2 == 0 && b3 == 0 { continue }
-            // Darkest channel, so the test works whatever the channel order.
-            let darkest = min(min(b0, b1), min(b2, b3))
-            ink[gy * w + gx] = darkest < 110
+    // Through the raw buffer: Data's subscript made a full-resolution mask
+    // 67 ms where this is 22 ms (measured on a 2880x1800 frame), and it runs
+    // on every horizontal read, twice per tategaki pass.
+    data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+        let n = raw.count
+        for gy in 0..<h {
+            let row = (gy * step) * bpr
+            for gx in 0..<w {
+                let i = row + (gx * step) * bpp
+                guard i + 3 < n else { continue }
+                let b0 = raw[i]
+                let b1 = raw[i + 1]
+                let b2 = raw[i + 2]
+                let b3 = raw[i + 3]
+                // Transparent pixels are all-zero when premultiplied, which
+                // reads as pure black to a naive luminance test — and the area
+                // of the capture not covered by the window is entirely
+                // transparent, so without this the whole page is "ink" and
+                // every column merges.
+                if b0 == 0 && b1 == 0 && b2 == 0 && b3 == 0 { continue }
+                // Darkest channel, so the test works whatever the channel order.
+                let darkest = min(min(b0, b1), min(b2, b3))
+                ink[gy * w + gx] = darkest < 110
+            }
         }
     }
     return (w, h, ink)
 }
 
-/// Ink cells no recognised line accounts for.
-///
-/// The mixed-content merge (`verticalRemainder`) exists because Vision reads
-/// no vertical Japanese at all, so a page committed horizontal can hold whole
-/// columns it never saw. It costs one full Live Text pass — measured 1.35 s
-/// against the 0.85 s Vision read it supplements on a 37-line page, i.e. it
-/// more than doubled every changed pass whether or not there was anything to
-/// find, and on an ordinary novel page there never is.
-///
-/// This is the "or not" test, and it is a measurement rather than a guess
-/// about the app: paint out every cell a recogniser already explained, and
-/// whatever ink survives is something it could not read. Only then is the
-/// second engine worth its second and a half.
 /// Marks that stand out from the page, whatever the page's polarity.
 ///
 /// NOT `inkMask`, which asks a different question — "where is the dark ink" —
@@ -107,6 +76,18 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
     let h = image.height / step
     guard w > 4, h > 4 else { return nil }
 
+    // Which byte of a pixel is red, green and blue. The weights below are not
+    // symmetric, so the order matters: --image PNGs decode RGBA, but a
+    // ScreenCaptureKit frame is 32-bit little-endian with alpha first — BGRA
+    // in memory (measured 2026-09-24) — and read as RGB, light-cyan text on
+    // white scored 0 cells in production where golden saw 37.
+    let alphaFirst = [.premultipliedFirst, .first, .noneSkipFirst].contains(image.alphaInfo)
+    let little = image.bitmapInfo.intersection(.byteOrderMask) == .byteOrder32Little
+    let (ro, go, bo) =
+        bpp < 4
+        ? (0, 1, 2)
+        : little ? (alphaFirst ? (2, 1, 0) : (3, 2, 1)) : (alphaFirst ? (1, 2, 3) : (0, 1, 2))
+
     // Luminance per cell; -1 for the fully transparent pixels outside the
     // window, which are neither background nor mark.
     var lum = [Int](repeating: -1, count: w * h)
@@ -117,10 +98,13 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
             for gx in 0..<w {
                 let i = row + (gx * step) * bpp
                 guard i + bpp - 1 < n else { continue }
-                let r = Int(raw[i])
-                let g = Int(raw[i + 1])
-                let b = Int(raw[i + 2])
-                if bpp >= 4, r == 0, g == 0, b == 0, Int(raw[i + 3]) == 0 { continue }
+                // Premultiplied transparent is all-zero, whatever the order.
+                if bpp >= 4, raw[i] == 0, raw[i + 1] == 0, raw[i + 2] == 0, raw[i + 3] == 0 {
+                    continue
+                }
+                let r = Int(raw[i + ro])
+                let g = Int(raw[i + go])
+                let b = Int(raw[i + bo])
                 lum[gy * w + gx] = (r * 299 + g * 587 + b * 114) / 1000
             }
         }
@@ -153,6 +137,19 @@ func standoutMask(_ image: CGImage, step: Int) -> (w: Int, h: Int, mark: [Bool])
     return (w, h, mark)
 }
 
+/// Ink cells no recognised line accounts for.
+///
+/// The mixed-content merge (`verticalRemainder`) exists because Vision reads
+/// no vertical Japanese at all, so a page committed horizontal can hold whole
+/// columns it never saw. It costs one full Live Text pass — measured 1.35 s
+/// against the 0.85 s Vision read it supplements on a 37-line page, i.e. it
+/// more than doubled every changed pass whether or not there was anything to
+/// find, and on an ordinary novel page there never is.
+///
+/// This is the "or not" test, and it is a measurement rather than a guess
+/// about the app: paint out every cell a recogniser already explained, and
+/// whatever ink survives is something it could not read. Only then is the
+/// second engine worth its second and a half.
 func unexplainedInkCells(
     _ image: CGImage, explainedBy lines: [RecognizedLine],
     step: Int = 8

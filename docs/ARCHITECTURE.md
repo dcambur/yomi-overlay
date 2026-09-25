@@ -32,8 +32,8 @@ app/
   shell/              the app bundle's ENTIRE contents — see section 6
   vendor/jp-verbs/    third-party deinflection tables
 tools/                build scripts, bundle inputs, the path resolvers
-data/  bin/           generated: index.db, dicts, venv, config / compiled helpers
-test/                 unit (unattended) · golden (unattended) · verify (hands-on)
+data/  bin/           generated: index.db, dicts, config / compiled helpers
+test/                 run.sh: logic · pages · screen · firstrun · idle · spaces · book · golden
 ```
 
 | Piece | Role |
@@ -43,7 +43,7 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [ocr/Sources/Geometry/](../ocr/Sources/Geometry/) | tategaki reflow (§9), furigana stripping, the shared ink primitives |
 | [app/main/supervised-child.js](../app/main/supervised-child.js) | both helper processes: spawn, NDJSON, restart, watchdog |
 | [app/main/overlay-window.js](../app/main/overlay-window.js) | the panel; pinning it to a display and telling the renderer where the target is (§4) |
-| [app/main/tier2.js](../app/main/tier2.js) | the manga-ocr second opinion, shadow mode only |
+| [app/main/crop.js](../app/main/crop.js) | pixels of the target, cut from the watch process's last frame (the Anki picture) |
 | [app/main/ipc.js](../app/main/ipc.js) | every channel the renderer can use, and the validation on it |
 | [app/main/lookup.js](../app/main/lookup.js) | multi-length lookup + jp-verbs deinflection (main process: `node:sqlite` is sync) |
 | [app/renderer/glyph-layer.js](../app/renderer/glyph-layer.js) | one span per glyph, and the rebuild gate (§5) |
@@ -69,10 +69,15 @@ So:
 - Capture is **display-scoped with all other windows excluded**. Still only the
   target's pixels (guarantee preserved by the filter), but not routed through
   the window's own rect.
-- Such a capture composites the window at the **image origin, 1:1** (verified by
-  dumping a capture of a window at (300,200): its top-left glyph landed at 0,0).
-  Normalising against the display rect therefore yields *undistorted
-  window-local* coordinates.
+- Such a capture composites the window **1:1**, at the image origin as a rule
+  (verified by dumping a capture of a window at (300,200): its top-left glyph
+  landed at 0,0) — but not always. Measured 2026-09-24 on a second display: the
+  first capture after the display appeared drew a window that sits 90pt below
+  the display's top at (0,89), and a layer mapped as if it sat at (0,0) put
+  every glyph 89pt low until the next pass. So where the window was drawn is
+  measured from the alpha channel too, like its size, and subtracted.
+  Normalising against the display rect then yields *undistorted window-local*
+  coordinates.
 - The window's true **origin** is recovered by measuring the capture's content
   extent through the **alpha channel** — with every other window excluded, only
   the target is opaque, so the extent is the window's true size. Covers a
@@ -255,7 +260,7 @@ rendering and language detection. An **unrecognised tag is not dropped**: it
 becomes a neutral inline or block element and its children still render.
 
 The old flattener is the regression test. Whatever text it displayed, the
-renderer must still display; `test/unit/structured.test.js` asserts that over a
+renderer must still display; `test/logic/structured.test.js` asserts that over a
 fixed slice of 3,000 keys — 7,918 senses across eight dictionaries, none lost.
 It is a subsequence check rather than a substring one, because the new rendering
 carries *more*: the old builder dropped the bracketed headword 三省堂 prints
@@ -406,7 +411,7 @@ glossaries nothing points at any more, against ~80,000 ms to rebuild.
 That is why every table carries a `dict` column and why `idx_terms_gloss`
 exists — without it the orphan sweep is 4,192 ms rather than 1,665 ms. An index
 built before those columns existed cannot be pruned, says so, and is rebuilt
-instead. `test/unit/prune.test.js` asserts the equivalence that justifies all of
+instead. `test/logic/prune.test.js` asserts the equivalence that justifies all of
 it: an index with a dictionary pruned out holds exactly what an index built
 without that dictionary holds, table by table.
 

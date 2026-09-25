@@ -2,30 +2,9 @@
 
 Things noticed in passing that are **behaviour changes**, so they must not ride
 along in a structural commit (REFACTOR-INTEGRATION.md: move code, or change
-code, never both). Each needs its own commit, and the last two want a
-measurement before anyone touches them.
-
----
-
-## 1. `"capture recovered after N failure(s)"` is unreachable in watch mode
-
-[ocr/Sources/Entry.swift:446](../ocr/Sources/Entry.swift#L446)
-
-The recovery notice sits *after* the `if opts.json { … continue }` block, so
-the JSON watch path — which is the only path the overlay ever uses — reaches
-`continue` first and never prints it. `failures` is therefore also never reset
-to 0 in watch mode, so the "log the 1st failure, then every 10th" throttle
-drifts: after a transient failure, the next one logs as `2x` rather than `1x`.
-
-Cost of the bug: when diagnosing a capture problem you cannot tell "failed once
-and recovered" from "still failing", because only the failures are ever
-visible. Measured 2026-08-13 while diagnosing exactly that: a single `-3811` at
-09:24:01 was indistinguishable in the log from an ongoing outage, and the
-question had to be answered with `--list-all` instead.
-
-Fix: move the recovery check above the JSON branch, or emit it from both. Cheap
-and low-risk, but it changes stderr, so the golden-master baseline must be
-re-recorded in the same commit.
+code, never both). Each needs its own commit, and a measurement before anyone
+touches it. A fixed entry is deleted, and its number is not reused: 1, 3 and
+4 were fixed on 2026-09-24 (the commits say how).
 
 ---
 
@@ -50,12 +29,23 @@ SCStreamErrorDomain Code=-3801 "The user declined TCCs for application, window, 
 first attempt against a never-before-seen child binary is refused.
 
 This is invisible in practice because the restart-with-backoff absorbs it, and
-that is arguably the right outcome. What is wrong is the documentation: someone
+that is arguably the right outcome.
+
+**And its first read is slow.** Measured 2026-09-24: a freshly built binary's
+first recognition took 64 s (29 s on another build), the second 1.5 s — the
+process sits in Apple's ANE compiler, compiling Vision's text model for the new
+binary, once. So after `ocr/build.sh` the overlay shows nothing for up to a
+minute. The screen test lane warms a new helper once for the same reason
+(test/run.sh). Whether a release update pays it on a user's first launch is
+not measured. What is wrong is the documentation: someone
 debugging a fresh `-3801` will read setup.sh and conclude the grant was lost.
 
-Fix: correct the claim in setup.sh. **Not** worth adding a retry for — the
-existing supervision already handles it, and per CONVENTIONS.md, deleting a
-mechanism beats adding a correction to one.
+setup.sh's claim is corrected (2026-09-25), and the menu-bar item says
+"Starting capture… the first read after an update takes a minute" once ten
+seconds pass without one. **Not** worth adding a retry for — the existing
+supervision already handles the refusal, and per CONVENTIONS.md, deleting a
+mechanism beats adding a correction to one. What stays open is the
+uncertainty below.
 
 Uncertain: whether the trigger is the cdhash, the path change
 (`reader/kindleocr` → `reader/bin/kindleocr`, as it was then named), or both. Both changed in the
@@ -64,40 +54,30 @@ and relaunch: if it captures first try, the cdhash is the trigger.
 
 ---
 
-## 3. The 12 s deadline cannot outrun the ScreenCaptureKit call it races
+## 5. A window whose top rows are clear is read as drawn lower than it is
 
-[ocr/Sources/Capture/Capture.swift](../ocr/Sources/Capture/Capture.swift) and
-[ocr/Sources/Capture/WindowSelection.swift](../ocr/Sources/Capture/WindowSelection.swift)
+Found reviewing 70e189d (measure where the window was drawn). `contentRect`
+takes the first opaque row and column of a capture for where ScreenCaptureKit
+drew the window, and subtracts it from every glyph. A window whose own leading
+rows are alpha 0 has its first opaque row where its *content* starts.
 
-Both race the SCK call against a sleeper in a `withThrowingTaskGroup`. When
-the sleeper wins, `group.next()` throws — and then the group *waits for the
-other child to finish* before the throw propagates, because structured
-concurrency never exits with a live child. `SCScreenshotManager.captureImage`
-and `SCShareableContent.excludingDesktopWindows` are bridged
-completion-handler APIs and do not observe cancellation, so a stalled call
-stalls the deadline with it. Found by reading (2026-09-19); the effect
-depends on SCK genuinely never returning, which is the 40-minute silence
-measured 2026-08-09 — so the bound that actually ended it was main.js's
-2-minute watchdog, not this code.
+Measured 2026-09-25 on the invisible display: an Electron window at (300,150),
+`transparent: true`, `backgroundColor: '#00000000'`, its text in a white block
+60 px down. The capture's opaque rows began at 60; the payload's frame was
+1000x620 for a 1000x700 window, and 吾 came back at y=48 where the page has it
+at y=110 — every glyph 62 px high. (`transparent: true` alone is not enough:
+Electron still paints the window white, and nothing shifts.)
 
-Fix, if measured to matter: race with an unstructured `Task` and a
-continuation the timeout resumes first, leaking the SCK call the way
-`LiveText.analyze` already leaks its watchdog-timed-out request. Changes
-the capture path, so it needs the golden baseline and a stalled-SCK repro.
+Not fixed, on purpose. The obvious correction — take an edge only where the
+window's offset on the display says it could have been drawn — was written and
+measured against, and does not hold: in two captures of this setup SCK drew one
+window at the image origin and another at its own offset (y=149 for 150). A
+window drawn at its offset *and* starting with a clear band puts its first
+opaque row at offset + band, which that rule gets wrong by the offset. The
+readers this app targets (Kindle, browsers, PDF viewers, games) draw opaque
+title bars or content at the top, so none has hit it.
 
----
-
-## 4. Renderer state is not re-sent after a load, and a renderer crash is not noticed
-
-[app/main/overlay-window.js](../app/main/overlay-window.js)
-
-`offset` and `covers` are sent only when they change and `capture` only for
-changed payloads; `did-finish-load` re-sends the trigger and view config and
-nothing else. A payload that lands before the renderer's listeners exist
-leaves the layer with no origin until the target next moves, and there is no
-`render-process-gone` handler, so after a renderer crash main keeps sending
-into the void for the rest of the session. Found by reading (2026-09-19);
-neither has been observed in a log. Fix: reset `lastOffset`/`lastCovers` on
-`did-finish-load` and reload on `render-process-gone` — cheap, but it changes
-what the renderer receives at startup, so it wants a `[win]` log from a slow
-cold start first.
+To take it further: find a real target with clear leading rows, `--dump` its
+captures a few times, and see where SCK draws it. The bottom edge against the
+window's own height (known and correct for a window that is not fullscreen) is
+the measurement a fix would most likely rest on.

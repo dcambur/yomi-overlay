@@ -91,12 +91,12 @@ const USER_DIR = process.env.YOMI_USER_DIR || (BUNDLED
   ? path.join(os.homedir(), 'Library', 'Application Support', 'Yomi Overlay')
   : DATA_DIR);
 
-/** Build and side scripts, including the tier-2 sidecar. */
-const TOOLS_DIR = path.join(PROJECT_ROOT, 'tools');
-
-/** The Python venv the tier-2 sidecar runs in. ~2 GB, so it lives with the
- *  other generated bulk under data/ rather than beside the tracked scripts. */
-const VENV_DIR = path.join(DATA_DIR, '.venv');
+/**
+ * The app's log. An instance aimed at a directory of its own (YOMI_USER_DIR —
+ * the screen suite's is) logs there, so it cannot interleave with the user's.
+ */
+const LOG_FILE = process.env.YOMI_USER_DIR
+  ? path.join(USER_DIR, 'yomi-overlay.log') : '/tmp/yomi-overlay.log';
 
 /** Compiled helpers. */
 const BIN_DIR = BUNDLED
@@ -108,6 +108,6 @@ const OCR_BIN = path.join(BIN_DIR, 'yomi');
 
 module.exports = {
   PROJECT_ROOT, APP_DIR, RENDERER_DIR, SETTINGS_DIR, PRELOAD_DIR,
-  ASSETS_DIR, DATA_DIR, ASSET_DIR, USER_DIR, TOOLS_DIR, VENV_DIR,
+  ASSETS_DIR, DATA_DIR, ASSET_DIR, USER_DIR, LOG_FILE,
   BIN_DIR, OCR_BIN, BUNDLED,
 };

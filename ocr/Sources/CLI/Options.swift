@@ -7,10 +7,7 @@ struct Options {
     var vertical = false
     var watch = false
     var interval: Double = 1.5
-    var outPath: String?
     var list = false
-    var frame = false
-    var debug = false
     var json = false
     var listAll = false
     var events = false
@@ -52,8 +49,6 @@ func parseArgs() -> Options {
         case "--assume-horizontal": o.assumeHorizontal = true
         case "--watch", "-w": o.watch = true
         case "--list", "-l": o.list = true
-        case "--frame", "-f": o.frame = true
-        case "--debug": o.debug = true
         case "--json", "-j": o.json = true
         case "--list-all": o.listAll = true
         case "--events": o.events = true
@@ -93,7 +88,6 @@ func parseArgs() -> Options {
             if let s = it.next(), let n = Int(s) { o.voteEvery = max(1, n) }
         case "--cells":
             o.cellsDump = true
-        case "--out", "-o": o.outPath = it.next()
         case "--help", "-h":
             print(
                 """
@@ -115,12 +109,10 @@ func parseArgs() -> Options {
                   --bundle ID     target an app by bundle id (repeatable)
                   --app NAME      target an app that has no bundle id, by name (repeatable)
                   --window ID     target one specific window id
-                  --frame, -f     print the target window's bounds and exit
                   --vertical, -v  vertical (tategaki) reading order
                   --watch, -w     re-capture continuously
                   --interval N    seconds between captures in watch mode (default 1.5)
                   --json, -j      emit NDJSON with per-character boxes
-                  --out PATH, -o  write text to PATH (default: stdout)
                 """)
             exit(0)
         default:

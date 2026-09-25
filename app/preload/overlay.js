@@ -29,10 +29,6 @@ contextBridge.exposeInMainWorld('overlay', {
   // `hint` is the furigana text printed beside the source line, if any.
   lookup: (glyphs, hint) => ipcRenderer.invoke('lookup', glyphs, hint || null),
   setInteractive: (v) => ipcRenderer.send('set-interactive', !!v),
-  // Tier-2 shadow probe (Phase 3): the matched word's frame-relative rect +
-  // its Tier-1 text; main crops the region and asks the manga-ocr sidecar
-  // for a second opinion. Fire-and-forget — the result is only logged.
-  tier2: (req) => ipcRenderer.send('tier2', req),
   // Anki (docs/ANKI.md). `find` takes the popup's dictionary forms and
   // answers with the note id each already has in the chosen deck, or null;
   // `add` takes the note popup.js and sentence.js described; `remove` a

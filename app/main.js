@@ -12,7 +12,7 @@ const { open: openDict } = require('./main/lookup.js');
 const { SupervisedChild } = require('./main/supervised-child.js');
 const { logf } = require('./main/log.js');
 const { openSettings } = require('./main/settings-window.js');
-const { createTier2 } = require('./main/tier2.js');
+const { createCropChannel } = require('./main/crop.js');
 const { createAnki } = require('./main/anki.js');
 const overlayWindow = require('./main/overlay-window.js');
 const permissions = require('./main/permissions.js');
@@ -58,12 +58,9 @@ app.on('second-instance', () => {
   // A second launch is a request to configure, not to run twice.
   openSettings();
 });
-const INTERVAL = process.env.INTERVAL || String(cfg.load().interval || 0.6);
-
 // The watch process emits a payload, heartbeat, or idle marker every pass, so
 // prolonged TOTAL silence means it wedged — not that the target is off screen.
 const OCR_WATCHDOG_MS = 120000;
-// Last target-frame origin sent to the renderer, so it is only resent when it
 
 /**
  * One line of NDJSON from the capture child: payload, heartbeat, idle marker
@@ -78,9 +75,14 @@ function onOcrLine(payload) {
   // over something that is not the target. Waiting it out is what left the
   // glyph layer and an open popup sitting on the app you switched to.
   // Still proof the watch loop is alive, which is what the watchdog needs.
-  if (payload.idle) { overlayWindow.hide('target has no visible window'); return; }
+  if (payload.idle) {
+    tray.setCapture('away');
+    overlayWindow.hide('target has no visible window');
+    return;
+  }
   if (!payload.frame) return;
   ocrChild.resetBackoff();   // a good payload means the process is healthy
+  tray.setCapture('reading');
 
   overlayWindow.trackTarget(payload.frame, payload.covers);
 
@@ -88,7 +90,12 @@ function onOcrLine(payload) {
   // and aligned, but don't hand the renderer an empty line set — that would
   // wipe the glyph layer it is still using.
   if (payload.unchanged) return;
-  overlayWindow.send('capture', payload);
+  overlayWindow.sendCapture(payload);
+}
+
+/** A child's stderr chunk into the log, a line per line. */
+function logLines(tag, text) {
+  for (const line of text.split('\n')) if (line.trim()) logf(`${tag} ${line.trim()}`);
 }
 
 const ocrChild = new SupervisedChild({
@@ -100,7 +107,7 @@ const ocrChild = new SupervisedChild({
     const conf = cfg.load();
     const voting = conf.voting || {};
     console.log('[ocr] target: ' + (cfg.targetArgs().join(' ') || '(default)'));
-    return ['--json', '--watch', '--interval', INTERVAL,
+    return ['--json', '--watch', '--interval', String(conf.interval || 0.6),
             '--engine', conf.engine || 'auto',
             '--votes', String(voting.passes ?? 3),
             '--vote-every', String(voting.everyN ?? 2),
@@ -110,21 +117,22 @@ const ocrChild = new SupervisedChild({
   watchdog: { silenceMs: OCR_WATCHDOG_MS, checkMs: 30000 },
   exitHint: 'its stderr above says why (revoked Screen Recording is one cause)',
   onLine: onOcrLine,
-  onStderr: (text) => {
-    const t = text.trim();
-    // Capture failures are expected while another Space is active; only the
-    // first of a run is interesting. logf, not process.stderr: launched from
-    // Spotlight stderr goes nowhere, and engine/vote diagnostics were
-    // invisible exactly when needed.
-    if (/failed \(1x/.test(t) || !/failed \(/.test(t)) logf(`[ocr] ${t}`);
+  // Every line, into the log: launched from Spotlight stderr goes nowhere,
+  // and engine and vote diagnostics were invisible exactly when needed. The
+  // helper already throttles its own failures (the 1st, then every 10th); a
+  // second filter here, per chunk, dropped all but the first for good. A
+  // target on another Space is an idle marker now, not a failure.
+  onStderr: (text) => logLines('[ocr]', text),
+  onStart: () => tray.setCapture('starting'),
+  onExit: () => tray.setCapture('exited'),
+  onSpawnError: (err) => {
+    tray.setCapture('unstartable');
+    reportSpawnFailure('ocr', err);
   },
-  onSpawnError: (err) => reportSpawnFailure('ocr', err),
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
 });
 
-// Global Shift / click monitor. Lets a lookup fire without the cursor having
-// to move — the overlay itself can only see forwarded mouse-move messages.
 /** A global modifier press or click, already in screen coordinates. */
 function onTriggerEvent(ev) {
   if (!overlayWindow.isVisible()) return;
@@ -135,8 +143,8 @@ function onTriggerEvent(ev) {
   overlayWindow.send('trigger', { type: ev.type, x, y });
 }
 
-const { onCropReply, requestCrop } = createTier2({ ocrChild });
-// The card's picture is a crop from the watch process, like the probe's.
+const { onCropReply, requestCrop } = createCropChannel({ ocrChild });
+// The card's picture is a crop of the watch process's last frame.
 const anki = createAnki({ cfg, requestCrop });
 
 // Global modifier / click monitor. Lets a lookup fire without the cursor
@@ -150,7 +158,7 @@ const eventsChild = new SupervisedChild({
   // it does not, so there is nothing for a growing backoff to wait out.
   backoff: { initial: 2000, max: 2000, factor: 1 },
   onLine: onTriggerEvent,
-  onStderr: (t) => process.stderr.write('[events] ' + t),
+  onStderr: (text) => logLines('[events]', text),
   onSpawnError: (err) => reportSpawnFailure('events', err),
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
@@ -187,10 +195,16 @@ app.whenReady().then(() => {
   }
   tray.build({
     onSettings: openSettings,
-    onRestartCapture: () => ocrChild.restart(),
+    onRestartCapture: () => {
+      overlayWindow.revive();
+      ocrChild.restart();
+    },
   });
   permissions.checkAll(() => tray.refresh());
-  overlayWindow.create();
+  overlayWindow.create({
+    onGiveUp: () => tray.setCapture('stopped'),
+    onRevive: () => tray.setCapture('revived'),
+  });
   ocrChild.start();
   eventsChild.start();
 
@@ -203,15 +217,11 @@ app.whenReady().then(() => {
     console.error('[shortcut] ⌘⌥S is taken by another app — use the 読 menu-bar item');
   }
 
-  // First run: no config yet, so open settings rather than silently defaulting
-  // to Kindle — the target is the one thing the user must choose.
-  if (!require('fs').existsSync(cfg.CONFIG_PATH)) openSettings();
+  // First run: no target chosen yet, so open settings rather than silently
+  // defaulting to Kindle — the target is the one thing the user must choose.
+  // Not "no config file": saving any other tab first used to create one.
+  if (!cfg.targetChosen()) openSettings();
 });
-
-// The app has no Dock icon and no menu bar (LSUIElement), so the menu-bar item
-// is the only discoverable way in — a global shortcut alone is not findable.
-// Screen Recording is required for every capture. Without it nothing works and
-
 
 app.on('window-all-closed', () => { /* overlay is headless; keep running */ });
 

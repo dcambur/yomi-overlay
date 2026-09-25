@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<!-- A reading page shaped like the web-novel sites the overlay is used on:
+     a gothic navigation bar, a Mincho body, a sidebar of short titles, sizes
+     from 13 to 28 px. Everything is local and public domain (Aozora Bunko),
+     so the suite needs no network and never renders anyone's copyrighted
+     page. Many short one-line elements on purpose: each is an unambiguous
+     ground-truth probe for glyph placement. -->
+<style>
+  html, body { margin: 0; background: #fdfcf9; color: #1b1b1b; }
+  body { font-family: "Hiragino Mincho ProN", serif; }
+  header { display: flex; gap: 22px; padding: 14px 28px; background: #2f4f4f;
+           color: #fff; font: 15px "Hiragino Kaku Gothic ProN", sans-serif; }
+  .wrap { display: flex; gap: 36px; padding: 26px 28px 900px; }
+  main { flex: 1; }
+  aside { width: 230px; font: 14px "Hiragino Kaku Gothic ProN", sans-serif; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 22px; margin: 34px 0 10px; }
+  .by { font-size: 16px; margin: 0 0 20px; color: #555; }
+  p { font-size: 20px; line-height: 1.9; margin: 0 0 6px; }
+  aside h3 { font-size: 15px; margin: 18px 0 8px; }
+  aside li { list-style: none; margin: 0 0 7px; }
+  aside ul { padding: 0; margin: 0; }
+  .tags span { display: inline-block; margin: 0 8px 6px 0; font-size: 13px;
+               border: 1px solid #aaa; padding: 1px 6px; }
+</style></head>
+<body>
+  <header><span>小説を読もう</span><span>ランキング</span><span>新着の作品</span>
+    <span>ジャンル別</span><span>作者を探す</span></header>
+  <div class="wrap">
+    <main>
+      <h1>吾輩は猫である</h1>
+      <p class="by">夏目漱石　第一章より</p>
+      <p>吾輩は猫である。名前はまだ無い。</p>
+      <p>どこで生れたかとんと見当がつかぬ。</p>
+      <p>何でも薄暗い所で泣いていた事だけは記憶している。</p>
+      <p>吾輩はここで始めて人間というものを見た。</p>
+      <p>しかもあとで聞くとそれは書生という種族であったそうだ。</p>
+      <h2>走れメロス</h2>
+      <p>メロスは激怒した。</p>
+      <p>必ず、かの邪智暴虐の王を除かなければならぬと決意した。</p>
+      <p>メロスには政治がわからぬ。メロスは、村の牧人である。</p>
+      <p>笛を吹き、羊と遊んで暮して来た。</p>
+      <h2>羅生門</h2>
+      <p>或日の暮方の事である。</p>
+      <p>一人の下人が、羅生門の下で雨やみを待っていた。</p>
+      <p>広い門の下には、この男のほかに誰もいない。</p>
+      <p>ただ、所々丹塗の剥げた、大きな円柱に、蟋蟀が一匹とまっている。</p>
+    </main>
+    <aside>
+      <h3>今週の人気作品</h3>
+      <ul><li>銀河鉄道の夜</li><li>草枕の旅路</li><li>坊っちゃん先生</li>
+          <li>こころの手紙</li><li>高瀬舟の夜更け</li></ul>
+      <h3>注目のタグ</h3>
+      <div class="tags"><span>文豪</span><span>短編小説</span><span>明治時代</span>
+        <span>名作選</span></div>
+    </aside>
+  </div>
+</body></html>

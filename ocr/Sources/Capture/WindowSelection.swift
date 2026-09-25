@@ -1,7 +1,6 @@
 // Which window the user is actually looking at, and how much of it they
 // can see. ARCHITECTURE section 2 and 3 live here.
 
-import AppKit
 import CoreGraphics
 import Foundation
 import ScreenCaptureKit
@@ -38,21 +37,10 @@ var target = Target()
 /// 40 minutes of total silence from a live watch process
 /// (/tmp/yomi-overlay.log 2026-08-09 20:14→20:54), ended only by a manual
 /// "Restart capture".
-func shareableContent(timeout: Double = 12) async throws -> SCShareableContent {
-    try await withThrowingTaskGroup(of: SCShareableContent.self) { group in
-        group.addTask {
-            try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: false)
-        }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            throw CaptureError.discoveryTimedOut(timeout)
-        }
-        guard let first = try await group.next() else {
-            throw CaptureError.discoveryTimedOut(timeout)
-        }
-        group.cancelAll()
-        return first
+func shareableContent(timeout: Double = sckDeadline) async throws -> SCShareableContent {
+    try await withDeadline(timeout, orThrow: CaptureError.discoveryTimedOut(timeout)) {
+        try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: false)
     }
 }
 
@@ -101,10 +89,8 @@ func sharedContent(matching sig: UInt64) async throws -> SCShareableContent {
     if let c = cachedContent, sig == cachedContentSig,
         Date().timeIntervalSince(cachedContentAt) < contentMaxAge
     {
-        lastContentWasCached = true
         return c
     }
-    lastContentWasCached = false
     return try await refreshedContent(sig: sig)
 }
 
@@ -115,7 +101,11 @@ func sharedContent(matching sig: UInt64) async throws -> SCShareableContent {
 func refreshedContent(sig: UInt64? = nil) async throws -> SCShareableContent {
     let c = try await shareableContent()
     cachedContent = c
-    if let sig { cachedContentSig = sig } else { cachedContentSig = 0 }
+    // With no signature (the -3811 fallback) keep this pass's: the content is
+    // newer than it, and zeroing it made every pass in a Space that refuses
+    // the display filter pay two ~150 ms enumerations. A changed window set
+    // still changes the signature.
+    if let sig { cachedContentSig = sig }
     cachedContentAt = Date()
     return c
 }
@@ -133,7 +123,9 @@ struct TargetWindow {
     let frame: CGRect
     let content: SCShareableContent
     var windowID: CGWindowID { window.windowID }
-    var title: String? { window.title }
+    /// Frame-local regions another window is drawn over — measured in the same
+    /// pass as `frame`, so the two cannot disagree.
+    var covers: [CGRect] = []
 }
 
 func targetWindows(in content: SCShareableContent) -> [SCWindow] {
@@ -198,10 +190,7 @@ func chooseWindow() async throws -> TargetWindow? {
 
     let content = try await sharedContent(matching: onScreenSignature(infos))
     let windows = content.windows.filter(target.matches)
-    guard !windows.isEmpty else {
-        lastOccluders = []
-        return nil
-    }
+    guard !windows.isEmpty else { return nil }
 
     // Second guard, for the parked-window case: the window server moves a
     // window belonging to another Space outside the desktop (x of -1459 and
@@ -225,24 +214,16 @@ func chooseWindow() async throws -> TargetWindow? {
         else { return nil }
         return TargetWindow(window: w, frame: f, content: content)
     }
-    guard let chosen = live.min(by: { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max })
-    else {
-        lastOccluders = []
-        return nil
-    }
+    guard var chosen = live.min(by: { rank[$0.windowID] ?? .max < rank[$1.windowID] ?? .max })
+    else { return nil }
     // Partial cover is the common case — a chat window over half the reader.
     // The consumer needs the regions themselves, not just the verdict, so it
     // can refuse lookups on glyphs that are behind another window.
-    lastOccluders = occluders(
+    chosen.covers = occluders(
         of: chosen.windowID, frame: chosen.frame,
         in: infos, rank: rank)
     return chosen
 }
-
-/// Whether the last `chooseWindow()` reused a cached enumeration. Diagnostics
-/// only — the watch loop reports it once so a cache that never hits is visible
-/// rather than silently costing 150 ms a pass.
-var lastContentWasCached = false
 
 /// How much of a window the user can actually see: inside a display, and not
 /// painted over by a window in front of it.
@@ -352,33 +333,4 @@ func windowRect(_ info: [String: Any]) -> CGRect? {
         w > 0, h > 0
     else { return nil }
     return CGRect(x: x, y: y, width: w, height: h)
-}
-
-/// What `chooseWindow()` last measured as drawn over the window it returned.
-/// Read by the payload emitter; every payload and heartbeat carries it, since
-/// a window can be covered and uncovered without a single pixel of the target
-/// changing.
-var lastOccluders: [CGRect] = []
-
-/// True only when the target app owns the screen right now. Gates the
-/// display-capture fallback so it can never photograph another application.
-func isTargetFrontmost() -> Bool {
-    guard let front = NSWorkspace.shared.frontmostApplication else { return false }
-
-    // A pinned window id is the more specific target, and bundleIDs still holds
-    // the default Kindle set in that case (--window never clears it). Comparing
-    // against that set would reject every non-Kindle pinned window and gate off
-    // the fullscreen fallback entirely — resolve the window's real owner instead.
-    if let wid = target.windowID {
-        let info =
-            CGWindowListCopyWindowInfo(.optionIncludingWindow, wid)
-            as? [[String: Any]] ?? []
-        guard let owner = info.first?[kCGWindowOwnerPID as String] as? pid_t else {
-            return false
-        }
-        return owner == front.processIdentifier
-    }
-
-    if let bid = front.bundleIdentifier, target.bundleIDs.contains(bid) { return true }
-    return target.appNames.contains(front.localizedName ?? "")
 }

@@ -42,71 +42,134 @@ enum CaptureError: Error, CustomStringConvertible {
 /// window's origin.
 struct Capture {
     let image: CGImage
-    /// Rect the image's normalised coordinates scale against. The window is
-    /// composited at the image ORIGIN (verified by dumping a capture of a
-    /// window at 300,200: its top-left glyph landed at 0,0), so normalising
-    /// against this yields window-LOCAL coordinates.
+    /// Rect the image's normalised coordinates scale against: the display.
     let region: CGRect
+    /// Where in the image the window was drawn, in points — measured, see
+    /// `contentRect`. Almost always the image origin.
+    let inset: CGPoint
     /// Where that window truly is on screen — the origin the consumer adds
     /// back. Not always `SCWindow.frame.origin`: see `trueOrigin(...)`.
     let origin: CGPoint
     /// The window's true size, measured from the capture rather than trusted.
     let size: CGSize
+
+    /// Image coordinates to window-LOCAL ones: scale against the display,
+    /// then subtract where the window was drawn.
+    var geometry: Geometry {
+        Geometry(region: region, window: region.offsetBy(dx: inset.x, dy: inset.y))
+    }
 }
 
-/// Extent of non-transparent content in a capture, in points.
+/// Where the window is in a capture, in points, measured from its pixels.
 ///
 /// With every other window excluded, only the target's pixels are opaque and
 /// the rest is fully transparent — and premultiplied-transparent pixels are
 /// all-zero whatever the channel order, so "any non-zero byte" identifies
 /// content without having to decode the pixel layout.
 ///
-/// This is the window's TRUE size even when the window server is still
+/// The size is the window's TRUE size even when the window server is still
 /// reporting its pre-fullscreen frame, which is the whole point: measured on a
 /// fullscreen Chrome, `screencapture -l` returned 1440x900 while both
 /// CGWindowList and SCWindow.frame insisted on 1440x778 at y=122.
-func contentExtent(_ image: CGImage, scale: CGFloat) -> CGSize? {
+///
+/// The origin is where ScreenCaptureKit drew the window, which is the image
+/// origin almost always and not always: measured 2026-09-24, a window 90pt
+/// below the top of a second display came back drawn at (0,89) on the first
+/// capture after the display appeared — and a layer mapped as if it sat at
+/// (0,0) put every glyph 89pt low.
+func contentRect(_ image: CGImage, scale: CGFloat) -> CGRect? {
     guard let data = image.dataProvider?.data as Data?, scale > 0 else { return nil }
     let bpr = image.bytesPerRow
     let bpp = max(1, image.bitsPerPixel / 8)
     guard bpp >= 4 else { return nil }
-
-    var maxX = 0
-    var maxY = 0
-    let step = 8  // coarse: a few thousand samples, not eleven million
-    for y in stride(from: 0, to: image.height, by: step) {
-        let row = y * bpr
-        for x in stride(from: 0, to: image.width, by: step) {
-            let i = row + x * bpp
-            guard i + 3 < data.count else { continue }
-            if data[i] != 0 || data[i + 1] != 0 || data[i + 2] != 0 || data[i + 3] != 0 {
-                if x > maxX { maxX = x }
-                if y > maxY { maxY = y }
+    let (w, h) = (image.width, image.height)
+    return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> CGRect? in
+        func opaque(_ x: Int, _ y: Int) -> Bool {
+            let i = y * bpr + x * bpp
+            guard i + 3 < raw.count else { return false }
+            return raw[i] != 0 || raw[i + 1] != 0 || raw[i + 2] != 0 || raw[i + 3] != 0
+        }
+        var (minX, minY, maxX, maxY) = (Int.max, Int.max, -1, -1)
+        let step = 8  // coarse: a few thousand samples, not eleven million
+        for y in stride(from: 0, to: h, by: step) {
+            for x in stride(from: 0, to: w, by: step) where opaque(x, y) {
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
             }
         }
+        guard maxX > 0, maxY > 0 else { return nil }
+        // The grid can miss up to `step` pixels at each edge. The trailing
+        // edges get that as slack; the leading ones decide where every glyph
+        // lands, so they are walked back to the first opaque pixel exactly.
+        let columns = Array(stride(from: minX, through: maxX, by: step))
+        let rows = Array(stride(from: minY, through: maxY, by: step))
+        while minY > 0, columns.contains(where: { opaque($0, minY - 1) }) { minY -= 1 }
+        while minX > 0, rows.contains(where: { opaque(minX - 1, $0) }) { minX -= 1 }
+        return CGRect(
+            x: CGFloat(minX) / scale, y: CGFloat(minY) / scale,
+            width: CGFloat(min(maxX + step, w) - minX) / scale,
+            height: CGFloat(min(maxY + step, h) - minY) / scale)
     }
-    guard maxX > 0, maxY > 0 else { return nil }
-    // The sample grid can miss up to `step` pixels of the trailing edge.
-    return CGSize(
-        width: CGFloat(min(maxX + step, image.width)) / scale,
-        height: CGFloat(min(maxY + step, image.height)) / scale)
 }
 
-/// Races the capture against a deadline. SCScreenshotManager can stall
-/// indefinitely on a fullscreen window belonging to another Space, which would
-/// otherwise wedge the whole watch loop.
-func capture(_ target: TargetWindow, timeout: Double = 12) async throws -> Capture {
-    return try await withThrowingTaskGroup(of: Capture.self) { group in
-        group.addTask { try await captureOnce(target: target) }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            throw CaptureError.timedOut(timeout)
+/// How long a ScreenCaptureKit call may take before the pass gives up on it.
+/// Both capture and discovery can stall outright: a fullscreen window on
+/// another Space wedges the screenshot, and discovery once went silent for 40
+/// minutes (/tmp/yomi-overlay.log 2026-08-09 20:14→20:54).
+let sckDeadline: Double = 12
+
+/// `work`'s result, or `timedOut` thrown once `seconds` have passed —
+/// whichever comes first.
+///
+/// Not a task group, which is what both deadlines were: a group cannot finish
+/// while a child still runs, and ScreenCaptureKit's completion-handler calls
+/// ignore cancellation, so a stalled call held its "deadline" with it. Measured
+/// with a call that ignores cancellation: a 0.5 s deadline over 3 s of work
+/// threw at 3.20 s that way, at 0.51 s this way. The stalled call is
+/// abandoned, as LiveText.analyze abandons a request its watchdog timed out.
+func withDeadline<T>(
+    _ seconds: Double, orThrow timedOut: Error,
+    _ work: @escaping () async throws -> T
+) async throws -> T {
+    let once = ResumeOnce()
+    return try await withCheckedThrowingContinuation { cont in
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if once.claim() { cont.resume(throwing: timedOut) }
         }
-        guard let first = try await group.next() else {
-            throw CaptureError.timedOut(timeout)
+        Task {
+            do {
+                let value = try await work()
+                if once.claim() { cont.resume(returning: value) }
+            } catch {
+                if once.claim() { cont.resume(throwing: error) }
+            }
+            deadline.cancel()
         }
-        group.cancelAll()
-        return first
+    }
+}
+
+/// Lets exactly one of two racers resume a continuation.
+final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
+}
+
+/// The capture, raced against `sckDeadline`, so a stalled screenshot fails
+/// the pass instead of wedging the watch loop.
+func capture(_ target: TargetWindow, timeout: Double = sckDeadline) async throws -> Capture {
+    try await withDeadline(timeout, orThrow: CaptureError.timedOut(timeout)) {
+        try await captureOnce(target: target)
     }
 }
 
@@ -145,10 +208,11 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
     //
     // Two measured facts drive this shape:
     //
-    //   1. The remaining window is composited at the image ORIGIN, 1:1, inside
-    //      a display-sized image. Dumping a capture of a window at (300,200)
-    //      put its top-left glyph at (0,0). So normalising against the display
-    //      rect yields window-LOCAL coordinates, undistorted.
+    //   1. The remaining window is composited 1:1 inside a display-sized
+    //      image, at the image origin as a rule (a window at (300,200) put its
+    //      top-left glyph at (0,0)) — but where is measured, not assumed; see
+    //      contentRect. Normalising against the display rect and subtracting
+    //      that yields window-LOCAL coordinates, undistorted.
     //   2. A window-scoped filter instead scales the content into the window's
     //      REPORTED rect, which macOS leaves stale after a window goes
     //      fullscreen (Chrome: really 1440x900, reported 1440x778 at y=122).
@@ -170,12 +234,13 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
     }
 
     func finish(_ image: CGImage, scale: CGFloat, display: SCDisplay) -> Capture {
-        let measured = contentExtent(image, scale: scale)
+        let measured = contentRect(image, scale: scale)
         return Capture(
             image: image,
             region: display.frame,
-            origin: trueOrigin(frame: frame, measured: measured, display: display),
-            size: measured ?? frame.size)
+            inset: measured?.origin ?? .zero,
+            origin: trueOrigin(frame: frame, measured: measured?.size, display: display),
+            size: measured?.size ?? frame.size)
     }
 
     do {
@@ -205,21 +270,42 @@ func captureOnce(target: TargetWindow) async throws -> Capture {
     }
 }
 
-/// Cheap perceptual hash of a captured frame.
+/// Hash of every pixel of a captured frame.
 ///
 /// Vision is by far the most expensive step, and a reader spends most of its
-/// time on an unchanged page. Sampling ~4k bytes and comparing lets us skip
-/// recognition entirely when nothing moved, which both cuts cost and — more
-/// importantly — stops the overlay rebuilding its glyph layer under the user's
-/// cursor when the content is identical.
+/// time on an unchanged page. Skipping recognition when nothing moved both
+/// cuts cost and — more importantly — stops the overlay rebuilding its glyph
+/// layer under the user's cursor when the content is identical.
+///
+/// Every byte, not a sample: it hashed every (size/4096)th byte, and a glyph
+/// changing between two samples went unseen — 9 of 40 one-glyph changes on a
+/// 2880x1800 frame, 20 of 40 with padded rows (measured) — after which the
+/// layer described the old page until something bigger changed; voting
+/// re-reads only the page it already has. The whole frame costs 3.9 ms a pass
+/// against 0.7 ms for the sample (measured, same frame), next to a
+/// recognition of 0.6-1.2 s.
 func frameHash(_ image: CGImage) -> UInt64 {
     guard let data = image.dataProvider?.data as Data? else { return 0 }
+    let bpr = image.bytesPerRow
+    let rowBytes = min(bpr, image.width * max(1, image.bitsPerPixel / 8))
     var h: UInt64 = 0xcbf2_9ce4_8422_2325
-    let step = max(1, data.count / 4096)
-    var i = 0
-    while i < data.count {
-        h = (h ^ UInt64(data[i])) &* 0x100_0000_01b3
-        i += step
+    data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+        guard let base = raw.baseAddress else { return }
+        for y in 0..<image.height {
+            // The pixels only: nothing promises a row's padding is initialised.
+            let start = y * bpr
+            let end = min(start + rowBytes, raw.count)
+            var i = start
+            while i + 8 <= end {
+                let word = base.loadUnaligned(fromByteOffset: i, as: UInt64.self)
+                h = (h ^ word) &* 0x100_0000_01b3
+                i += 8
+            }
+            while i < end {
+                h = (h ^ UInt64(base.load(fromByteOffset: i, as: UInt8.self))) &* 0x100_0000_01b3
+                i += 1
+            }
+        }
     }
     return h
 }

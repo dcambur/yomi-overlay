@@ -22,9 +22,9 @@ yomi (Swift CLI)                Yomi Overlay (Electron)
 
 - macOS 13 or later in principle, since it needs ScreenCaptureKit and Live Text. In practice it's only been tested on macOS 26.5 on Apple Silicon.
 - Xcode command line tools, for swiftc: `xcode-select --install`
-- Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node 22 (it uses node:sqlite).
-- Python 3.8+, stdlib only. Used to fetch dictionaries and build the index.
-- Disk space: the index is about 370 MB and the dictionary zips another 260 MB. The optional manga-ocr second-opinion tier adds around 2 GB of wheels plus a ~450 MB model.
+- Node.js, but only for `npm install`. The app itself runs on Electron 43's bundled Node (24.18, which has node:sqlite).
+- Python 3.8+, stdlib only. Used to fetch dictionaries; the index is built by the app's own builder.
+- Disk space: the index is about 370 MB and the dictionary zips another 260 MB.
 - Two macOS permissions: Screen Recording (required) and Accessibility (for the trigger).
 
 ## Install
@@ -35,7 +35,7 @@ cd yomi-overlay
 ./setup.sh
 ```
 
-setup.sh does everything: creates a stable self-signed "Yomi Overlay Dev" signing certificate, runs npm install, downloads the freely licensed dictionaries via tools/fetch-dicts.py, builds index.db (takes a few minutes), installs the optional manga-ocr sidecar venv (skippable, the app works without it), packages and installs /Applications/Yomi Overlay.app, and opens the two Privacy panes for you. It's idempotent, so it's safe to re-run after moving the project or upgrading Electron; it only redoes what's missing.
+setup.sh does everything: creates a stable self-signed "Yomi Overlay Dev" signing certificate, runs npm install, downloads the freely licensed dictionaries via tools/fetch-dicts.py, builds index.db (takes a few minutes), packages and installs /Applications/Yomi Overlay.app, and opens the two Privacy panes for you. It's idempotent, so it's safe to re-run after moving the project or upgrading Electron; it only redoes what's missing.
 
 Expect up to two password/confirmation dialogs the first time: one to trust the new certificate and one to let codesign use its key. That only happens once.
 
@@ -51,10 +51,10 @@ Screen Recording is required for all capture. Without it nothing works, and the 
 
 ## Dictionaries
 
-tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. Commercial monolingual and pitch-accent dictionaries are neither fetched nor redistributed. If you own one, drop its Yomitan .zip into data/dicts/ and rebuild:
+tools/fetch-dicts.py downloads the freely licensed set: Jitendex, JMnedict, KANJIDIC, and the JPDB and BCCWJ frequency lists. Commercial monolingual and pitch-accent dictionaries are neither fetched nor redistributed. If you own one, import it in Settings → Dictionaries, or drop its Yomitan .zip into data/dicts/ and rebuild:
 
 ```bash
-python3 tools/build-index.py
+tools/build-index.sh
 ```
 
 The indexer classifies any zip by the banks it contains, so a dictionary you add gets picked up without editing the script.
@@ -83,7 +83,6 @@ data/config.json is written on first launch; the defaults live in app/main/confi
 - `engine` — auto, vision, or livetext. Default auto.
 - `voting.passes` — re-OCR a static page N times and majority-vote per character (default 3; 1 disables)
 - `voting.everyN` — vote on every Nth unchanged pass (default 2)
-- `tier2.mode` — the manga-ocr second opinion. `shadow` logs disagreements, `off` disables it. Default shadow.
 - `anki.url`, `anki.key` — where AnkiConnect listens (default `http://127.0.0.1:8765`) and its API key if you set one (default none). The deck, tags and picture switch are in Settings → Anki.
 
 ## Deploying a change
@@ -108,7 +107,7 @@ Start with [docs/README.md](docs/README.md), which indexes the rest. [docs/ARCHI
 
 Layout: ocr/Sources/ is the Swift capture and OCR helper. app/ is the Electron side, split into main/ (main process), renderer/ (the overlay window), preload/ (the IPC boundary), and shell/ (the loader). tools/ has the build scripts and test/ has the suites.
 
-Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or windows. `test/golden.sh` is a byte-exact regression check over the OCR helper's output; it needs a built binary. The test/verify*.py suites take their ground truth from a live DOM and the window server, so they need the overlay stopped and Screen Recording granted. The test/gt/ corpora aren't in the repo; regenerate them with test/gt/gen_aozora.py.
+Tests: `test/run.sh` runs the everyday lanes without opening a window on your screen (the one visible sign is the app's own menu-bar icon while the real app is under test, about ten seconds), and `test/run.sh all` adds a first-run lane, a long-idleness lane with the app's clock moved, and a Spaces lane. The logic and page suites take a few seconds and need no permissions. The others run the real capture helper and the real app on an invisible display, so they need Screen Recording and the overlay stopped; a guard fails a lane whose windows reach your displays or take focus unannounced. `YOMI_BOOK=book.epub test/run.sh book` reads a real novel page by page through the real overlay, and `test/run.sh golden` is a byte-exact regression check over the OCR helper's output. See [test/README.md](test/README.md).
 
 ## Known gaps
 

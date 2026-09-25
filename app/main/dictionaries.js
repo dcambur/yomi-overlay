@@ -303,7 +303,10 @@ function prunable(db) {
  */
 function prune(label, onProgress = () => {}) {
   if (!fs.existsSync(INDEX_PATH)) return { pruned: false, reason: 'no index' };
-  const db = new DatabaseSync(INDEX_PATH);
+  // The main process's lookup connection may be mid-statement when this
+  // commits. It lets go within milliseconds, and this runs in the index
+  // worker, where waiting costs nothing — failing costs the ~80 s rebuild.
+  const db = new DatabaseSync(INDEX_PATH, { timeout: 5000 });
   try {
     if (!prunable(db)) return { pruned: false, reason: 'index predates per-dictionary rows' };
     onProgress({ phase: 'pruning', step: 'entries', done: 0, total: 3 });
@@ -332,7 +335,10 @@ function prune(label, onProgress = () => {}) {
     if (any) db.exec('VACUUM');
     db.close();
     if (!any) fs.rmSync(INDEX_PATH, { force: true });
-    return { pruned: true, rows: left, emptied: !any };
+    // Here, not after: this runs in the index worker, and the manifest's scan
+    // of the terms table held the main process — overlay included — for
+    // ~250 ms on a 0.9 M-row index (measured).
+    return { pruned: true, rows: left, emptied: !any, labels: writeManifest() };
   } finally {
     try { db.close(); } catch { /* closed above on the success path */ }
   }
@@ -433,8 +439,5 @@ module.exports = {
   importFiles,
   CATALOGUE, catalogue, installed, download, importFile, remove, rebuild,
   rebuildAsync, pruneAsync, prune, labelOf, writeManifest, dropDuplicates,
-  // Exported so the catalogue can be checked for reachability without
-  // downloading gigabytes: every entry must still resolve to a real URL.
-  resolveURL,
   DICTS_DIR, INDEX_PATH,
 };

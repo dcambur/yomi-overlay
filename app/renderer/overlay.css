@@ -230,7 +230,9 @@
     margin: 8px 0 1px; color: #d3b072; font-size: 13px;
     border-top: 1px solid rgba(255,255,255,0.07); padding-top: 6px;
   }
-  #popup .card > .rgroup:first-of-type { border-top: none; margin-top: 5px; }
+  /* The first group follows the card's header (or its deinflection route);
+     :first-of-type never matched, because every card opens with div.hd. */
+  #popup .card > :is(.hd, .route) + .rgroup { border-top: none; margin-top: 5px; }
 
   /* Proper names: a reference list, not a definition. One dim line at the
      foot, whatever the reader looked up. */
@@ -259,11 +261,6 @@
   #popup .ent.mono .gl, #popup .ent.gram .gl { font-size: 13px; color: #c6c1b4; }
   #popup .gl.plain { list-style: none; padding-left: 2px; }
   #popup .gl.plain li { margin: 2.5px 0; }
-  /* The hanging indent belongs ONLY to a line that starts with a sense marker.
-     Applied to every line, it pushed unmarked prose in by 14px and pulled its
-     first line back out, so a wrapped line and a new sense began at the same
-     x — which is most of 実用, 旺文社 and the grammar dictionary. */
-  #popup .gl.plain li.numbered { padding-left: 15px; text-indent: -15px; }
   /* Usage examples quoted inside a sense line (「━政治」) render dimmer. */
   #popup .ex { color: #97907f; }
 

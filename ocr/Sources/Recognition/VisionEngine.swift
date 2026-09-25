@@ -18,7 +18,7 @@ func isCJK(_ u: Unicode.Scalar) -> Bool {
 /// The Vision path, normalized to the shared intermediate shape (top-left
 /// normalized boxes, one entry per character).
 func visionLines(
-    _ subject: CGImage, unrotate: Bool, wantChars: Bool
+    _ subject: CGImage, wantChars: Bool
 )
     throws -> [RecognizedLine]
 {
@@ -45,8 +45,7 @@ func visionLines(
                 guard let q = try? top.boundingBox(for: idx..<s.index(after: idx))
                 else { continue }
                 // boundingBox(for:) returns a quad; use its axis-aligned bounds.
-                var n = NBox(vision: q.boundingBox)
-                if unrotate { n = n.unrotatedCCW }
+                let n = NBox(vision: q.boundingBox)
                 chars.append(
                     RecognizedChar(
                         ch: chStr,

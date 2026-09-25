@@ -71,7 +71,6 @@
   window.placement = {
     toFrame,
     isCovered,
-    apply: applyPlacement,
     setOrigin(o) { targetOrigin = o; applyPlacement(); },
     setCovers(list) { covers = Array.isArray(list) ? list : []; },
     get covers() { return covers; },

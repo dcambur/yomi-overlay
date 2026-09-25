@@ -1,0 +1,62 @@
+// Pixels of the target, cut from the watch process's own last frame.
+//
+// Re-capturing would need a second ScreenCaptureKit session, and concurrent
+// sessions stall, so the watch process serves crops of the frame it last
+// captured, over its stdin (ocr/Sources/Capture/CropChannel.swift). The Anki
+// card's picture is what asks (docs/ANKI.md).
+
+const fs = require('fs');
+
+/**
+ * The crop channel on the capture child: `onCropReply` is fed the child's
+ * `{crop: …}` lines, and `requestCrop` asks for one.
+ */
+function createCropChannel({ ocrChild }) {
+  let cropSeq = 0;
+  const cropWaiters = new Map();    // id -> resolve
+
+  /**
+   * A crop of the last frame, written to `file`. Resolves true when it is
+   * there, false when the watch process is not running, could not be asked,
+   * or did not answer within `waitMs` — never rejects, and after false no
+   * file is left: the caller takes false for "no picture" and never looks.
+   *
+   * `rect` is frame-relative, the space the payload's char boxes use. The
+   * path goes on the command line the crop reader splits on spaces, so a path
+   * with one cannot be asked for.
+   */
+  function requestCrop(rect, file, waitMs) {
+    return new Promise((resolve) => {
+      if (!ocrChild.running || /\s/.test(file)) { resolve(false); return; }
+      const id = ++cropSeq;
+      const r = [rect.x, rect.y, rect.w, rect.h].map((v) => Math.round(v)).join(' ');
+      // A reply can be lost with the PNG already written: a stopped child's
+      // output is not delivered (supervised-child.js), so whatever it wrote
+      // is deleted here too, as a late reply's is below.
+      const timer = setTimeout(() => {
+        cropWaiters.delete(id);
+        fs.unlink(file, () => {});
+        resolve(false);
+      }, waitMs);
+      cropWaiters.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
+      if (!ocrChild.write(`crop ${id} ${r} ${file}\n`)) {
+        clearTimeout(timer);
+        cropWaiters.delete(id);
+        resolve(false);
+      }
+    });
+  }
+
+  function onCropReply(c) {
+    const waiter = cropWaiters.get(c.id);
+    if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); return; }
+    // Nobody is waiting: the asker timed out, and the watch process — which
+    // answers between passes, and not at all while the target is idle — wrote
+    // the file anyway. Nothing else knows the path.
+    if (c.ok && c.path) fs.unlink(c.path, () => {});
+  }
+
+  return { onCropReply, requestCrop };
+}
+
+module.exports = { createCropChannel };

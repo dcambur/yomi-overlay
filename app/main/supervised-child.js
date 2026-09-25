@@ -6,10 +6,20 @@
 // still running. Both helpers need all of that; they differ only in the backoff
 // and whether they get a watchdog.
 //
-// test/unit/child.test.js encodes the behaviour.
+// test/logic/child.test.js encodes the behaviour.
 
 const { spawn } = require('child_process');
+const { performance } = require('perf_hooks');
 const { lineSplitter } = require('./ndjson.js');
+
+// Silence is measured on the monotonic clock. On the wall clock a night
+// asleep counted as a night of silence, and the watchdog's first check after
+// waking restarted a healthy child — whenever that check came before the
+// child's first word (test/idle: an 8 h jump, then the check).
+const now = () => performance.now();
+
+// A child that has not exited this long after SIGTERM is wedged, not busy.
+const KILL_GRACE_MS = 1500;
 
 class SupervisedChild {
   /**
@@ -20,9 +30,13 @@ class SupervisedChild {
    *                                 on the next spawn without extra plumbing
    * @param {{initial:number,max:number,factor:number}} o.backoff
    * @param {{silenceMs:number,checkMs:number}} [o.watchdog]  omit for none
+   * @param {number} [o.killGraceMs]  how long SIGTERM gets before SIGKILL
    * @param {string} [o.exitHint]  appended to the exit diagnostic
    * @param {(obj:any) => void} [o.onLine]
    * @param {(text:string) => void} [o.onStderr]
+   * @param {() => void} [o.onStart]  each spawn, first and every restart
+   * @param {(code:number|null, signal:string|null) => void} [o.onExit]  an
+   *                                 exit nobody asked for
    * @param {(err:Error) => void} [o.onSpawnError]
    * @param {(msg:string) => void} [o.log]
    * @param {(msg:string) => void} [o.logError]
@@ -33,6 +47,7 @@ class SupervisedChild {
     this.buildArgs = o.args || (() => []);
     this.backoffCfg = o.backoff || { initial: 1000, max: 30000, factor: 2 };
     this.watchdogCfg = o.watchdog || null;
+    this.killGraceMs = o.killGraceMs || KILL_GRACE_MS;
     // Appended to the exit line. The capture child's exit is almost always
     // explained by its own stderr just above, and saying so has saved real
     // debugging time.
@@ -40,6 +55,8 @@ class SupervisedChild {
     this.onLine = o.onLine || (() => {});
     this.onStderr = o.onStderr || (() => {});
     this.onSpawnError = o.onSpawnError || (() => {});
+    this.onStart = o.onStart || (() => {});
+    this.onExit = o.onExit || (() => {});
     this.log = o.log || (() => {});
     this.logError = o.logError || this.log;
 
@@ -62,7 +79,7 @@ class SupervisedChild {
     const args = this.buildArgs();
     const proc = spawn(this.bin, args);
     this.proc = proc;
-    this.lastOutput = Date.now();
+    this.lastOutput = now();
     this.watchdogFired = false;
 
     // A ChildProcess with no 'error' listener rethrows, which would take the
@@ -74,9 +91,13 @@ class SupervisedChild {
 
     const split = lineSplitter(this.onLine);
     proc.stdout.on('data', (chunk) => {
+      // A child we stopped is still read until its pipe drains. What it wrote
+      // before the stop describes the old target: after a retarget it would
+      // rebuild the layer the reset just cleared.
+      if (proc.deliberate) return;
       // Any stdout at all is proof of life, whatever it says — that is what
       // the watchdog is asking about.
-      this.lastOutput = Date.now();
+      this.lastOutput = now();
       this.watchdogFired = false;
       split(chunk);
     });
@@ -92,6 +113,7 @@ class SupervisedChild {
       // on top of the live one.
       if (proc.deliberate || this.proc !== proc) return;
       this.proc = null;
+      this.onExit(code, signal);
       this.logError(`[${this.name}] exited (code=${code} signal=${signal}); ` +
                     `restarting in ${this.backoff}ms` +
                     (this.exitHint ? ` — ${this.exitHint}` : ''));
@@ -105,6 +127,10 @@ class SupervisedChild {
     });
 
     this._armWatchdog();
+    // Only once it really is running: a binary that cannot be spawned (ENOENT,
+    // EACCES) gets 'error' and never 'exit', and a start announced anyway
+    // left the menu saying a first read was slow, for good.
+    proc.once('spawn', () => this.onStart());
     return proc;
   }
 
@@ -138,7 +164,7 @@ class SupervisedChild {
     const t = setTimeout(() => {
       try { p.kill('SIGKILL'); } catch { /* already gone */ }
       finish();
-    }, 1500);
+    }, this.killGraceMs);
     if (t.unref) t.unref();
   }
 
@@ -174,7 +200,7 @@ class SupervisedChild {
     const { silenceMs, checkMs } = this.watchdogCfg;
     this.watchdogTimer = setInterval(() => {
       if (!this.proc || this.restartTimer) return;
-      if (Date.now() - this.lastOutput < silenceMs) return;
+      if (now() - this.lastOutput < silenceMs) return;
       // Fires once per silence streak; any stdout resets the flag.
       if (!this.watchdogFired) {
         this.logError(`[${this.name}] no output for ${silenceMs}ms — restarting`);

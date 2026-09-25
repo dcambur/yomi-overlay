@@ -43,9 +43,9 @@ jobs:
         # from data/ — gitignored, and mostly commercial — so all the
         # interesting ones were left out here and quietly skipped when anyone
         # else ran them. They now generate the archives they need
-        # (test/unit/fixtures/), so the runner checks what a laptop checks.
-        # Not test/unit/run.sh: its renderer suite needs Electron and a display.
-        run: node --test test/unit/*.test.js
+        # (test/fixtures/), so the runner checks what a laptop checks.
+        # The pages lane needs Electron and a window server: the macOS job.
+        run: test/run.sh logic
 
       # Installs its own shellcheck, which the runner does not ship — so this
       # is the one check tools/lint.sh cannot make here (it skips shellcheck
@@ -70,8 +70,17 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: '22', cache: npm, cache-dependency-path: app/package-lock.json }
       - name: Build
         run: ocr/build.sh
+      - name: The overlay and settings pages
+        # Hidden windows in one accessory Electron, so a runner's window
+        # server is enough. The screen lane is not run here: it needs a Screen
+        # Recording grant a runner does not have.
+        run: |
+          npm ci --prefix app
+          test/run.sh pages
       - name: The commands the golden harness cannot see
         # golden.sh needs test/gt/ (~200 MB, gitignored) AND is machine-local:
         # Vision's model version differs between macOS releases, so a byte-exact

@@ -12,8 +12,10 @@
 #      bundle at all. Ordinary changes need an app restart, nothing more.
 #
 # TCC attributes both Screen Recording and Accessibility to the *responsible
-# app* (Yomi Overlay), not to the yomi child it spawns — so rebuilding
-# yomi costs nothing either.
+# app* (Yomi Overlay), not to the yomi child it spawns — so a rebuilt yomi
+# keeps both grants. It is not free, though: its first capture is refused
+# once, and its first read takes up to a minute while Vision compiles its
+# model (docs/FOUND-BUGS.md 2). The app's restart and its menu cover both.
 #
 # Expect up to two password/confirmation dialogs on the first run (trusting the
 # new certificate, letting codesign use its key). That is the once.
@@ -30,9 +32,11 @@ BUNDLE_ID="local.yomioverlay"
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 # --- 1. Stable signing identity ---------------------------------------------
+NEW_IDENTITY=0
 if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
   step "Signing identity \"$IDENTITY\" already exists — keeping it"
 else
+  NEW_IDENTITY=1
   step "Creating signing identity \"$IDENTITY\" (this is what makes permissions survive rebuilds)"
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
@@ -98,26 +102,20 @@ else
 fi
 
 # --- 4. Lookup index ----------------------------------------------------------
+# The app's own builder, as Settings runs it. This used to be the retired
+# build-index.py, so a fresh checkout started on its flattened schema: no
+# images, unknown dictionaries rendered badly, and every removal a rebuild.
 if [ -f "$DATA_DIR/index.db" ] && [ -f "$DATA_DIR/dictionaries.json" ]; then
-  step "index.db present — skipping build (re-run tools/build-index.py after adding dictionaries)"
+  step "index.db present — skipping build (re-run tools/build-index.sh after adding dictionaries)"
 else
   step "Building the lookup index (takes a few minutes)"
-  python3 "$TOOLS_DIR/build-index.py"
-fi
-
-# --- 4.5 Tier-2 sidecar (manga-ocr) -------------------------------------------
-# Optional: the overlay runs fine without it (tier2 disables itself with a log
-# line). ~2GB of wheels + a ~450MB model download on first use.
-if [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -c 'import manga_ocr' 2>/dev/null; then
-  step "manga-ocr sidecar present — skipping"
-else
-  step "Installing manga-ocr sidecar venv (Tier-2 second opinion; ~2GB)"
-  python3 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/pip" install --quiet manga-ocr || \
-    step "manga-ocr install failed — tier2 will stay off (rerun setup.sh to retry)"
+  "$TOOLS_DIR/build-index.sh"
 fi
 
 # --- 5. Package, sign, install ------------------------------------------------
+# What the app this replaces was signed with, for step 6. A first run that made
+# the identity and then failed leaves its predecessor installed.
+BEFORE="$(codesign -d -r- "/Applications/Yomi Overlay.app" 2>&1 | grep '^designated' || true)"
 step "Building and installing Yomi Overlay.app (signed with \"$IDENTITY\")"
 "$TOOLS_DIR/build-app.sh"
 
@@ -131,10 +129,20 @@ esac
 # --- 6. Clear stale permission grants ----------------------------------------
 # If a previous ad-hoc build was ever granted anything, the grant is keyed to
 # the dead identity and shows as a lying checkbox. Clear both so the lists
-# start honest. Harmless when there is nothing to clear.
-step "Resetting stale permission entries for $BUNDLE_ID"
-tccutil reset ScreenCapture  "$BUNDLE_ID" 2>/dev/null || true
-tccutil reset Accessibility  "$BUNDLE_ID" 2>/dev/null || true
+# start honest — but only when this run made the identity, or replaced an
+# ad-hoc build (a first run that failed after making the identity leaves one
+# behind, and the re-run that replaces it made nothing). A grant given since
+# belongs to the identity that is still here, and every re-run used to clear
+# it (test/firstrun: the second run reset both), which is exactly the
+# re-grant this script exists to spare.
+case "$BEFORE" in *cdhash*) REPLACED_ADHOC=1 ;; *) REPLACED_ADHOC=0 ;; esac
+if [ "$NEW_IDENTITY" = 1 ] || [ "$REPLACED_ADHOC" = 1 ]; then
+  step "Resetting stale permission entries for $BUNDLE_ID"
+  tccutil reset ScreenCapture  "$BUNDLE_ID" 2>/dev/null || true
+  tccutil reset Accessibility  "$BUNDLE_ID" 2>/dev/null || true
+else
+  step "Keeping the permission grants: the signing identity has not changed"
+fi
 
 # --- 7. Permissions -----------------------------------------------------------
 step "Grant the two permissions (the only manual step, and the last time)"

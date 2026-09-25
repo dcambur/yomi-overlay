@@ -14,8 +14,8 @@
 // a common call shape and forcing one would be ceremony:
 //
 //   - LiveText.analyze is async and returns nil to mean "failed this pass,
-//     fall back"; visionLines throws and takes `unrotate` and `wantChars`,
-//     which have no Live Text analogue.
+//     fall back"; visionLines throws and takes `wantChars`, which has no
+//     Live Text analogue.
 //   - verticalRemainder calls Live Text *by name* on purpose — Vision reads no
 //     vertical Japanese at all, so there is no engine-agnostic version of it.
 //   - The choice between them is a per-engine policy paid for in measurements

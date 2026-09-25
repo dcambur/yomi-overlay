@@ -270,7 +270,7 @@ func stripFurigana(
                 yTop += h + gap
             }
             if let comp = ctx.makeImage(),
-                let ls = try? visionLines(comp, unrotate: false, wantChars: false)
+                let ls = try? visionLines(comp, wantChars: false)
             {
                 for l in ls {
                     let midY = l.box.midY * Double(compH)

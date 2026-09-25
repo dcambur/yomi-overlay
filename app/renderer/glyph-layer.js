@@ -46,6 +46,15 @@
   // between two independent reads of the same static 30px page, while the
   // median across lines stayed at 0–2px in every run.
   const LAYOUT_EPSILON_PX = 3;
+  // Share of characters above which a payload is the page already built:
+  // re-reads share 0.95–1.0, a real change 0.04–0.09 (section 5, 2026-09-10).
+  const SAME_PAGE_SHARE = 0.85;
+  // Share below which it is not the same page at all — a turn, or a transient
+  // bad read, which is why a turn needs a second payload that agrees (sameTurn).
+  const TURN_SHARE = 0.5;
+  // Refusals in a row before the gate gives in: a HUD holding 14 of 16 lines
+  // kept a changed dialogue box under 15% for good (section 5, 2026-08-09).
+  const REFUSALS_BEFORE_REBUILD = 3;
 
   function firstCharOf(line) {
     return line.chars && line.chars.length ? line.chars[0] : null;
@@ -110,12 +119,13 @@
   // Dismissing on the first turn-like payload closed the popup mid-read with
   // no user action. A REAL page turn keeps producing the same new text,
   // so dismissal requires two consecutive turn-like payloads that also agree
+  // with each other — renderer.js asks sameTurn().
 
   function isPageTurn(payload) {
     if (!contentSig) return true;
     const now = (payload.lines || []).map(l => l.text);
     if (!now.length) return false;
-    return sharedText(now, contentSig.split('\u0001')) < 0.5;
+    return sharedText(now, contentSig.split('\u0001')) < TURN_SHARE;
   }
 
   function apply(payload) {
@@ -197,15 +207,15 @@
       // static page periodically matches the DOM exactly and resets the streak
       // (the watcher only re-emits when recognised text changes); three misses
       // in a row means the page really is different — rebuild.
-      if (similarity > 0.85) {
+      if (similarity > SAME_PAGE_SHARE) {
         rejectedStreak++;
-        if (rejectedStreak < 3) {
+        if (rejectedStreak < REFUSALS_BEFORE_REBUILD) {
           console.log(`layer: kept over payload ${(similarity * 100) | 0}% similar ` +
-                    `(miss ${rejectedStreak}/3)`);
+                    `(miss ${rejectedStreak}/${REFUSALS_BEFORE_REBUILD})`);
           return 'kept';
         }
-        console.log('layer: rebuild forced — 3 payloads rejected in a row ' +
-                  `(last ${(similarity * 100) | 0}% similar)`);
+        console.log(`layer: rebuild forced — ${REFUSALS_BEFORE_REBUILD} payloads ` +
+                  `rejected in a row (last ${(similarity * 100) | 0}% similar)`);
       }
     }
     rejectedStreak = 0;
@@ -290,9 +300,10 @@
   }
 
   window.glyphLayer = {
-    apply, isPageTurn, sharedText, highlight, clearHighlight, reset,
+    apply, isPageTurn, highlight, clearHighlight, reset,
+    /** Two turn-like payloads agree: the page really turned. */
+    sameTurn: (a, b) => sharedText(a, b) >= TURN_SHARE,
     lineAt: (li) => lines[li],
-    spanAt: (li, ci) => spanIndex.get(li + ':' + ci),
     get current() { return current; },
     get glyphCount() { return spans.length; },
     get lineCount() { return lines.length; },

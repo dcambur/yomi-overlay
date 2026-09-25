@@ -131,6 +131,13 @@ decisions there are invariants for every phase below.
     byte-identical). So same-engine voting corrects only capture-level pixel
     jitter; 3 voters is the right cap, and the big cross-voting gains belong
     to Phase 3's second engine (independent error distribution).
+- **2026-09-24 — Phase 3 removed.** Six weeks in shadow mode produced no
+  data to decide on: its only output was a log line nothing collected, the
+  sidecar could not run in a release build (neither tools/ nor the venv is
+  bundled), and on the development machine it was not installed, so every
+  session's first lookup spawned into ENOENT and leaked a /tmp crop. It cost a
+  ~2 GB setup step and a crop per looked-up word. The crop channel it built
+  stays: the Anki picture uses it (app/main/crop.js).
 - **2026-08-08 — Phase 3 landed (shadow mode).** manga-ocr Tier-2 chain, all
   links verified: renderer sends the matched word's exact glyph-box union →
   `main.js` throttles (400 ms) → yomi crop command channel (stdin

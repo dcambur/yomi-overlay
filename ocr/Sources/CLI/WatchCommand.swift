@@ -19,6 +19,11 @@ func waitNextPass(_ interval: Double, watching id: CGWindowID?, json: Bool) asyn
         let step = min(0.15, left)
         try? await Task.sleep(nanoseconds: UInt64(step * 1_000_000_000))
         left -= step
+        // A crop asked for now is of the frame the current payload was read
+        // from; served only at the top of the next pass, it waited behind the
+        // interval and a capture (against Anki's 3 s budget), and could be cut
+        // from a newer page than the word's rect.
+        cropChannel.drain()
         if let id, !stillVisible(id) {
             emitIdle(json: json)
             return
@@ -81,6 +86,17 @@ func runWatchLoop(_ opts: Options) async throws {
     let session = RecognitionSession(opts)
     var lastText = ""
     var failures = 0
+    /// A pass got all the way through. If the ones before it failed, say that
+    /// it is over — once — and restart the 1st/10th/20th throttle below. Every
+    /// way out of a good pass calls this: it used to sit on the text-mode path
+    /// only, so in JSON watch mode the count never reset, and after one
+    /// transient failure no later one was logged at all.
+    func recovered() {
+        guard failures > 0 else { return }
+        FileHandle.standardError.write(
+            "capture recovered after \(failures) failure(s)\n".data(using: .utf8)!)
+        failures = 0
+    }
     // The window the last pass captured, re-checked between passes so
     // a swipe to another Space is noticed in ~150ms instead of at the
     // top of the next pass.
@@ -92,7 +108,7 @@ func runWatchLoop(_ opts: Options) async throws {
     var voteBuf: [[Line]] = []
     var lastVertical = false
     var stablePasses = 0
-    // Tier-2 crop requests arrive on stdin (Phase 3).
+    // Crop requests arrive on stdin: the Anki card's picture (docs/ANKI.md).
     if opts.json && opts.watch { cropChannel.startReader() }
     repeat {
         // Set below when this pass emitted text that really changed — not a
@@ -141,7 +157,7 @@ func runWatchLoop(_ opts: Options) async throws {
                 FileHandle.standardError.write(msg.data(using: .utf8)!)
             }
 
-            cropChannel.store(shot.image, region: shot.region)
+            cropChannel.store(shot.image, geometry: shot.geometry)
             cropChannel.drain()
 
             // Skip the expensive recognition pass when neither the
@@ -158,7 +174,7 @@ func runWatchLoop(_ opts: Options) async throws {
                     voteBuf.count < opts.votes,
                     stablePasses % opts.voteEvery == 0
                 {
-                    let geom = Geometry(region: shot.region, window: shot.region)
+                    let geom = shot.geometry
                     let (pass, _) = try await recognizeAuto(
                         shot.image, geometry: geom, forced: opts.vertical,
                         session: session)
@@ -171,16 +187,16 @@ func runWatchLoop(_ opts: Options) async throws {
                         let voted = voteLines(voteBuf)
                         let f = CGRect(origin: shot.origin, size: shot.size)
                         let payload = buildPayload(
-                            voted, frame: f, window: current.frame,
+                            voted, frame: f, window: current.frame, covers: current.covers,
                             vertical: lastVertical, vote: voteBuf.count,
                             engine: session.lastLoggedEngine)
                         if payload != lastText {
-                            emit(payload, to: opts.outPath)
+                            emit(payload)
                             lastText = payload
-                            if opts.outPath == nil { fflush(stdout) }
                             FileHandle.standardError.write(
                                 "voted pass \(voteBuf.count)/\(opts.votes)\n"
                                     .data(using: .utf8)!)
+                            recovered()
                             if opts.watch {
                                 await waitNextPass(
                                     opts.interval,
@@ -199,11 +215,11 @@ func runWatchLoop(_ opts: Options) async throws {
                 if opts.json {
                     print(
                         heartbeatJSON(
-                            frame: CGRect(
-                                origin: shot.origin,
-                                size: shot.size)))
+                            frame: CGRect(origin: shot.origin, size: shot.size),
+                            covers: current.covers))
                     fflush(stdout)
                 }
+                recovered()
                 if opts.watch {
                     await waitNextPass(
                         opts.interval,
@@ -212,21 +228,23 @@ func runWatchLoop(_ opts: Options) async throws {
                 continue
             }
 
-            lastHash = hash
-            lastFrame = current.frame
-
             // Positions are expressed against the captured region, not
             // the window: a window's self-reported frame is stale while
             // it is fullscreen, and anything derived from it inherits
             // that error. The consumer places the layer at the region
             // origin, so region-relative coordinates land exactly on
             // the real glyphs whatever the window claims.
-            let geom = Geometry(region: shot.region, window: shot.region)
+            let geom = shot.geometry
             // Geometry is passed in text mode too: ruby detection
             // needs char boxes (heights + adjacency).
             var (lines, isVertical) = try await recognizeAuto(
                 shot.image, geometry: geom, forced: opts.vertical,
                 session: session)
+            // Only now is this frame's hash the page's: committed before the
+            // read, a recognition that threw left the previous page's text
+            // standing as "unchanged" over the new one.
+            lastHash = hash
+            lastFrame = current.frame
             markRuby(&lines, vertical: isVertical)
 
             // A different page, or the same one read again with jitter? An
@@ -252,15 +270,14 @@ func runWatchLoop(_ opts: Options) async throws {
                 // rect goes out separately, for diagnostics only.
                 let f = CGRect(origin: shot.origin, size: shot.size)
                 let payload = buildPayload(
-                    lines, frame: f, window: current.frame,
+                    lines, frame: f, window: current.frame, covers: current.covers,
                     vertical: isVertical, vote: 1,
                     engine: session.lastLoggedEngine)
                 let parts = lines.filter { !$0.chars.isEmpty }
                 if payload != lastText {
-                    emit(payload, to: opts.outPath)
+                    emit(payload)
                     lastText = payload
                     producedNewText = turned
-                    if opts.outPath == nil { fflush(stdout) }
                     FileHandle.standardError.write(
                         "emitted \(parts.count) lines\n".data(using: .utf8)!)
                 } else {
@@ -270,9 +287,10 @@ func runWatchLoop(_ opts: Options) async throws {
                     // without one the consumer cannot tell this apart
                     // from a vanished window and hides the overlay
                     // mid-read.
-                    print(heartbeatJSON(frame: f))
+                    print(heartbeatJSON(frame: f, covers: current.covers))
                     fflush(stdout)
                 }
+                recovered()
                 if opts.watch {
                     settlePasses =
                         producedNewText && settlePasses < maxSettlePasses
@@ -284,34 +302,13 @@ func runWatchLoop(_ opts: Options) async throws {
                 continue
             }
 
-            // Rotation already returns columns in reading order, so a
-            // detected-vertical page needs no re-sorting. Ruby lines
-            // are dropped from text output — that is the filter's
-            // whole point (readings are hints, not text).
-            let textLines = lines.filter { !$0.ruby }
-            let text =
-                (session.orientation == .verticalNative
-                // Native-vertical lines are pre-sorted by their char
-                // quads; order()'s 0.04 column-tie threshold exceeds a
-                // dense page's column spacing (kakuyomu: 0.033) and
-                // re-swaps adjacent columns. Do not re-sort them.
-                ? textLines.map(\.text)
-                : order(textLines, vertical: opts.vertical && !isVertical))
-                .joined(separator: "\n")
+            let text = plainText(lines, session: session)
 
-            if failures > 0 {
-                FileHandle.standardError.write(
-                    "capture recovered after \(failures) failure(s)\n".data(using: .utf8)!)
-                failures = 0
-            }
+            recovered()
 
             if text != lastText {
-                emit(text, to: opts.outPath)
+                emit(text)
                 lastText = text
-                if opts.outPath != nil {
-                    FileHandle.standardError.write(
-                        "captured \(lines.count) lines\n".data(using: .utf8)!)
-                }
             }
         } catch {
             // In watch mode a failure is usually transient: the target

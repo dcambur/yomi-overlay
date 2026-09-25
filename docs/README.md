@@ -22,7 +22,8 @@ anything.
 - **Rebuild the OCR helper** with `ocr/build.sh`.
 - **Before a structural change to the Swift**, record `test/golden.sh` and
   require byte-identical output after. It needs no permission and no window.
-- **`test/unit/run.sh`** runs in ~3 seconds and needs nothing. Run it.
+- **`test/run.sh`** runs every test and opens no window on your screen; the
+  capture tests run on an invisible display. Run it.
 - **When geometry looks wrong, don't theorise.** `bin/yomi --dump /tmp/x.png`
   and *look* at the image; compare `[win] target frame` in
   `/tmp/yomi-overlay.log` against `bin/yomi --list-all`; check whether the

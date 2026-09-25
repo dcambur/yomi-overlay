@@ -19,6 +19,16 @@ let lastOffset = { fx: NaN, fy: NaN };
 // Same, for the regions other windows are drawn over the target — compared as
 // a signature because the value is a list.
 let lastCovers = '';
+// The payload the renderer's layer was last built from. A page that loads
+// after it was sent — a slow cold start, a reload after a crash — never saw
+// it, and a static page sends nothing but heartbeats, which carry no lines.
+let lastCapture = null;
+let lastCrashAt = 0;
+// The renderer died twice in quick succession and was left dead: the panel
+// stays hidden rather than being shown, empty, over the target every pass.
+let rendererGivenUp = false;
+let onGiveUp = () => {};
+let onRevive = () => {};
 
 // 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
 // payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
@@ -79,7 +89,13 @@ function ensureCover(frame) {
   return db;
 }
 
-function createWindow() {
+/**
+ * The panel. `o.onGiveUp` hears when its page is given up on (it crashed
+ * twice), and `o.onRevive` when a given-up page is loaded again.
+ */
+function createWindow(o = {}) {
+  onGiveUp = o.onGiveUp || onGiveUp;
+  onRevive = o.onRevive || onRevive;
   win = new BrowserWindow({
     ...screen.getPrimaryDisplay().bounds,
     transparent: true,
@@ -128,6 +144,35 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     console.log('[renderer] loaded');
     sendTrigger();
+    // Whatever went out before this page's listeners existed was dropped.
+    // Replay the layer; the next pass re-sends the offset and covers, once
+    // they are no longer the ones "already sent".
+    lastOffset = { fx: NaN, fy: NaN };
+    lastCovers = '';
+    if (lastCapture) win.webContents.send('capture', lastCapture);
+    // A page that died while the popup had the mouse left the panel taking
+    // every click on the display.
+    interactive = false;
+    win.setIgnoreMouseEvents(true, { forward: true });
+  });
+  win.webContents.on('render-process-gone', (_e, d) => {
+    // Whatever happens next, the dead page must not keep the mouse: if it
+    // died while the popup had it, the panel takes every click on the display.
+    interactive = false;
+    win.setIgnoreMouseEvents(true, { forward: true });
+    // Twice inside ten seconds is not a hiccup, and a reload would replay
+    // the payload that may be killing it: give up, get off the screen, and
+    // say so.
+    if (Date.now() - lastCrashAt < 10000) {
+      rendererGivenUp = true;
+      hideOverlay('the overlay page keeps crashing');
+      console.error(`[renderer] gone again (${d.reason}); not reloading`);
+      onGiveUp();
+      return;
+    }
+    lastCrashAt = Date.now();
+    console.error(`[renderer] gone (${d.reason}); reloading`);
+    win.webContents.reload();
   });
   win.loadFile(path.join(RENDERER_DIR, 'index.html'));
 }
@@ -151,15 +196,11 @@ function sendTrigger() {
 }
 
 /**
- * One line of NDJSON from the capture child: payload, heartbeat, idle marker
- * or crop reply. The whole overlay is driven from here.
-
-/**
  * A payload arrived and the target is on screen: make sure the panel is up,
  * on the right display, and told where the target is.
  */
 function trackTarget(frame, covers) {
-  if (!win) return;
+  if (!win || rendererGivenUp) return;
   ensureCover(frame);
   if (!win.isVisible()) {
     win.showInactive();
@@ -201,8 +242,23 @@ function setInteractive(want) {
   else win.setIgnoreMouseEvents(true, { forward: true });
 }
 
+/**
+ * A page given up on, loaded again: what the user asks for with "Restart
+ * capture" or a new target. Given up, it used to stay dead until the app was
+ * quit — a retarget and a restart left the panel hidden for good.
+ */
+function revive() {
+  if (!rendererGivenUp || !win || win.isDestroyed()) return;
+  rendererGivenUp = false;
+  lastCrashAt = 0;
+  console.log('[renderer] reloading the page it gave up on');
+  win.webContents.reload();
+  onRevive();
+}
+
 /** Retarget: the glyph layer describes a window we no longer track. */
 function reset() {
+  revive();
   if (win && !win.isDestroyed()) {
     if (win.isVisible()) win.hide();
     win.webContents.send('reset');
@@ -212,6 +268,13 @@ function reset() {
   // frame that happens to equal the stale one.
   lastOffset = { fx: NaN, fy: NaN };
   lastCovers = '';
+  lastCapture = null;
+}
+
+/** A changed payload for the glyph layer, kept for a page that loads later. */
+function sendCapture(payload) {
+  lastCapture = payload;
+  if (win && !win.isDestroyed()) win.webContents.send('capture', payload);
 }
 
 module.exports = {
@@ -221,6 +284,8 @@ module.exports = {
   trackTarget,
   setInteractive,
   reset,
+  revive,
+  sendCapture,
   send: (channel, ...a) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...a);
   },

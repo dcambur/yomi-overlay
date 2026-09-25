@@ -158,8 +158,8 @@ func reflowStrip(
 /// Replace Live Text's per-char geometry on native-vertical pages with
 /// measured ink cells. Measured against a known render grid: LT quads on
 /// dense columns come back ~1.7x the true pitch and drift up to two rows by
-/// mid-column — text right, geometry wrong — which misplaces spans AND feeds
-/// Tier-2 crops containing the neighbor character.
+/// mid-column — text right, geometry wrong — which misplaces spans AND puts
+/// the neighbour character into every crop taken from them.
 ///
 /// The circularity trap, paid for in three failed designs: any per-LINE crop
 /// or alignment derived FROM the quads re-derives their drift (nearest-cell

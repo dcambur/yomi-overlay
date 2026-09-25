@@ -268,34 +268,6 @@
     return el;
   }
 
-  /**
-   * A whole glossary — the array stored for one entry — as one fragment.
-   * Plain strings are the other shape dictionaries ship (明鏡, 旺文社, 実用,
-   * DOJG and どんなとき give one newline-formatted string per entry), and they
-   * become one block per line so the popup can lay them out.
-   */
-  function glossary(doc, glosses, dict) {
-    const frag = doc.createDocumentFragment();
-    for (const g of Array.isArray(glosses) ? glosses : [glosses]) {
-      if (typeof g === 'string') {
-        for (const line of g.split('\n')) {
-          const t = line.trim();
-          if (!t) continue;
-          const div = doc.createElement('div');
-          div.className = 'sc-line';
-          div.textContent = t;
-          frag.appendChild(div);
-        }
-      } else {
-        const div = doc.createElement('div');
-        div.className = 'sc-block';
-        div.appendChild(render(doc, g, dict));
-        frag.appendChild(div);
-      }
-    }
-    return frag;
-  }
-
   /** The text a reader would see. Ruby readings are excluded, exactly as the
    *  old index-time flattener excluded them — inlining 迷惑's ruby gives
    *  "迷 めい 惑 わく". */
@@ -315,5 +287,5 @@
     return textOf(node.content);
   }
 
-  window.structured = { render, glossary, textOf, mediaURL };
+  window.structured = { render, textOf };
 })();

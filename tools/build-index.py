@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Convert Yomitan dictionary zips into one compact lookup index.
+"""Convert Yomitan dictionary zips into one compact lookup index — the OLD way.
+
+Retired: the app builds its index with app/main/index-builder.js (run it with
+tools/build-index.sh). This flattening builder stays because lookup.js must
+keep reading the indexes it wrote, and test/fixtures/legacy-index.js
+makes one with it.
 
 Yomitan term banks are arrays of:
   [expression, reading, definitionTags, rules, score, glossary, sequence, termTags]
