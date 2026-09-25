@@ -73,8 +73,8 @@ electron() {
 }
 
 for l in $LANES; do
-  case "$l" in logic|pages|screen|firstrun|idle|spaces) ;; *)
-    echo "usage: test/run.sh [logic] [pages] [screen] [firstrun] [idle] [spaces]" \
+  case "$l" in logic|pages|screen|firstrun|idle|spaces|book) ;; *)
+    echo "usage: test/run.sh [logic] [pages] [screen] [firstrun] [idle] [spaces] [book]" \
          "| golden record|check NAME" >&2
     exit 2 ;;
   esac
@@ -151,6 +151,23 @@ if lane screen; then stage_lane screen "$HERE/screen/screen.js"; fi
 if lane firstrun; then stage_lane firstrun "$HERE/firstrun/firstrun.js"; fi
 if lane idle; then stage_lane idle "$HERE/idle/idle.js"; fi
 if lane spaces; then stage_lane spaces "$HERE/spaces/spaces.js"; fi
+
+# A book, read page by page: headless, so it needs neither the display nor
+# the permission, but it needs a book and a dictionary nobody can ship.
+if lane book; then
+  echo "== book =="
+  t=$(date +%s)
+  if [ ! -x "$ELECTRON" ]; then
+    cannot "electron is not installed — run setup.sh (or npm install in app/)"
+  elif [ ! -x "$OCR_BIN" ]; then
+    cannot "no capture helper at $OCR_BIN — run ocr/build.sh"
+  elif [ -z "${YOMI_BOOK:-}" ] || [ ! -f "$YOMI_BOOK" ]; then
+    cannot "set YOMI_BOOK to an .epub to read (test/book/book.js)"
+  else
+    electron "$HERE/book/book.js" || rc=1
+  fi
+  elapsed "$t"
+fi
 
 [ $rc -eq 0 ] && echo "all lanes passed"
 exit $rc
