@@ -32,6 +32,7 @@ function captureLine(label) {
     case 'reading': return `Reading ${label}`;
     case 'away': return `${label} is not on screen`;
     case 'failing': return 'Capture keeps stopping — its reason is in the log';
+    case 'unstartable': return 'Capture could not start — its reason is in the log';
     case 'stopped': return 'The overlay stopped after crashing — Restart capture revives it';
     default: return null;
   }
@@ -39,8 +40,10 @@ function captureLine(label) {
 
 /**
  * What capture is doing now: 'starting', 'reading', 'away' (the target has no
- * window on screen), 'stopped' (the overlay page was given up), or an exit of
- * the capture child. Redraws the menu only when the answer changes.
+ * window on screen), 'unstartable' (the helper could not be spawned),
+ * 'stopped' (the overlay page was given up), 'revived' (it was loaded again),
+ * or an exit of the capture child. Redraws the menu only when the answer
+ * changes.
  */
 function setCapture(state) {
   if (state === 'exited') {
@@ -49,7 +52,14 @@ function setCapture(state) {
     state = 'failing';
   }
   if (state === 'reading' || state === 'away') exitsInARow = 0;
-  if (capture.state === 'stopped' && state !== 'starting') return;
+  // Only reloading the page ends "stopped": the child restarting on its own —
+  // a crash, the watchdog — leaves the page dead, and the menu read "Reading"
+  // over it (test/idle).
+  if (capture.state === 'stopped' && state !== 'revived') return;
+  if (state === 'revived') state = 'starting';
+  // A child that keeps stopping is failing until it reads: each backoff
+  // restart put "Starting capture…" back for as long as it lived.
+  if (capture.state === 'failing' && state === 'starting') return;
   if (state === capture.state) return;
   capture = { state };
   if (slowTimer) { clearTimeout(slowTimer); slowTimer = null; }

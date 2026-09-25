@@ -21,6 +21,7 @@ const { stageWindow } = require(path.join(STAGE, 'display.js'));
 const { appOnStage, watchPid, lookUp, glyphCount } = require(path.join(STAGE, 'app.js'));
 const { watch } = require(path.join(STAGE, 'yomi.js'));
 const { runLane } = require(path.join(STAGE, 'lane.js'));
+const { SUITE_LIMIT_MS } = require(path.join(STAGE, 'harness.js'));
 
 const HOUR = 3600e3;
 const SOAK_S = Number(process.env.YOMI_IDLE_SOAK_S || 30);
@@ -131,6 +132,31 @@ runLane(async (D) => {
       note(`menu: ${now}`);
     });
 
+    await test('a capture restart does not hide that the overlay is still dead', async () => {
+      const menu = () => app.eval('return rec.menu.map((i) => i.label);');
+      const reconnect = () => waitFor('the reloaded page', async () => {
+        try { const c = await app.page(); await c.eval('1'); return c; } catch { return null; }
+      }, 8000);
+      cdp.crash(); cdp.close();
+      await sleep(300);
+      cdp = await reconnect();
+      await waitFor('the layer back', () => glyphCount(cdp), 5000);
+      cdp.crash(); cdp.close();          // given up
+      cdp = null;
+      await waitFor('the menu to say the overlay stopped', async () =>
+        (await menu()).some((l) => /overlay stopped/.test(l)), 5000);
+      // The capture child dies and is restarted on its own, as a crash or the
+      // watchdog restarts it — nothing revives the page.
+      process.kill(watchPid(app), 'SIGKILL');
+      await sleep(3000);
+      const m = await menu();
+      check(m.some((l) => /overlay stopped/.test(l)),
+            `the menu reads "${m[0]}" over an overlay that is still given up`);
+      await app.eval("menuClick('Restart capture');");
+      cdp = await reconnect();
+      await waitFor('the layer after Restart capture', () => glyphCount(cdp), 10000);
+    });
+
     await test('waking from a night asleep leaves a healthy capture child be', async () => {
       const pid = watchPid(app);
       // Asleep, the wall clock ran and the timers stood still; awake, the
@@ -208,4 +234,4 @@ runLane(async (D) => {
       check(logPerHour < 1024 * 1024, `the log grows ${kb(logPerHour)} KB an hour`);
     } finally { await soak.quit(); }
   }, SOAK_S * 1000 + 40000);
-});
+}, { limitMs: SUITE_LIMIT_MS + 2 * SOAK_S * 1000 });

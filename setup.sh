@@ -113,6 +113,9 @@ else
 fi
 
 # --- 5. Package, sign, install ------------------------------------------------
+# What the app this replaces was signed with, for step 6. A first run that made
+# the identity and then failed leaves its predecessor installed.
+BEFORE="$(codesign -d -r- "/Applications/Yomi Overlay.app" 2>&1 | grep '^designated' || true)"
 step "Building and installing Yomi Overlay.app (signed with \"$IDENTITY\")"
 "$TOOLS_DIR/build-app.sh"
 
@@ -126,11 +129,14 @@ esac
 # --- 6. Clear stale permission grants ----------------------------------------
 # If a previous ad-hoc build was ever granted anything, the grant is keyed to
 # the dead identity and shows as a lying checkbox. Clear both so the lists
-# start honest — but only when this run made the identity. A grant given
-# since belongs to the identity that is still here, and every re-run used to
-# clear it (test/firstrun: the second run reset both), which is exactly the
+# start honest — but only when this run made the identity, or replaced an
+# ad-hoc build (a first run that failed after making the identity leaves one
+# behind, and the re-run that replaces it made nothing). A grant given since
+# belongs to the identity that is still here, and every re-run used to clear
+# it (test/firstrun: the second run reset both), which is exactly the
 # re-grant this script exists to spare.
-if [ "$NEW_IDENTITY" = 1 ]; then
+case "$BEFORE" in *cdhash*) REPLACED_ADHOC=1 ;; *) REPLACED_ADHOC=0 ;; esac
+if [ "$NEW_IDENTITY" = 1 ] || [ "$REPLACED_ADHOC" = 1 ]; then
   step "Resetting stale permission entries for $BUNDLE_ID"
   tccutil reset ScreenCapture  "$BUNDLE_ID" 2>/dev/null || true
   tccutil reset Accessibility  "$BUNDLE_ID" 2>/dev/null || true

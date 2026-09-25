@@ -150,6 +150,34 @@ async function appCases(D, A) {
     } finally { await app.quit(); }
   });
 
+  await test('a helper that cannot start says so, not that it is slow', async () => {
+    const app = await firstLaunch(D, A, 'none', { clock: true });
+    try {
+      await waitFor('the dialog', async () => (await dialogs(app)).length);
+      await app.eval('clock.advance(10500);');
+      await sleep(500);
+      const m = await menu(app);
+      note(`menu: ${m[0]}`);
+      check(!m.some((l) => /minute/.test(l)), `it says to wait: "${m[0]}"`);
+      check(m.some((l) => /could not start/i.test(l)), `nothing says capture cannot start: ${m[0]}`);
+    } finally { await app.quit(); }
+  });
+
+  await test('capture that keeps stopping keeps saying so between restarts', async () => {
+    const app = await firstLaunch(D, A, 'denied', { clock: true });
+    try {
+      await waitFor('the menu to say capture keeps stopping', async () =>
+        (await menu(app)).some((l) => /keeps stopping/.test(l)), 10000);
+      // Past three more backoffs (2, 4, 8 s), without waiting them.
+      for (let i = 0; i < 3; i++) { await app.eval('clock.advance(16000);'); await sleep(400); }
+      const seen = await app.eval('return rec.menus;');
+      const after = seen.slice(seen.findIndex((l) => /keeps stopping/.test(l)));
+      note(`first lines since: ${[...new Set(after)].join(' | ')}`);
+      check(!after.some((l) => /^Starting/.test(l)),
+            'between restarts the menu went back to "Starting capture…"');
+    } finally { await app.quit(); }
+  });
+
   const target = { bundle: null, app: null, windowId: A.id, label: 'stage' };
 
   await test("a first capture refused, as a rebuilt helper's is, recovers", async () => {
@@ -205,47 +233,81 @@ exit 0`,
   open: '#!/bin/bash\necho "open $*" >> "$SHIM_LOG"',
   codesign: `#!/bin/bash
 echo "codesign $*" >> "$SHIM_LOG"
-echo 'designated => identifier "local.yomioverlay" and certificate leaf = H"abc"'`,
+if [ -e "$SHIM_BOX/installed-adhoc" ]; then echo 'designated => cdhash H"0123"'
+else echo 'designated => identifier "local.yomioverlay" and certificate leaf = H"abc"'; fi`,
   sleep: '#!/bin/bash\nexit 0',
 };
 
+/**
+ * A fresh copy whose setup.sh runs without reaching the machine: the shims
+ * first on PATH, HOME in the sandbox, dictionaries already there. The
+ * codesign shim reports the installed app ad-hoc while `installed-adhoc`
+ * exists in the sandbox.
+ */
+function setupSandbox() {
+  const root = freshCopy({ helper: false });
+  const box = path.dirname(root);
+  const shims = path.join(box, 'shims');
+  fs.mkdirSync(shims);
+  for (const [name, body] of Object.entries(SHIMS)) {
+    fs.writeFileSync(path.join(shims, name), body + '\n', { mode: 0o755 });
+  }
+  // build-app.sh packages, signs, and replaces /Applications/Yomi Overlay.app.
+  fs.writeFileSync(path.join(root, 'tools', 'build-app.sh'),
+                   '#!/bin/bash\necho "build-app.sh" >> "$SHIM_LOG"\n', { mode: 0o755 });
+  // Dictionaries already downloaded: a small generated one, not the network.
+  const mk = require(path.join(ROOT, 'test', 'fixtures', 'make-dictionary.js'));
+  fs.mkdirSync(path.join(root, 'data', 'dicts'), { recursive: true });
+  mk.termDictionary(path.join(root, 'data', 'dicts', 'first.zip'), { title: 'First' });
+  const log = path.join(box, 'calls.log');
+  const env = { ...process.env, HOME: path.join(box, 'home'), SHIM_LOG: log, SHIM_BOX: box,
+                PATH: `${shims}:${process.env.PATH}` };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.YOMI_USER_DIR;
+  fs.mkdirSync(env.HOME);
+  /** One run of setup.sh: its exit status and the commands it reached for. */
+  const run = () => {
+    fs.writeFileSync(log, '');
+    const r = spawnSync('bash', [path.join(root, 'setup.sh')],
+                        { env, encoding: 'utf8', timeout: 60000 });
+    return { status: r.status, err: String(r.stderr).slice(-300),
+             calls: fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) };
+  };
+  return { root, box, run };
+}
+
+const resetsIn = (r) => r.calls.filter((l) => l.startsWith('tccutil reset')).length;
+
 async function setupCases() {
   await test('a second setup.sh keeps the permissions the first one granted', async () => {
-    const root = freshCopy({ helper: false });
-    const box = path.dirname(root);
-    const shims = path.join(box, 'shims');
-    fs.mkdirSync(shims);
-    for (const [name, body] of Object.entries(SHIMS)) {
-      fs.writeFileSync(path.join(shims, name), body + '\n', { mode: 0o755 });
-    }
-    // build-app.sh packages, signs, and replaces /Applications/Yomi Overlay.app.
-    fs.writeFileSync(path.join(root, 'tools', 'build-app.sh'),
-                     '#!/bin/bash\necho "build-app.sh" >> "$SHIM_LOG"\n', { mode: 0o755 });
-    // Dictionaries already downloaded: a small generated one, not the network.
-    const mk = require(path.join(ROOT, 'test', 'fixtures', 'make-dictionary.js'));
-    fs.mkdirSync(path.join(root, 'data', 'dicts'), { recursive: true });
-    mk.termDictionary(path.join(root, 'data', 'dicts', 'first.zip'), { title: 'First' });
-    const log = path.join(box, 'calls.log');
-    const env = { ...process.env, HOME: path.join(box, 'home'), SHIM_LOG: log,
-                  PATH: `${shims}:${process.env.PATH}` };
-    delete env.ELECTRON_RUN_AS_NODE;
-    delete env.YOMI_USER_DIR;
-    fs.mkdirSync(env.HOME);
-    const runs = [];
-    for (let i = 0; i < 2; i++) {
-      fs.writeFileSync(log, '');
-      const r = spawnSync('bash', [path.join(root, 'setup.sh')],
-                          { env, encoding: 'utf8', timeout: 60000 });
-      check(r.status === 0,
-            `setup.sh run ${i + 1} exited ${r.status}: ${String(r.stderr).slice(-300)}`);
-      runs.push(fs.readFileSync(log, 'utf8').split('\n').filter(Boolean));
-    }
-    note(`first run:  ${runs[0].map((l) => l.split(' ').slice(0, 2).join(' ')).join(', ')}`);
-    note(`second run: ${runs[1].map((l) => l.split(' ').slice(0, 2).join(' ')).join(', ')}`);
-    check(runs[0].some((l) => l.startsWith('security import')), 'the first made no identity');
-    check(!runs[1].some((l) => l.startsWith('security import')), 'the second made another');
-    const resets = runs[1].filter((l) => l.startsWith('tccutil reset'));
-    check(!resets.length, `the second run cleared the grants: ${resets.join('; ')}`);
+    const { run } = setupSandbox();
+    const runs = [run(), run()];
+    runs.forEach((r, i) => check(r.status === 0, `run ${i + 1} exited ${r.status}: ${r.err}`));
+    const brief = (r) => r.calls.map((l) => l.split(' ').slice(0, 2).join(' ')).join(', ');
+    note(`first run:  ${brief(runs[0])}`);
+    note(`second run: ${brief(runs[1])}`);
+    const made = (r) => r.calls.some((l) => l.startsWith('security import'));
+    check(made(runs[0]), 'the first made no identity');
+    check(!made(runs[1]), 'the second made another');
+    check(!resetsIn(runs[1]), `the second run cleared the grants, ${resetsIn(runs[1])} times`);
+  });
+
+  await test("a failed first setup.sh still clears an old ad-hoc build's grants", async () => {
+    const { root, box, run } = setupSandbox();
+    // An old ad-hoc build is installed, and the first run fails at step 5,
+    // after making the identity — npm, a download or the build can.
+    fs.writeFileSync(path.join(box, 'installed-adhoc'), '');
+    fs.writeFileSync(path.join(root, 'tools', 'build-app.sh'), `#!/bin/bash
+echo "build-app.sh" >> "$SHIM_LOG"
+[ -e "$SHIM_LOG.failed-once" ] || { touch "$SHIM_LOG.failed-once"; exit 1; }
+rm -f "$SHIM_BOX/installed-adhoc"
+`, { mode: 0o755 });
+    const runs = [run(), run(), run()];
+    const resets = runs.map(resetsIn);
+    note(`tccutil resets per run: ${resets.join(', ')} (run 1 fails at build-app)`);
+    check(runs[0].status !== 0 && runs[1].status === 0, 'the sandbox did not fail as planned');
+    check(resets[1] === 2, 'the run that replaced the ad-hoc build left its grants standing');
+    check(resets[2] === 0, 'a run after the ad-hoc build was gone cleared the grants again');
   });
 }
 

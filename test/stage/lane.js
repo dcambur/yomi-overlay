@@ -13,9 +13,9 @@ app.on('window-all-closed', () => {});
  * Run `body(D, ctx)` on the invisible display; exit 0 only if every test
  * passed. `prelude(D)`, if given, runs before the suite's time limit starts —
  * a warm-up whose length is known and announced — and what it returns is
- * `ctx`.
+ * `ctx`. `limitMs` is for a lane asked to run long (a soak).
  */
-function runLane(body, { prelude } = {}) {
+function runLane(body, { prelude, limitMs = SUITE_LIMIT_MS } = {}) {
   app.whenReady().then(async () => {
     let t0 = Date.now();
     let D = null, guard = null;
@@ -26,9 +26,9 @@ function runLane(body, { prelude } = {}) {
       const ctx = prelude ? await prelude(D) : null;
       t0 = Date.now();
       setTimeout(() => {
-        console.log(`FAIL  the suite ran past ${SUITE_LIMIT_MS / 1000}s — stopped`);
+        console.log(`FAIL  the suite ran past ${limitMs / 1000}s — stopped`);
         app.exit(1);                  // process 'exit' kills every child
-      }, SUITE_LIMIT_MS);
+      }, limitMs);
       await body(D, ctx);
     } catch (e) {
       results.push({ ok: false, name: 'setup', ms: 0 });

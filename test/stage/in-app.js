@@ -30,7 +30,7 @@ const APP_DIR = process.env.YOMI_TEST_APP;
 const STAGE = process.env.YOMI_TEST_STAGE ? JSON.parse(process.env.YOMI_TEST_STAGE) : null;
 
 const rec = { dialogs: [], opened: [], focus: 0, dock: [], shortcuts: [], menu: [],
-              tooltip: null, windows: [] };
+              menus: [], tooltip: null, windows: [] };
 
 // --- the clock -----------------------------------------------------------------
 
@@ -120,7 +120,12 @@ function menuClick(label) {
 class Tray {
   constructor(icon) { this.icon = icon; this.menu = null; }
   setToolTip(t) { rec.tooltip = t; }
-  setContextMenu(m) { this.menu = m; rec.menu = labels(m); lastMenu = m; }
+  setContextMenu(m) {
+    this.menu = m;
+    rec.menu = labels(m);
+    rec.menus.push(rec.menu[0] ? rec.menu[0].label : '');   // every first line, in order
+    lastMenu = m;
+  }
   setImage() {}
   setTitle(t) { rec.title = t; }
   destroy() {}
@@ -185,6 +190,11 @@ const overrides = {
     },
   }),
 };
+
+// An accessory from the start, as the packaged app is (LSUIElement): the dev
+// Electron binary launches as a regular app until main hides its Dock tile,
+// and the guard caught that launch taking focus.
+electron.app.setActivationPolicy('accessory');
 
 // app.focus and app.dock: the app itself, so patched in place.
 electron.app.focus = () => { rec.focus++; };

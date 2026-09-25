@@ -125,7 +125,10 @@ const ocrChild = new SupervisedChild({
   onStderr: (text) => logLines('[ocr]', text),
   onStart: () => tray.setCapture('starting'),
   onExit: () => tray.setCapture('exited'),
-  onSpawnError: (err) => reportSpawnFailure('ocr', err),
+  onSpawnError: (err) => {
+    tray.setCapture('unstartable');
+    reportSpawnFailure('ocr', err);
+  },
   log: (m) => console.log(m),
   logError: (m) => console.error(m),
 });
@@ -198,7 +201,10 @@ app.whenReady().then(() => {
     },
   });
   permissions.checkAll(() => tray.refresh());
-  overlayWindow.create({ onGiveUp: () => tray.setCapture('stopped') });
+  overlayWindow.create({
+    onGiveUp: () => tray.setCapture('stopped'),
+    onRevive: () => tray.setCapture('revived'),
+  });
   ocrChild.start();
   eventsChild.start();
 

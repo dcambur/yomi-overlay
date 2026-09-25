@@ -127,7 +127,10 @@ class SupervisedChild {
     });
 
     this._armWatchdog();
-    this.onStart();
+    // Only once it really is running: a binary that cannot be spawned (ENOENT,
+    // EACCES) gets 'error' and never 'exit', and a start announced anyway
+    // left the menu saying a first read was slow, for good.
+    proc.once('spawn', () => this.onStart());
     return proc;
   }
 

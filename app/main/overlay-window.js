@@ -28,6 +28,7 @@ let lastCrashAt = 0;
 // stays hidden rather than being shown, empty, over the target every pass.
 let rendererGivenUp = false;
 let onGiveUp = () => {};
+let onRevive = () => {};
 
 // 8s, not 3.5s: an engine-probe + orientation-probe OCR pass produces no
 // payload for up to ~9s (measured on game targets, /tmp/yomi-overlay.log
@@ -88,9 +89,13 @@ function ensureCover(frame) {
   return db;
 }
 
-/** The panel; `o.onGiveUp` hears when its page is given up on (it crashed twice). */
+/**
+ * The panel. `o.onGiveUp` hears when its page is given up on (it crashed
+ * twice), and `o.onRevive` when a given-up page is loaded again.
+ */
 function createWindow(o = {}) {
   onGiveUp = o.onGiveUp || onGiveUp;
+  onRevive = o.onRevive || onRevive;
   win = new BrowserWindow({
     ...screen.getPrimaryDisplay().bounds,
     transparent: true,
@@ -248,6 +253,7 @@ function revive() {
   lastCrashAt = 0;
   console.log('[renderer] reloading the page it gave up on');
   win.webContents.reload();
+  onRevive();
 }
 
 /** Retarget: the glyph layer describes a window we no longer track. */
