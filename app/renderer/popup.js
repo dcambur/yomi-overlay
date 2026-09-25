@@ -24,10 +24,6 @@
     ['三省堂', 'mono'], ['明鏡', 'mono'], ['旺文社', 'mono'], ['実用', 'mono'],
     ['DOJG', 'gram'], ['どんなとき', 'gram'], ['日本語文法辞典', 'gram'],
   ];
-  // The order entries are shown in, whatever order the index returned them:
-  // what the word means first, in the language that answers fastest; then the
-  // Japanese definition; then how it is used; then reference material.
-  const KIND_ORDER = { bi: 0, mono: 1, gram: 2, kanji: 3, name: 4 };
 
   /**
    * What kind of dictionary this entry came from.
@@ -55,14 +51,14 @@
   }
 
   /**
-   * Entries in reading order, then kind order, with repeats removed.
+   * Entries in the order settings gave them, with repeats removed.
    *
    * A word with several readings is answered by the same dictionary once per
    * reading, and two readings often share an entry — 大丈夫 came back with the
    * identical Jitendex block twice. Identity is the dictionary plus the
    * glossary itself; two entries that would print the same thing are one.
    */
-  function orderEntries(entries) {
+  function distinctEntries(entries) {
     const seen = new Set();
     const out = [];
     for (const en of entries) {
@@ -71,12 +67,7 @@
       seen.add(key);
       out.push(en);
     }
-    // Stable: within a kind the index's own priority order survives, which is
-    // what the arrows in settings control.
-    return out
-      .map((en, i) => ({ en, i, k: KIND_ORDER[dictKind(en)] ?? 9 }))
-      .sort((a, b) => a.k - b.k || a.i - b.i)
-      .map((x) => x.en);
+    return out;
   }
 
   // A line that opens with a sense marker: circled or parenthesised digits,
@@ -449,7 +440,7 @@
       parts.push('<div class="card">');
       parts.push(headerHtml(g, gi));
 
-      const entries = orderEntries(g.entries);
+      const entries = distinctEntries(g.entries);
       // Proper names are a reference list, not a definition: 神 answers with
       // four blocks of kana readings before any dictionary says what it means.
       // One line, at the foot.

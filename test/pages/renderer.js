@@ -487,6 +487,18 @@ async function run() {
     send('dismiss'); await settle();
   });
 
+  await test('the popup draws dictionaries in the order settings put them', async () => {
+    const one = { ...WAGAHAI, entries: [
+      { reading: 'わがはい', dict: '明鏡国語辞典', glosses: ['わが-はい【吾輩】自分をさす語。'] },
+      { reading: 'わがはい', dict: 'Jitendex', glosses: ['I; me'] }] };
+    await openOn({ ...one, groups: [one] });
+    const order = await js("[...document.querySelectorAll('#popup .ent-hd .src')]"
+                           + '.map((s) => s.textContent)');
+    // Dismissed first: left open, a failure breaks the Anki tests below.
+    send('dismiss'); await settle();
+    assert.deepStrictEqual(order, ['明鏡国語辞典', 'Jitendex'], `drawn: ${order}`);
+  });
+
   const ankiLabel = () => js("document.querySelector('#popup .anki .anki-label').textContent");
   // The strike across the card, as the page drew it — not the class name.
   const ankiStruck = () => js("getComputedStyle(document.querySelector('#popup .anki-card'),"
