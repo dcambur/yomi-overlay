@@ -67,12 +67,13 @@ function track(child) {
 }
 
 /**
- * Kill `child` and everything it started, deepest first. SIGKILLed alone, the
- * app under test left its capture children alive, and the event monitor —
- * which writes only on a click or Shift — until the user's next one (five
- * were found after a day of runs). Walked with pgrep rather than a process
- * group: spawning the app detached (setsid) would start it in a session of
- * its own, a change to how it runs that killing its tree does not need.
+ * Kill `child` and everything it started, deepest first. The app's capture
+ * children leave on their own when it dies (the screen lane checks that), but
+ * a suite must not rely on the code it tests to clean up after it: before they
+ * did, a day of runs left five event monitors alive. Walked with pgrep rather
+ * than a process group: spawning the app detached (setsid) would start it in a
+ * session of its own, a change to how it runs that killing its tree does not
+ * need.
  */
 function killTree(child) {
   const tree = (pid) => {

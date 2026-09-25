@@ -145,7 +145,8 @@ What it asserts:
   Lapis note with sentence and picture, the overlay leaving within 4 s of the
   target (not at the 8 s backstop), a crashed page coming back, one that
   crashes twice given up and off the screen, quitting taking both children,
-  and each log line written once into its own directory.
+  each log line written once into its own directory, and a SIGKILLed app
+  taking both children with it too.
 
 This lane runs the app as it ships — its real menu-bar item shows for the
 ~10 s the app is up. The lanes below use `stage/in-app.js` instead.
