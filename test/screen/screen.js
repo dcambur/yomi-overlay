@@ -39,7 +39,7 @@ const { stageWindow, raise, contentOrigin, serverRect, near } =
   require(path.join(STAGE, 'display.js'));
 const { EXTRACT, EXTRACT_CHARS, alignment, assertAligned } =
   require(path.join(STAGE, 'truth.js'));
-const { devtools, LAYER, POPUP } = require(path.join(STAGE, 'app.js'));
+const { devtools, appOnStage, LAYER, POPUP } = require(path.join(STAGE, 'app.js'));
 const { runLane } = require(path.join(STAGE, 'lane.js'));
 const { takingFocus } = require(path.join(STAGE, 'user-screen.js'));
 
@@ -397,6 +397,46 @@ async function appScenario(A, B) {
   }
 }
 
+/**
+ * A crash or a force quit runs none of the app's shutdown, so each capture
+ * child has to notice on its own that the app is gone. The event monitor did
+ * not: it lived on under launchd (five found after a day of test runs).
+ */
+async function killedAppScenario(A) {
+  await test('a killed app takes both capture children with it', async () => {
+    const app = await appOnStage(A);
+    const alive = (pid) => {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    };
+    let kids = [];
+    try {
+      // After the first read the watch loop writes every 0.3 s, so how long it
+      // takes to go is a heartbeat, not a recognition.
+      await waitFor('the first read', () => /\[ocr\] emitted/.test(app.log()), 15000);
+      kids = execFileSync('pgrep', ['-P', String(app.child.pid), '-lf', OCR_BIN],
+                          { encoding: 'utf8' }).split('\n').filter(Boolean)
+        .map((l) => ({ pid: Number(l.split(' ')[0]),
+                       role: l.includes('--events') ? 'events' : 'watch' }));
+      check(kids.length === 2, `${kids.length} capture children, want 2`);
+      const killed = Date.now();
+      app.child.kill('SIGKILL');   // the app alone: what happens to its tree is the test
+      await waitFor('both children to exit', () => {
+        for (const k of kids) if (k.goneMs === undefined && !alive(k.pid)) {
+          k.goneMs = Date.now() - killed;
+        }
+        return kids.every((k) => k.goneMs !== undefined);
+      }, 3000).catch(() => {
+        const left = kids.filter((k) => alive(k.pid)).map((k) => `${k.role} (${k.pid})`);
+        throw new Error(`still running 3 s after the app was killed: ${left.join(', ')}`);
+      });
+      note(kids.map((k) => `${k.role} gone ${k.goneMs}ms`).join(', ') + ' after the app');
+    } finally {
+      for (const k of kids) { try { process.kill(k.pid, 'SIGKILL'); } catch { /* gone */ } }
+      killTree(app.child);
+    }
+  }, 30000);
+}
+
 // --- run -----------------------------------------------------------------------
 
 /**
@@ -423,6 +463,7 @@ runLane(async (_D, A) => {
   await verticalScenario();
   await pickerScenario();
   await appScenario(A, B);
+  await killedAppScenario(A);
 }, {
   async prelude(display) {
     D = display;

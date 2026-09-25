@@ -57,9 +57,21 @@ func streamEvents(modifier: String) {
         "event monitor started (needs Accessibility permission)\n".data(using: .utf8)!)
 }
 
-/// --events: start the monitor, then park forever.
+/// --events: start the monitor, then park until the app is gone.
 func runEventsCommand(_ opts: Options) async -> Never {
     streamEvents(modifier: opts.modifier)
+    // Nothing is written to this stdin; it ends when the app's end of the pipe
+    // closes, however the app went. The watch loop needs no such check — it
+    // writes every pass, and its next line to a dead app is a SIGPIPE
+    // (measured 0.61 s at --interval 0.6) — but this process writes only on a
+    // Shift or a click. A SIGKILLed app left it running under launchd: five
+    // found after a day of test runs, 1h20m-1h51m old.
+    let appGone = Thread {
+        while readLine() != nil {}
+        exit(0)
+    }
+    appGone.name = "events-stdin"
+    appGone.start()
     // Park the task forever. Sleeping keeps the main queue (and
     // therefore the run loop the monitors deliver on) draining,
     // without the run-loop calls that Swift 6 forbids in an async
