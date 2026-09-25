@@ -16,6 +16,7 @@
       <div class="tab on" data-tab="window">Target window</div>
       <div class="tab" data-tab="dicts">Dictionaries</div>
       <div class="tab" data-tab="trigger">Lookup</div>
+      <div class="tab" data-tab="anki">Anki</div>
     </div>
   </header>
 
@@ -66,6 +67,50 @@
         dictionary archives as they are shown — turning them off costs nothing
         but shows nothing.
       </p>
+    </div>
+
+    <div class="panel" id="p-anki">
+      <p class="hint">
+        A click on a headword's card mark puts the word in Anki as a
+        <b>Lapis</b> note; a filled mark is already in the deck, and two
+        clicks take it out. <b>Applies as you change it.</b>
+      </p>
+      <label class="row"><span>Anki</span>
+        <input id="anki-on" type="checkbox">
+        <span class="unit">show the card marks in the popup</span>
+      </label>
+      <!-- The state is one or two words after the dot; what to DO about it
+           is the muted line after them, and only when there is something to
+           do. When Anki is ready, the requirements are not worth reading. -->
+      <div class="row"><span>Status</span>
+        <span class="dot" id="anki-dot"></span>
+        <span class="state" id="anki-state">not checked yet</span>
+        <span class="unit grow" id="anki-detail"></span>
+        <button id="anki-refresh">Check again</button>
+      </div>
+      <!-- Only while Anki is running without Lapis: what the install puts in
+           the collection, said before it is clicked, and the one button. -->
+      <div class="row hidden" id="anki-install-row"><span>Lapis</span>
+        <span class="unit grow" id="anki-install-text"></span>
+        <span class="prog hidden" id="anki-install-prog">
+          <span class="bar"><span class="fill indeterminate"></span></span>
+        </span>
+        <button id="anki-install" class="primary">Install Lapis</button>
+      </div>
+      <p class="hint group-head">Deck — new notes go here</p>
+      <!-- Anki's deck names are paths (a::b::c). The list is drawn as that
+           tree: a parent folds its subdecks away, and only the chosen deck's
+           ancestors start open. -->
+      <div class="tree" id="decklist"></div>
+      <p class="hint group-head">On the card</p>
+      <label class="row"><span>Tags</span>
+        <input id="anki-tags" type="text" spellcheck="false">
+        <span class="unit">separated by spaces</span>
+      </label>
+      <label class="row"><span>Picture</span>
+        <input id="anki-picture" type="checkbox">
+        <span class="unit">the sentence's part of the page</span>
+      </label>
     </div>
 
     <div class="panel" id="p-dicts">

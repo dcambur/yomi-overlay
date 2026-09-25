@@ -67,6 +67,10 @@ In the window picker, clicking an app follows whichever window that app is showi
 
 Then read. Hold Shift and point, or click. The popup stays up after you release and closes once you move about 90px clear of it. There's also a hover mode (no modifier, dwell to fire) under Settings → Lookup.
 
+## Anki
+
+With Anki open (the AnkiConnect add-on installed, the [Lapis](https://github.com/donkuri/lapis) note type imported) and a deck chosen under Settings → Anki, every headword in the popup carries a small card mark. Click it and a Lapis note lands in that deck: the word, its reading with furigana, the sentence it was in with the word in bold, the popup's definitions, pitch accent, frequency, and a picture of that part of the page. A filled mark is a word already in the deck; clicking it twice removes the note. The note type is Lapis and only Lapis, by field name; [docs/ANKI.md](docs/ANKI.md) says which field gets what and why.
+
 ## Configuration
 
 data/config.json is written on first launch; the defaults live in app/main/config.js. The Settings window covers the common keys, the rest are edit-and-restart:
@@ -80,6 +84,7 @@ data/config.json is written on first launch; the defaults live in app/main/confi
 - `voting.passes` — re-OCR a static page N times and majority-vote per character (default 3; 1 disables)
 - `voting.everyN` — vote on every Nth unchanged pass (default 2)
 - `tier2.mode` — the manga-ocr second opinion. `shadow` logs disagreements, `off` disables it. Default shadow.
+- `anki.url`, `anki.key` — where AnkiConnect listens (default `http://127.0.0.1:8765`) and its API key if you set one (default none). The deck, tags and picture switch are in Settings → Anki.
 
 ## Deploying a change
 
@@ -109,7 +114,7 @@ Tests: `test/unit/run.sh` runs in about 3 seconds and needs no permissions or wi
 
 - Per-glyph boxes are interpolated inside Vision's word-level boxes, so alignment is always a bit approximate.
 - A word split across a line break can't be looked up as one unit.
-- No Anki export yet.
+- Anki notes carry no audio yet.
 - Tategaki on real reader apps is young. It passes the DOM-truth test suite, but hasn't been validated much against real Kindle pages with furigana.
 
 ## License and credits

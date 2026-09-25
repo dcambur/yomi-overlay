@@ -140,7 +140,12 @@ function sendTrigger() {
   // What the popup should draw, as opposed to when it should appear. One
   // channel for both because they arrive together and for the same reason:
   // settings changed.
-  win.webContents.send('view-config', { images: cfg.load().images !== false });
+  const a = cfg.anki();
+  win.webContents.send('view-config', {
+    images: cfg.load().images !== false,
+    // Whether to draw the card marks at all; which deck, for the mark's title.
+    anki: { enabled: a.enabled, deck: a.deck },
+  });
   console.log(`[trigger] ${t.mode === 'hover'
     ? `hover (${t.hoverDelayMs}ms dwell)` : t.modifier + ' + point'}`);
 }

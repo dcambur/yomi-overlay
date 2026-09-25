@@ -11,6 +11,7 @@
 //   target window       what the overlay attaches to
 //   lookup trigger      what makes a lookup fire
 //   dictionaries        what is installed, in what order
+//   anki                where a card goes, and whether the popup offers one
 //   wiring              footer buttons, progress events, first load
 //
 // Nothing here touches the filesystem or the index: every action is a request
@@ -82,7 +83,7 @@ function progressOf(p) {
 
 // --- tabs -------------------------------------------------------------------
 
-const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger' };
+const PANELS = { window: 'p-window', dicts: 'p-dicts', trigger: 'p-trigger', anki: 'p-anki' };
 
 /**
  * Show the tab, and the footer button only where it means something.
@@ -103,6 +104,10 @@ function showTab(name) {
   // child's arguments, so changing it restarts capture and drops the glyph
   // layer. The trigger and the dictionaries save themselves as they change.
   $('save').classList.toggle('hidden', name !== 'window');
+  // Anki is asked when its tab is looked at, not on a timer: a deck list
+  // changes at human speed, and a closed Anki would otherwise be asked every
+  // few seconds for as long as the window is open.
+  if (name === 'anki') refreshAnki();
 }
 
 for (const tab of document.querySelectorAll('.tab')) {
@@ -538,7 +543,260 @@ function renderDictionaries() {
   }
 }
 
+// --- anki -------------------------------------------------------------------
+//
+// Saved as it changes, like the trigger: the overlay draws its card marks from
+// the moment Anki is on and stops when it is off. The deck list is what Anki
+// reports when the tab is shown; with Anki closed the chosen deck is still
+// listed, alone, so the choice can be seen and is not lost.
+
+const DEFAULT_ANKI = { enabled: false, deck: null, tags: ['yomi-overlay'], picture: true };
+let ankiStatus = null;    // the last answer from the main process, or null
+
+/** The saved Anki settings, filled in for a config written before they existed. */
+function ankiConfig() {
+  config.anki = { ...DEFAULT_ANKI, ...(config.anki || {}) };
+  return config.anki;
+}
+
+function saveAnki() {
+  window.settings.saveAnki(ankiConfig());
+  $('status').textContent = 'saved';
+}
+
+function renderAnki() {
+  const a = ankiConfig();
+  $('anki-on').checked = !!a.enabled;
+  $('anki-tags').value = (a.tags || []).join(' ');
+  $('anki-picture').checked = a.picture !== false;
+  renderAnkiStatus();
+  renderDecks();
+}
+
+/**
+ * The status row, in the window picker's dot vocabulary: green is ready,
+ * amber is running but missing something, grey is not there. The state is
+ * a word or two; the detail is what to do about it, and is empty when there
+ * is nothing to do — a ready Anki does not need its requirements listed.
+ */
+function renderAnkiStatus() {
+  const s = ankiStatus;
+  let cls = 'idle', state = 'not checked yet', detail = '';
+  if (s && s.running && s.model) {
+    cls = 'live';
+    state = 'Ready';
+    const n = (s.decks || []).length;
+    detail = `Lapis note type · ${n} ${n === 1 ? 'deck' : 'decks'}`;
+  } else if (s && s.running) {
+    cls = 'away';
+    state = 'No Lapis';
+    detail = 'install it below';
+  } else if (s) {
+    // Connection refused is the common case and has a plain reading; any
+    // other failure (a timeout, a 403 from a locked AnkiConnect) is shown as
+    // the client reported it, because that is the only clue there is.
+    const refused = /not running/.test(s.error || '');
+    state = refused ? 'Not running' : 'Not answering';
+    detail = refused
+      ? 'open Anki with AnkiConnect'
+      : (s.error || '');
+  }
+  $('anki-dot').className = 'dot ' + cls;
+  $('anki-state').textContent = state;
+  $('anki-detail').textContent = detail;
+}
+
+// --- installing Lapis ---
+//
+// Offered only while Anki is running without Lapis. The row says what the
+// button will put in the collection before it is clicked — a note type from
+// someone else's project is a change to the reader's own Anki — and the button
+// keeps its name through the attempt, so "Install Lapis" is what it did.
+const LAPIS_WHAT = 'From github.com/donkuri/lapis 1.7.0: fields, template, styling. '
+  + 'No deck, no notes.';
+let installing = false;
+let installError = '';
+
+function renderInstall() {
+  const s = ankiStatus;
+  const missing = !!(s && s.running && !s.model);
+  $('anki-install-row').classList.toggle('hidden', !(missing || installing));
+  $('anki-install-prog').classList.toggle('hidden', !installing);
+  $('anki-install').disabled = installing;
+  $('anki-install-text').textContent = installing
+    ? 'Downloading and adding to Anki…'
+    : installError ? `Not installed: ${installError}` : LAPIS_WHAT;
+}
+
+async function installLapis() {
+  installing = true;
+  installError = '';
+  renderInstall();
+  let r;
+  try {
+    r = await window.settings.ankiInstall();
+  } catch (e) {
+    r = { ok: false, error: e.message };
+  }
+  installing = false;
+  if (!r || !r.ok) installError = (r && r.error) || 'Anki did not answer';
+  await refreshAnki();
+}
+
+async function refreshAnki() {
+  $('anki-state').textContent = 'checking…';
+  $('anki-detail').textContent = '';
+  // main/anki.js answers every case itself, so a rejection here is the
+  // bridge, not Anki — a main process older than this page, most likely
+  // (measured 2026-09-19: "No handler registered for 'anki:status'", and the
+  // row said "checking…" until the window was closed). Shown as the not-
+  // answering state rather than left hanging.
+  try {
+    ankiStatus = await window.settings.ankiStatus();
+  } catch (e) {
+    ankiStatus = { running: false, error: e.message };
+  }
+  renderAnkiStatus();
+  renderInstall();
+  renderDecks();
+}
+
+// Anki names a subdeck by its path, `Parent::Child`, and deckNames lists
+// every level. Drawn flat, a collection with a few nested decks is a wall of
+// repeated prefixes (this machine: 18 decks, 3 roots). So the list is the
+// tree Anki's own deck browser shows: a parent folds its subdecks, and the
+// folds start closed except along the path to the chosen deck. Which folds
+// are open lives here, not in config — it is how the list looks right now,
+// not a setting.
+const openDecks = new Set();
+let openDecksSeeded = false;
+
+/** The deck list as a tree: [{ name, path, kids: [...] }], in Anki's order. */
+function deckTree(names) {
+  const roots = [];
+  const byPath = new Map();
+  for (const path of names) {
+    const parts = path.split('::');
+    let level = roots, prefix = '';
+    for (const part of parts) {
+      prefix = prefix ? `${prefix}::${part}` : part;
+      let node = byPath.get(prefix);
+      if (!node) {
+        node = { name: part, path: prefix, kids: [] };
+        byPath.set(prefix, node);
+        level.push(node);
+      }
+      level = node.kids;
+    }
+  }
+  return roots;
+}
+
+/** Every proper ancestor of a deck path, nearest last. */
+function ancestors(path) {
+  const parts = (path || '').split('::');
+  const out = [];
+  for (let i = 1; i < parts.length; i++) out.push(parts.slice(0, i).join('::'));
+  return out;
+}
+
+/**
+ * One deck, and its subdecks under it. The name chooses; the fold at the
+ * left opens and closes, and is drawn (blank) on a leaf too, so names line
+ * up down a level. A closed parent says how many it hides, and keeps the
+ * accent when the chosen deck is one of them, so a choice is never hidden.
+ */
+function deckNode(node, chosen) {
+  const el = document.createElement('div');
+  el.className = 'deck-node';
+  const open = openDecks.has(node.path);
+  const hasKids = node.kids.length > 0;
+  const chosenInside = !open && ancestors(chosen).includes(node.path);
+  const row = document.createElement('div');
+  row.className = 'deck' + (node.path === chosen ? ' sel' : '')
+    + (chosenInside ? ' holds-sel' : '');
+  row.dataset.path = node.path;
+  const fold = document.createElement('button');
+  fold.className = 'fold' + (hasKids ? (open ? ' open' : '') : ' leaf');
+  fold.type = 'button';
+  fold.title = hasKids ? (open ? 'Fold the subdecks away' : 'Show the subdecks') : '';
+  fold.tabIndex = hasKids ? 0 : -1;
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = node.name;
+  row.append(fold, name);
+  if (hasKids && !open) {
+    const count = document.createElement('span');
+    count.className = 'sub';
+    const n = node.kids.length;
+    count.textContent = `${n} ${n === 1 ? 'subdeck' : 'subdecks'}`;
+    row.append(count);
+  }
+  el.append(row);
+  if (hasKids) {
+    const kids = document.createElement('div');
+    kids.className = 'deck-kids' + (open ? '' : ' hidden');
+    for (const k of node.kids) kids.append(deckNode(k, chosen));
+    el.append(kids);
+  }
+  row.onclick = () => {
+    ankiConfig().deck = node.path;
+    saveAnki();
+    renderDecks();
+  };
+  if (hasKids) {
+    fold.onclick = (e) => {
+      e.stopPropagation();
+      if (open) openDecks.delete(node.path); else openDecks.add(node.path);
+      renderDecks();
+    };
+  }
+  return el;
+}
+
+function renderDecks() {
+  const host = $('decklist');
+  host.innerHTML = '';
+  const a = ankiConfig();
+  const decks = (ankiStatus && ankiStatus.decks) || [];
+  // With Anki closed the chosen deck is still listed, alone, so the choice
+  // can be seen and is not lost. With Anki open and the deck gone from it,
+  // the same: the row is the only place the stale choice is visible.
+  const listed = decks.slice();
+  if (a.deck && !listed.includes(a.deck)) listed.push(a.deck);
+  if (!openDecksSeeded) {
+    for (const p of ancestors(a.deck)) openDecks.add(p);
+    openDecksSeeded = true;
+  }
+  for (const node of deckTree(listed)) host.appendChild(deckNode(node, a.deck));
+  if (!listed.length) {
+    const p = document.createElement('p');
+    p.className = 'hint empty';
+    p.textContent = 'No decks to show — open Anki and check again.';
+    host.appendChild(p);
+  }
+}
+
 // --- wiring -----------------------------------------------------------------
+
+$('anki-on').onchange = () => {
+  ankiConfig().enabled = $('anki-on').checked;
+  saveAnki();
+};
+$('anki-picture').onchange = () => {
+  ankiConfig().picture = $('anki-picture').checked;
+  saveAnki();
+};
+$('anki-tags').onchange = () => {
+  const tags = $('anki-tags').value.split(/\s+/).filter(Boolean);
+  ankiConfig().tags = tags;
+  $('anki-tags').value = tags.join(' ');
+  saveAnki();
+};
+$('anki-refresh').onclick = () => refreshAnki();
+$('anki-install').onclick = () => installLapis();
+// The popup's "no Lapis" and "no deck" marks open this window on this tab.
+window.settings.onShowTab((name) => { if (PANELS[name]) showTab(name); });
 
 for (const id of ['mode', 'modifier', 'delay']) {
   $(id).onchange = () => { syncTriggerRows(); saveTrigger(); };
@@ -620,7 +878,10 @@ async function init() {
   config = await window.settings.getConfig();
   selected = { ...(config.target || {}) };
   renderTrigger();
-  showTab('window');
+  renderAnki();
+  // Opened from a popup mark, the window starts on the tab that fixes it.
+  const asked = new window.URLSearchParams(window.location.search).get('tab');
+  showTab(PANELS[asked] ? asked : 'window');
   await refreshDictionaries();
   await refreshWindows();
 }

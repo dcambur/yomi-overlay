@@ -68,6 +68,20 @@ test('dictionary entries are normalised, junk dropped', () => {
   assert.deepStrictEqual(out.dictionaries, [{ name: 'Jitendex', enabled: true }]);
 });
 
+test('anki settings are normalised and merged over what was there', () => {
+  const out = sanitize({ anki: { enabled: 1, deck: '  Mining ', tags: ['a', ' b ', 7, ''],
+                                 url: 'ftp://x', key: '' } }, cur);
+  assert.deepStrictEqual(out.anki, {
+    enabled: true, deck: 'Mining', tags: ['a', 'b'], picture: true,
+    url: cur.anki.url, key: null,
+  });
+  // A partial save keeps the rest: the settings window sends one key at a time.
+  const partial = sanitize({ anki: { deck: 'Other' } }, { ...cur, anki: out.anki });
+  assert.strictEqual(partial.anki.enabled, true);
+  assert.strictEqual(partial.anki.deck, 'Other');
+  assert.strictEqual(sanitize({ anki: { deck: '' } }, cur).anki.deck, null);
+});
+
 test('unknown keys pass through, so settings can grow', () => {
   assert.strictEqual(sanitize({ somethingNew: 7 }, cur).somethingNew, 7);
 });

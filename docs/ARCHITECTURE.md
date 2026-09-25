@@ -51,6 +51,7 @@ test/                 unit (unattended) · golden (unattended) · verify (hands-
 | [app/shell/bootstrap.js](../app/shell/bootstrap.js) | the *entire* app bundle; loads the real code from this directory (§6) |
 | [app/main/index-builder.js](../app/main/index-builder.js) | Yomitan zips → `index.db` + `dictionaries.json`, in the app (§8, §13) |
 | [app/main/dictionaries.js](../app/main/dictionaries.js) | downloading and importing dictionaries (§13) |
+| [app/main/anki.js](../app/main/anki.js) | the AnkiConnect client and the Lapis note built from a popup card ([ANKI.md](ANKI.md)) |
 
 ## The load-bearing decisions
 
@@ -420,5 +421,5 @@ the glyph layer do not depend on one.
 - Per-glyph boxes are interpolated inside Vision's *word*-level boxes under
   `.accurate`; alignment is always slightly approximate.
 - Words split across a line break can't be looked up as one unit.
-- No Anki export yet.
+- Anki notes carry no audio; the note type is Lapis only ([ANKI.md](ANKI.md)).
 </content>

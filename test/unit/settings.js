@@ -23,7 +23,14 @@ let win;
 const consoleMessages = [];
 // What the page saved, per channel, so a test can assert that a change applied
 // itself rather than waiting for the footer button.
-const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null };
+const saved = { trigger: 0, dictionaries: 0, config: 0, view: null, target: null,
+                anki: null };
+
+// Set to make the bridge itself fail, as a main process older than the page does.
+let ankiBridgeDown = false;
+// What anki:install does: resolves when the test says so, with what it says.
+let installGate = null;
+let installs = 0;
 
 const results = [];
 async function test(name, fn) {
@@ -40,7 +47,12 @@ const CONFIG = {
   target: { bundle: 'com.apple.Safari', windowId: null, label: 'Safari' },
   dictionaries: [{ name: 'Jitendex', enabled: true }],
   trigger: { mode: 'hold', modifier: 'shift', hoverDelayMs: 250 },
+  anki: { enabled: false, deck: null, tags: ['yomi-overlay'], picture: true },
 };
+// What main/anki.js answers with Anki open and Lapis imported.
+const ANKI = { running: true, version: 6, model: true,
+               decks: ['Default', 'Mining', 'Novels', 'Novels::Hoshi',
+                       'Novels::Hoshi::Vol 1'] };
 const CATALOGUE = [
   { id: 'jitendex', label: 'Jitendex', name: 'Jitendex', detail: 'JA-EN', installed: true },
   { id: 'jmnedict', label: 'Names', name: 'JMnedict', detail: 'names', installed: false },
@@ -164,6 +176,146 @@ async function run() {
                            'the main process was told, without a button');
   });
 
+  const deck = (p) => `document.querySelector('#decklist .deck[data-path="${p}"]')`;
+  const shown = "[...document.querySelectorAll('#decklist .deck')]"
+    + '.filter((e) => e.getBoundingClientRect().height > 0).map((e) => e.dataset.path)';
+
+  await test('the Anki tab asks Anki when shown, and lists its decks as a tree', async () => {
+    await js("document.querySelector('[data-tab=\"anki\"]').click()");
+    await settle();
+    assert.ok(await js("document.getElementById('save').classList.contains('hidden')"),
+              'nothing to apply: the tab saves as it changes');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck').length"), 5,
+                       'one row per deck, subdecks included');
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels'],
+                           'subdecks start folded away');
+    assert.strictEqual(await js(`${deck('Novels')}.querySelector('.sub').textContent`),
+                       '1 subdeck', 'a closed parent says what it hides');
+    assert.ok(await js("document.getElementById('anki-dot').classList.contains('live')"),
+              'open with Lapis is the green dot');
+    assert.strictEqual(await js("document.getElementById('anki-state').textContent"), 'Ready');
+  });
+
+  await test('a fold opens one level, and choosing a subdeck saves its full path', async () => {
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await settle();
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels', 'Novels::Hoshi'],
+                           'one level, not the whole subtree');
+    assert.strictEqual(saved.anki, null, 'a fold is not a choice');
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await js(`${deck('Novels::Hoshi')}.querySelector('.fold').click()`);
+    await settle();
+    await js(`${deck('Novels::Hoshi::Vol 1')}.click()`);
+    await settle();
+    assert.strictEqual(saved.anki && saved.anki.deck, 'Novels::Hoshi::Vol 1');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck.sel').length"), 1);
+    // Fold the grandparent: the choice is out of sight, and the row that hides
+    // it says so.
+    await js(`${deck('Novels')}.querySelector('.fold').click()`);
+    await settle();
+    assert.deepStrictEqual(await js(shown), ['Default', 'Mining', 'Novels']);
+    assert.ok(await js(`${deck('Novels')}.classList.contains('holds-sel')`));
+  });
+
+  await test('choosing a deck saves it without a button, and turning Anki on too', async () => {
+    await js(`${deck('Mining')}.click()`);
+    await settle();
+    assert.strictEqual(saved.anki && saved.anki.deck, 'Mining');
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck.sel').length"), 1);
+    await js("(() => { const b = document.getElementById('anki-on');"
+             + ' b.checked = true; b.onchange(); })()');
+    await settle();
+    assert.strictEqual(saved.anki.enabled, true);
+    assert.strictEqual(saved.anki.deck, 'Mining', 'one object carries every key');
+  });
+
+  await test('a bridge that rejects is shown as not answering, not left checking', async () => {
+    ankiBridgeDown = true;
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    ankiBridgeDown = false;
+    assert.strictEqual(await js("document.getElementById('anki-state').textContent"),
+                       'Not answering');
+    assert.match(await js("document.getElementById('anki-detail').textContent"),
+                 /No handler registered/);
+    assert.ok(await js("document.getElementById('anki-dot').classList.contains('idle')"));
+    assert.strictEqual(await js("document.querySelectorAll('#decklist .deck').length"), 1,
+                       'the chosen deck is still listed, alone');
+  });
+
+  const displayed = (id) => js(`getComputedStyle(document.getElementById('${id}')).display`
+                           + " !== 'none'");
+  const text = (id) => js(`document.getElementById('${id}').textContent`);
+
+  await test('Ready: no install row', async () => {
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    assert.strictEqual(await text('anki-state'), 'Ready');
+    assert.strictEqual(await displayed('anki-install-row'), false);
+  });
+
+  await test('No Lapis: the row says what installing adds, and a click installs', async () => {
+    ANKI.model = false;
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    assert.strictEqual(await text('anki-state'), 'No Lapis');
+    assert.strictEqual(await displayed('anki-install-row'), true);
+    assert.match(await text('anki-install-text'), /github\.com\/donkuri\/lapis.*No deck, no notes/);
+    assert.strictEqual(await displayed('anki-install-prog'), false, 'no bar before a click');
+
+    let finish;
+    installGate = new Promise((r) => { finish = r; });
+    await js("document.getElementById('anki-install').click()");
+    await settle();
+    assert.strictEqual(installs, 1);
+    assert.strictEqual(await displayed('anki-install-prog'), true, 'a bar while installing');
+    assert.ok(await js("document.getElementById('anki-install').disabled"));
+    assert.match(await text('anki-install-text'), /Downloading/);
+
+    ANKI.model = true;
+    finish({ ok: true });
+    await settle(120);
+    assert.strictEqual(await text('anki-state'), 'Ready', 'checked again after');
+    assert.strictEqual(await displayed('anki-install-row'), false);
+  });
+
+  await test('an install that fails says why, and the button stays to try again', async () => {
+    ANKI.model = false;
+    installGate = Promise.resolve({ ok: false, error: 'GitHub did not answer for back.html' });
+    await js("document.getElementById('anki-refresh').click()");
+    await settle();
+    await js("document.getElementById('anki-install').click()");
+    await settle(120);
+    assert.strictEqual(await text('anki-install-text'),
+                       'Not installed: GitHub did not answer for back.html');
+    assert.strictEqual(await displayed('anki-install-prog'), false);
+    assert.strictEqual(await js("document.getElementById('anki-install').disabled"), false);
+    assert.strictEqual(await text('anki-install'), 'Install Lapis', 'the same name throughout');
+    ANKI.model = true;
+    installGate = null;
+  });
+
+  await test('main can ask for a tab, as a popup mark does', async () => {
+    await js("document.querySelector('[data-tab=\"window\"]').click()");
+    win.webContents.send('settings:tab', 'anki');
+    await settle();
+    const ankiTabOn = "document.querySelector('[data-tab=\"anki\"]').classList.contains('on')";
+    assert.ok(await js(ankiTabOn));
+    win.webContents.send('settings:tab', 'nonsense');
+    await settle();
+    assert.ok(await js(ankiTabOn), 'an unknown tab changes nothing');
+  });
+
+  await test('tags are split on spaces and shown back tidy', async () => {
+    await js("(() => { const t = document.getElementById('anki-tags');"
+             + " t.value = '  novel   yomi-overlay '; t.onchange(); })()");
+    await settle();
+    assert.deepStrictEqual(saved.anki.tags, ['novel', 'yomi-overlay']);
+    assert.strictEqual(await js("document.getElementById('anki-tags').value"),
+                       'novel yomi-overlay');
+  });
+
   const failed = results.filter(([ok]) => !ok);
   for (const [ok, name, err] of results) {
     console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${err ? '\n        ' + err : ''}`);
@@ -182,6 +334,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('cfg:trigger', () => { saved.trigger++; return CONFIG; });
   ipcMain.handle('cfg:view', (_e, v) => { saved.view = v; return CONFIG; });
   ipcMain.handle('cfg:dictionaries', () => { saved.dictionaries++; return CONFIG; });
+  ipcMain.handle('cfg:anki', (_e, v) => { saved.anki = v; return CONFIG; });
+  ipcMain.handle('anki:status', () => {
+    if (ankiBridgeDown) throw new Error('No handler registered for anki:status');
+    return ANKI;
+  });
+  ipcMain.handle('anki:install', () => { installs++; return installGate; });
   ipcMain.handle('dict:catalogue', () => CATALOGUE);
   ipcMain.handle('dict:installed', () => INSTALLED);
   ipcMain.on('cfg:close', () => {});

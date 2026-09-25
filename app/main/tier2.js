@@ -8,17 +8,20 @@
 
 const { ipcMain } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const { TOOLS_DIR, VENV_DIR } = require('../paths.js');
 const cfg = require('./config.js');
 const { logf } = require('./log.js');
 
 /**
- * Wire up the tier-2 shadow probe.
+ * Wire up the tier-2 shadow probe, and the crop channel it rides on.
  *
  * `ocrChild` serves the crops: re-capturing would need a second
  * ScreenCaptureKit session and concurrent sessions stall, so the watch
- * process crops its own last frame.
+ * process crops its own last frame. The probe was the channel's only
+ * customer; `requestCrop` is the same channel offered to anyone else who
+ * needs pixels of the target — the Anki card's picture (docs/ANKI.md).
  */
 function createTier2({ ocrChild }) {
   let sidecar = null;
@@ -28,8 +31,21 @@ function createTier2({ ocrChild }) {
   let sidecarIdleTimer = null;
   let tier2Seq = 0;
   let lastTier2At = 0;
-  const tier2Pending = new Map();   // id -> {text, conf, t0}
+  const tier2Pending = new Map();   // id -> {text, conf, t0, path}
   const tier2Queue = [];            // sidecar requests parked until ready
+
+  // A probe's crop is a file under /tmp that nothing but this module knows
+  // about: the sidecar reads it and forgets it. Delete it here, on every path
+  // that ends a probe — measured 2026-09-19: one PNG per looked-up word for
+  // the life of the machine, since macOS only purges untouched /tmp files
+  // after three days.
+  function forget(id) {
+    const pend = tier2Pending.get(id);
+    tier2Pending.delete(id);
+    if (pend && pend.path) fs.unlink(pend.path, () => {});
+    return pend;
+  }
+  const cropWaiters = new Map();    // id -> resolve, crops asked for by someone else
 
   function tier2Config() {
     const c = cfg.load().tier2 || {};
@@ -80,6 +96,9 @@ function createTier2({ ocrChild }) {
     });
     p.on('exit', code => {
       if (sidecar === p) { sidecar = null; sidecarReady = false; }
+      // Whatever it was asked and never answered is not coming.
+      for (const id of [...tier2Pending.keys()]) forget(id);
+      tier2Queue.length = 0;
       if (code === 2 || code === 3) {
         // Import/model failure is not transient — degrade honestly, once.
         sidecarDisabled = true;
@@ -107,9 +126,8 @@ function createTier2({ ocrChild }) {
           while (tier2Queue.length) p.stdin.write(tier2Queue.shift());
           continue;
         }
-        const pend = tier2Pending.get(r.id);
+        const pend = forget(r.id);
         if (!pend) continue;
-        tier2Pending.delete(r.id);
         if (r.error) { logf('[tier2] ocr error: ' + r.error); continue; }
         const t2 = (r.text || '').normalize('NFKC');
         const t1 = pend.text.normalize('NFKC');
@@ -122,12 +140,39 @@ function createTier2({ ocrChild }) {
     });
   }
 
+  /**
+   * A crop of the last frame, written to `file`. Resolves true when it is
+   * there, false when the watch process is not running, could not be asked,
+   * or did not answer within `waitMs` — never rejects.
+   *
+   * `rect` is frame-relative, the space the payload's char boxes use. The
+   * path goes on the command line the crop reader splits on spaces, so a path
+   * with one cannot be asked for.
+   */
+  function requestCrop(rect, file, waitMs) {
+    return new Promise((resolve) => {
+      if (!ocrChild.running || /\s/.test(file)) { resolve(false); return; }
+      const id = ++tier2Seq;
+      const r = [rect.x, rect.y, rect.w, rect.h].map((v) => Math.round(v)).join(' ');
+      const timer = setTimeout(() => { cropWaiters.delete(id); resolve(false); }, waitMs);
+      cropWaiters.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
+      if (!ocrChild.write(`crop ${id} ${r} ${file}\n`)) {
+        clearTimeout(timer);
+        cropWaiters.delete(id);
+        resolve(false);
+      }
+    });
+  }
+
   function onCropReply(c) {
+    const waiter = cropWaiters.get(c.id);
+    if (waiter) { cropWaiters.delete(c.id); waiter(!!c.ok); return; }
     const pend = tier2Pending.get(c.id);
     if (!pend) return;
     if (!c.ok) { tier2Pending.delete(c.id); return; }
+    pend.path = c.path;
     ensureSidecar();
-    if (sidecarDisabled || !sidecar) { tier2Pending.delete(c.id); return; }
+    if (sidecarDisabled || !sidecar) { forget(c.id); return; }
     pokeSidecarIdle();
     const req = JSON.stringify({ id: c.id, image: c.path }) + '\n';
     if (sidecarReady) sidecar.stdin.write(req);
@@ -156,7 +201,7 @@ function createTier2({ ocrChild }) {
     }
   });
 
-  return { onCropReply };
+  return { onCropReply, requestCrop };
 }
 
 module.exports = { createTier2 };

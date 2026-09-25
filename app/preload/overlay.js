@@ -33,4 +33,14 @@ contextBridge.exposeInMainWorld('overlay', {
   // its Tier-1 text; main crops the region and asks the manga-ocr sidecar
   // for a second opinion. Fire-and-forget — the result is only logged.
   tier2: (req) => ipcRenderer.send('tier2', req),
+  // Anki (docs/ANKI.md). `find` takes the popup's dictionary forms and
+  // answers with the note id each already has in the chosen deck, or null;
+  // `add` takes the note popup.js and sentence.js described; `remove` a
+  // note id `find` or `add` returned. All resolve to {ok, ...}, never reject.
+  ankiFind: (expressions) => ipcRenderer.invoke('anki:find', expressions),
+  ankiAdd: (note) => ipcRenderer.invoke('anki:add', note),
+  ankiRemove: (noteId) => ipcRenderer.invoke('anki:remove', noteId),
+  // Open Settings on a tab: a mark that cannot make a card sends the reader
+  // to where that is fixed. Only 'anki' is accepted.
+  openSettings: (tab) => ipcRenderer.send('settings:open', tab),
 });
