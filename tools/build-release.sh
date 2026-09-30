@@ -57,8 +57,10 @@ done
 rm -rf "$RES/app/shell"
 
 echo "==> Copying the helper"
-mkdir -p "$RES/bin"
-cp "$OCR_BIN" "$RES/bin/yomi"
+# Contents/MacOS, beside the app's own executable — not Contents/Resources.
+# An executable in Resources is nested code where neither codesign nor App
+# Store validation expects it, and paths.js resolves BIN_DIR here to match.
+cp "$OCR_BIN" "$BUILT/Contents/MacOS/yomi"
 
 # Electron ships Chromium's UI strings for 60-odd languages. This app renders
 # its own interface and never shows one of them, so they are 46 MB of a 276 MB
